@@ -44,6 +44,8 @@ docker compose up -d --build
 The named volume keeps `apollo.runtime.json` — and therefore the Jellyseerr
 address — across rebuilds.
 
+Step-by-step for Proxmox: [docs/proxmox-lxc.md](docs/proxmox-lxc.md).
+
 ### LXC or VM, no Docker
 
 ```bash
