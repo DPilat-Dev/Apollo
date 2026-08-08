@@ -63,16 +63,33 @@ and write access limited to `/opt/apollo` — which it needs because
 
 ## 4. Updating
 
+From the Proxmox host:
+
 ```bash
-cd /opt/apollo
-sudo -u apollo git pull
-sudo -u apollo npm ci
-sudo -u apollo npm run build
-systemctl restart apollo
+pct exec <ctid> -- /opt/apollo/scripts/update.sh
 ```
 
-`.env` and `apollo.runtime.json` are gitignored, so a pull never overwrites your
-configuration.
+Or inside the container, as root:
+
+```bash
+/opt/apollo/scripts/update.sh
+```
+
+It pulls, rebuilds, hands ownership back to the service account and restarts —
+reporting which commits arrived, and dumping the log if the service fails to
+come back.
+
+Two things worth knowing if you ever do it by hand. A minimal Debian container
+has **no `sudo`**, so `sudo -u apollo …` will not work; you are already root.
+And because the checkout is owned by `apollo`, git refuses to operate on it as
+root until you allow it once:
+
+```bash
+git config --global --add safe.directory /opt/apollo
+```
+
+The installer does this for you. `.env` and `apollo.runtime.json` are gitignored,
+so an update never overwrites your configuration.
 
 ## 5. Mixed content — the one that will bite you
 

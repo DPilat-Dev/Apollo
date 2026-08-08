@@ -244,6 +244,9 @@ fi
 info "building (this takes a couple of minutes) …"
 run "cd /opt/apollo && npm ci --silent >/dev/null 2>&1 && npm run build >/dev/null 2>&1"
 run "chown -R apollo:apollo /opt/apollo"
+# The checkout is owned by the service account, so root — the only account in
+# a minimal container — cannot run git against it until this is set.
+run "git config --global --add safe.directory /opt/apollo"
 ok "built"
 
 step "Setting up the service"
@@ -279,7 +282,7 @@ cat <<DONE
     journalctl -u apollo -f
 
   ${DIM}Update:${RESET}
-    pct exec ${CTID} -- bash -lc 'cd /opt/apollo && sudo -u apollo git pull && sudo -u apollo npm ci && sudo -u apollo npm run build && systemctl restart apollo'
+    pct exec ${CTID} -- /opt/apollo/scripts/update.sh
 DONE
 
 if [[ "$JELLYFIN_URL" =~ ^http:// ]]; then

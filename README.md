@@ -90,8 +90,15 @@ adduser --system --group apollo
 git clone <your-fork> /opt/apollo && cd /opt/apollo
 npm ci && npm run build
 chown -R apollo:apollo /opt/apollo
+git config --global --add safe.directory /opt/apollo
 cp apollo.service /etc/systemd/system/
 systemctl enable --now apollo
+```
+
+Updating afterwards is one command, run as root:
+
+```bash
+/opt/apollo/scripts/update.sh
 ```
 
 ### Secure contexts
