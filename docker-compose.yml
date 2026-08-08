@@ -1,0 +1,21 @@
+services:
+  apollo:
+    build:
+      context: .
+      args:
+        # Prefills the sign-in form. Use an address browsers can reach — see
+        # the note on mixed content in the README.
+        VITE_JELLYFIN_SERVER: ${VITE_JELLYFIN_SERVER:-}
+    image: apollo-jellyfin
+    container_name: apollo
+    restart: unless-stopped
+    ports:
+      - '4173:4173'
+    volumes:
+      # Keeps the Jellyseerr address across rebuilds.
+      - apollo-config:/config
+    environment:
+      PORT: 4173
+
+volumes:
+  apollo-config:

@@ -1,0 +1,186 @@
+import { useEffect, useRef, useState } from 'react'
+import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
+import { useIsAdmin, useViews } from '../lib/queries'
+import { SearchIcon } from './icons'
+
+/**
+ * Transparent over the billboard, solid once scrolled — the standard streaming
+ * app nav treatment.
+ */
+export function TopNav() {
+  const { session, signOut } = useAuth()
+  const { data: views } = useViews()
+  const isAdmin = useIsAdmin()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [params] = useSearchParams()
+
+  const [scrolled, setScrolled] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [term, setTerm] = useState(params.get('q') ?? '')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  /*
+    Debounced from the change handler rather than an effect. An effect would
+    have to list `navigate` as a dependency, and React Router hands back a new
+    `navigate` identity on every location change — so opening a search result
+    re-ran the effect and bounced the user straight back to /search.
+  */
+  const debounce = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(debounce.current), [])
+
+  const onTermChange = (value: string) => {
+    setTerm(value)
+    window.clearTimeout(debounce.current)
+    debounce.current = window.setTimeout(() => {
+      const trimmed = value.trim()
+      if (trimmed.length < 2) return
+      // Push the first time so Back leaves search; replace while refining.
+      navigate(`/search?q=${encodeURIComponent(trimmed)}`, {
+        replace: location.pathname === '/search',
+      })
+    }, 300)
+  }
+
+  useEffect(() => {
+    if (searchOpen) inputRef.current?.focus()
+  }, [searchOpen])
+
+  // Every library the user can see, named as they named it on the server.
+  // Live TV needs a tuner/guide UI this client doesn't have, so it's the only
+  // thing held back; mixed and custom libraries browse fine through /Items.
+  const browsable = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
+
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    `shrink-0 whitespace-nowrap text-sm transition-colors ${
+      isActive ? 'font-semibold text-white' : 'text-white/65 hover:text-white'
+    }`
+
+  return (
+    <nav
+      className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${
+        scrolled ? 'bg-ink/95 backdrop-blur-md shadow-lg shadow-black/40' : 'bg-gradient-to-b from-black/80 to-transparent'
+      }`}
+    >
+      <div className="flex h-14 items-center gap-4 px-4 sm:h-16 sm:gap-7 sm:px-14">
+        <Link to="/" className="shrink-0 text-xl font-black tracking-tight text-accent sm:text-2xl">
+          APOLLO
+        </Link>
+
+        {/* Scrolls rather than wraps, so a long library list can't push the
+            search and account controls off the bar. */}
+        <div className="scrollbar-none hidden min-w-0 flex-1 items-center gap-5 overflow-x-auto sm:flex">
+          <NavLink to="/" end className={linkClass}>
+            Home
+          </NavLink>
+          {browsable.map((v) => (
+            <NavLink key={v.Id} to={`/library/${v.Id}`} className={linkClass}>
+              {v.Name}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="flex items-center">
+            {searchOpen ? (
+              <div className="flex items-center gap-2 rounded border border-white/30 bg-black/70 px-2.5 py-1.5">
+                <SearchIcon className="size-4 shrink-0 text-white/70" />
+                <input
+                  ref={inputRef}
+                  value={term}
+                  onChange={(e) => onTermChange(e.target.value)}
+                  onBlur={() => !term && setSearchOpen(false)}
+                  onKeyDown={(e) => e.key === 'Escape' && setSearchOpen(false)}
+                  placeholder="Titles, people, genres"
+                  className="w-36 bg-transparent text-sm text-white outline-none placeholder:text-white/40 sm:w-56"
+                />
+              </div>
+            ) : (
+              <button
+                onClick={() => setSearchOpen(true)}
+                aria-label="Search"
+                className="p-1.5 text-white/80 transition hover:text-white"
+              >
+                <SearchIcon className="size-5" />
+              </button>
+            )}
+          </div>
+
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="flex size-8 items-center justify-center rounded bg-accent text-sm font-bold text-white"
+              aria-label="Account menu"
+            >
+              {(session?.userName ?? '?').charAt(0).toUpperCase()}
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-0" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 z-10 mt-2 w-52 rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur">
+                  <p className="truncate px-3 py-2 text-xs text-white/45">
+                    Signed in as{' '}
+                    <span className="font-medium text-white/80">{session?.userName}</span>
+                  </p>
+                  <div className="sm:hidden">
+                    <div className="my-1 h-px bg-white/10" />
+                    <Link
+                      to="/"
+                      onClick={() => setMenuOpen(false)}
+                      className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                    >
+                      Home
+                    </Link>
+                    {browsable.map((v) => (
+                      <Link
+                        key={v.Id}
+                        to={`/library/${v.Id}`}
+                        onClick={() => setMenuOpen(false)}
+                        className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                      >
+                        {v.Name}
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="my-1 h-px bg-white/10" />
+                  <Link
+                    to="/settings"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                  >
+                    Settings
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      onClick={() => setMenuOpen(false)}
+                      className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                    >
+                      Dashboard
+                    </Link>
+                  )}
+                  <div className="my-1 h-px bg-white/10" />
+                  <button
+                    onClick={signOut}
+                    className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  )
+}
