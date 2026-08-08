@@ -19,7 +19,12 @@ export function Login() {
   const { signIn } = useAuth()
   const queryClient = useQueryClient()
   const [server, setServer] = useState(DEFAULT_SERVER)
-  const [connected, setConnected] = useState<{ name: string; version: string } | null>(null)
+  const [connected, setConnected] = useState<{
+    name: string
+    version: string
+    /** The verified address — not the text currently in the field. */
+    url: string
+  } | null>(null)
   const [users, setUsers] = useState<UserDto[]>([])
   const [mode, setMode] = useState<Mode>('manual')
   const [selected, setSelected] = useState<UserDto | null>(null)
@@ -30,15 +35,19 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [editingServer, setEditingServer] = useState(!DEFAULT_SERVER)
   const passwordRef = useRef<HTMLInputElement>(null)
-  // Only fetch branding once the server is known to be real.
-  const branding = useBranding(connected ? server : undefined)
+  /*
+    Keyed on the *verified* address, never the input field. Watching the field
+    fired one request per keystroke — typing a hostname produced a request for
+    http://j, http://je, http://jel and so on, all of which fail.
+  */
+  const branding = useBranding(connected?.url)
 
   const connect = async (url: string) => {
     setConnecting(true)
     setError(null)
     try {
       const info = await serverInfo(url)
-      setConnected({ name: info.ServerName, version: info.Version })
+      setConnected({ name: info.ServerName, version: info.Version, url: normalizeServer(url) })
       setEditingServer(false)
       try {
         const list = await publicUsers(url)
@@ -87,7 +96,7 @@ export function Login() {
 
   const avatarUrl = (user: UserDto) =>
     user.PrimaryImageTag && user.Id
-      ? buildUrl(normalizeServer(server), '/UserImage', {
+      ? buildUrl(connected?.url ?? normalizeServer(server), '/UserImage', {
           userId: user.Id,
           tag: user.PrimaryImageTag,
         })

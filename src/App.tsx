@@ -42,10 +42,14 @@ export default function App() {
   useBranding(session?.server)
 
   if (!session) {
+    // Sign-in needs a boundary too. It is the one screen a user cannot
+    // navigate away from, so a crash here is a dead end rather than a lost tab.
     return (
-      <Routes>
-        <Route path="*" element={<Login />} />
-      </Routes>
+      <ErrorBoundary resetKey="login">
+        <Routes>
+          <Route path="*" element={<Login />} />
+        </Routes>
+      </ErrorBoundary>
     )
   }
 

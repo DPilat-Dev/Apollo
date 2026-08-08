@@ -106,7 +106,9 @@ step "Apollo"
 printf '%s\n' "${DIM}  The Jellyfin address only prefills the sign-in form — anyone can enter${RESET}"
 printf '%s\n' "${DIM}  a different one there. It must be reachable from the BROWSER, not just${RESET}"
 printf '%s\n' "${DIM}  from this container.${RESET}"
-ask JELLYFIN_URL   "Jellyfin address"                 "http://192.168.1.10:8096"
+# No default: a plausible-looking example address gets accepted by reflex and
+# bakes a broken config into the build.
+ask JELLYFIN_URL   "Jellyfin address (required)"      ""
 printf '%s\n' "${DIM}  Optional. Leave blank to set it later in Dashboard → Connections.${RESET}"
 ask JELLYSEERR_URL "Jellyseerr address (optional)"    ""
 ask PORT           "Port Apollo listens on"           "4173"
@@ -120,7 +122,25 @@ ask_yes_no START_ON_BOOT "Start on boot? (yes/no)"    "yes"
 pct status "$CTID" >/dev/null 2>&1 && die "Container $CTID already exists. Pick another ID."
 [[ "$CORES" =~ ^[0-9]+$ && "$RAM" =~ ^[0-9]+$ && "$DISK" =~ ^[0-9]+$ ]] || die "Cores, memory and disk must be numbers."
 [[ "$PORT" =~ ^[0-9]+$ ]] || die "Port must be a number."
-[[ "$JELLYFIN_URL" =~ ^https?:// ]] || die "Jellyfin address must start with http:// or https://"
+if [[ -z "${JELLYFIN_URL:-}" ]]; then
+  die "A Jellyfin address is required — e.g. http://192.168.1.23:8096 or https://jellyfin.example.com"
+fi
+[[ "$JELLYFIN_URL" =~ ^https?:// ]] \
+  || die "Jellyfin address must start with http:// or https:// — got '${JELLYFIN_URL}'"
+
+# Catch a typo now rather than after a five-minute build.
+info "checking ${JELLYFIN_URL} …"
+if curl -fsS -m 8 -o /dev/null "${JELLYFIN_URL%/}/System/Info/Public" 2>/dev/null; then
+  ok "Jellyfin answered"
+else
+  warn "Could not reach ${JELLYFIN_URL}/System/Info/Public from this host."
+  warn "It must be reachable from the BROWSER, so this is not always fatal —"
+  warn "but a typo here means a broken build."
+  if (( ! ASSUME_YES )); then
+    read -r -p "  Continue anyway? [y/N]: " cont || true
+    [[ "${cont,,}" =~ ^y ]] || die "Stopped. Re-run with the correct address."
+  fi
+fi
 if [[ -n "${JELLYSEERR_URL:-}" && ! "$JELLYSEERR_URL" =~ ^https?:// ]]; then
   die "Jellyseerr address must start with http:// or https://"
 fi
