@@ -13,7 +13,7 @@ import path from 'node:path'
 import { handleConfigRequest, proxyJellyseerr, readConfig } from './runtime.mjs'
 
 const PORT = Number(process.env.PORT ?? 4173)
-const DIST = path.resolve(process.cwd(), 'dist')
+const DIST = process.env.APOLLO_DIST ?? path.resolve(process.cwd(), 'dist')
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +68,7 @@ server.listen(PORT, () => {
   void readConfig().then((c) =>
     console.log(
       `Apollo on http://localhost:${PORT}\n` +
+        `  serving    ${DIST}\n` +
         `  Jellyseerr -> ${c.jellyseerrTarget || '(not configured)'}`,
     ),
   )

@@ -17,16 +17,21 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4173
 
+# Explicit paths rather than relying on the working directory: anything written
+# into a VOLUME by a later layer is discarded, so symlinking into /config here
+# would silently vanish at runtime.
+ENV APOLLO_DIST=/app/dist
+ENV APOLLO_CONFIG=/config/apollo.runtime.json
+
 # No dependencies at runtime: the server uses only the Node standard library.
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
 COPY --from=build /app/package.json ./package.json
 
-# apollo.runtime.json is written here, so mount it to keep the Jellyseerr
-# address across container rebuilds.
+# Holds apollo.runtime.json — mount it to keep the Jellyseerr address across
+# container rebuilds.
+RUN mkdir -p /config
 VOLUME ["/config"]
-WORKDIR /config
-RUN ln -s /app/dist /config/dist && ln -s /app/server /config/server
 
 EXPOSE 4173
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \

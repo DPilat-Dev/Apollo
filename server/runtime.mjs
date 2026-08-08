@@ -12,7 +12,10 @@ import path from 'node:path'
 import http from 'node:http'
 import https from 'node:https'
 
-const CONFIG_PATH = path.resolve(process.cwd(), 'apollo.runtime.json')
+// Overridable so a container can keep it on a mounted volume rather than
+// inside the image.
+const CONFIG_PATH =
+  process.env.APOLLO_CONFIG ?? path.resolve(process.cwd(), 'apollo.runtime.json')
 
 const DEFAULTS = {
   jellyseerrTarget: process.env.VITE_JELLYSEERR_TARGET ?? '',
