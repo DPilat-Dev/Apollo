@@ -33,6 +33,23 @@ static host works too, but loses the editable Jellyseerr address.
 `VITE_JELLYFIN_SERVER` only prefills the sign-in form — anyone can enter a
 different address there, and the choice is stored per browser.
 
+## Environment variables
+
+| Variable | Where | Default | What it does |
+| --- | --- | --- | --- |
+| `VITE_JELLYFIN_SERVER` | `.env`, **build time** | empty | Prefills the sign-in form. Baked into the bundle, so changing it needs a rebuild. Anyone can still type a different address at sign-in. |
+| `VITE_JELLYSEERR_TARGET` | `.env`, build time | empty | Only seeds the Jellyseerr address on first run. After that `apollo.runtime.json` wins. |
+| `PORT` | server, runtime | `4173` | Port the Node server listens on. |
+| `APOLLO_CONFIG` | server, runtime | `./apollo.runtime.json` | Where the runtime config is written. Point at a mounted volume in a container. |
+| `APOLLO_DIST` | server, runtime | `./dist` | Where the built files are. |
+
+`VITE_*` are read by Vite at **build** time; the rest are read by the server at
+**run** time. That distinction matters: changing `VITE_JELLYFIN_SERVER` requires
+`npm run build`, while `PORT` only needs a restart.
+
+The Jellyseerr address is the exception — it lives in `apollo.runtime.json` and
+is editable from Dashboard → Connections without touching either.
+
 ## Deploying
 
 ### Docker
@@ -44,7 +61,27 @@ docker compose up -d --build
 The named volume keeps `apollo.runtime.json` — and therefore the Jellyseerr
 address — across rebuilds.
 
-Step-by-step for Proxmox: [docs/proxmox-lxc.md](docs/proxmox-lxc.md).
+#### Proxmox: one command
+
+On the **Proxmox host**:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/DPilat-Dev/Apollo/main/scripts/proxmox-install.sh)"
+```
+
+It prompts for everything — container ID, resources, storage, network, and your
+Jellyfin address — with a default for each. It creates an unprivileged Debian
+container, installs Node, builds Apollo, and starts it under systemd.
+
+Non-interactive:
+
+```bash
+CTID=120 JELLYFIN_URL=https://jellyfin.example.com \
+  bash -c "$(curl -fsSL .../scripts/proxmox-install.sh)" -- --yes
+```
+
+Manual steps, if you'd rather do it yourself:
+[docs/proxmox-lxc.md](docs/proxmox-lxc.md).
 
 ### LXC or VM, no Docker
 
