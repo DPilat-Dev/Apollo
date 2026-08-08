@@ -870,8 +870,25 @@ export class JellyfinApi {
       AutoOpenLiveStream: true,
       DeviceProfile: deviceProfile(),
     }
-    if (opts.audioStreamIndex != null) body.AudioStreamIndex = opts.audioStreamIndex
-    if (opts.subtitleStreamIndex != null) body.SubtitleStreamIndex = opts.subtitleStreamIndex
+    if (opts.audioStreamIndex != null) {
+      body.AudioStreamIndex = opts.audioStreamIndex
+      /*
+        Direct play serves the original file untouched, so the server ignores
+        the requested audio track and the browser plays whatever the container
+        lists first — picking a second language appeared to do nothing.
+
+        Direct stream (remux) *can* select a track, so only direct play has to
+        go; a remux is still far cheaper than a transcode.
+      */
+      body.EnableDirectPlay = false
+    }
+    if (opts.subtitleStreamIndex != null) {
+      body.SubtitleStreamIndex = opts.subtitleStreamIndex
+      // Burning subtitles into the picture means re-encoding it, so neither
+      // passthrough mode can serve this.
+      body.EnableDirectPlay = false
+      body.EnableDirectStream = false
+    }
     if (opts.mediaSourceId) body.MediaSourceId = opts.mediaSourceId
 
     const post = (payload: Record<string, unknown>) =>

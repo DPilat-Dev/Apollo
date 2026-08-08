@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
-import { CheckIcon, PlayIcon, PlusIcon, WatchedIcon } from '../components/icons'
+import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, WatchedIcon } from '../components/icons'
 import { useApi } from '../lib/auth'
 import {
   displayTitle,
@@ -26,6 +26,7 @@ import { CastAndCrew, FilterChips, Ratings } from '../components/ItemMeta'
 import { MediaTracks, trackParams, useTrackSelection } from '../components/MediaTracks'
 import { SeasonCard } from '../components/SeasonCard'
 import { pickPlayableEpisode } from '../lib/playback'
+import { startShuffle } from '../lib/queue'
 
 export function ItemDetail() {
   const { itemId } = useParams<{ itemId: string }>()
@@ -166,6 +167,32 @@ export function ItemDetail() {
                   <span className="font-normal text-black/55">{episodeCode(playTarget)}</span>
                 )}
               </button>
+
+              {/* Shuffle plays the whole show in a random order, not one pick. */}
+              {(isSeries || isSeason) && (
+                <button
+                  onClick={() => {
+                    const pool = isSeries ? seriesEpisodes.data : episodes.data
+                    const ids = (pool ?? [])
+                      .map((e) => e.Id)
+                      .filter((id): id is string => Boolean(id))
+                    const seriesId = isSeries ? item.Id : item.SeriesId
+                    if (!seriesId || ids.length === 0) return
+                    const queue = startShuffle(seriesId, ids)
+                    if (queue) navigate(`/watch/${queue.ids[0]}`)
+                  }}
+                  disabled={!(isSeries ? seriesEpisodes.data : episodes.data)?.length}
+                  title={
+                    isSeries
+                      ? 'Play every episode of this show in a random order'
+                      : 'Play this season in a random order'
+                  }
+                  className="flex items-center gap-2 rounded bg-white/20 px-5 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/30 disabled:opacity-40"
+                >
+                  <ShuffleIcon className="size-5" />
+                  Shuffle
+                </button>
+              )}
 
               <button
                 onClick={() => item.Id && favorite.mutate({ itemId: item.Id, favorite: !isFav })}

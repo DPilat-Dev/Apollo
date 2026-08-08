@@ -658,6 +658,40 @@ bandwidth far out of proportion to what a handset can show. And widths are
 parameters: asking for 337px then 341px is two cache misses and two resizes for
 what looks like the same picture.
 
+### Shuffle and up next
+
+**Shuffle** on a series plays every episode of the show in a random order; on a
+season it shuffles that season. The queue lives in `sessionStorage`, because
+each episode is its own `/watch/:id` route — anything held in React state dies
+on the first advance. The player shows `Shuffling 3/8 · stop`, and next/previous
+follow the queue rather than episode order, which would otherwise quietly undo
+the shuffle. Jumping to an episode by hand re-syncs the position instead of
+snapping back.
+
+**Up next** appears in the final 20 seconds with the episode still, a countdown,
+and two ways out: play now, or hide. Hiding stops the countdown as well as the
+card — a timer that keeps running after you said no is the thing people dislike
+about this pattern. With *Autoplay next episode* off the card still appears, but
+nothing happens on its own.
+
+Two things this needed that are easy to miss: advancing reuses the same
+component (`/watch/:id` only changes a param), so the clock has to be reset by
+hand or the previous episode's position makes the next one look finished and the
+queue skips through itself. And the fire-once guard matters, because the parent
+re-renders on every `timeupdate` while the countdown sits at zero.
+
+### Changing audio actually changes audio
+
+Selecting a different audio track sends `AudioStreamIndex`, but that alone does
+nothing when a file direct-plays: the server returns the original file untouched
+and the browser plays whatever the container lists first. Picking a second
+language appeared to work and didn't.
+
+So an explicit audio choice disables **direct play** — but keeps direct stream,
+since a remux can select a track and is far cheaper than a transcode. Burned-in
+subtitles disable both, because painting subtitles into the picture means
+re-encoding it.
+
 ### Keyboard
 
 | Key | Action |

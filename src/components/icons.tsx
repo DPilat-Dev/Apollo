@@ -154,6 +154,14 @@ export const NextTrackIcon = ({ className = base, back = false }: P & { back?: b
   </svg>
 )
 
+export const ShuffleIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className={className} aria-hidden>
+    <path d="M4 7h3.5c1.4 0 2.2.9 3 2l3 4c.8 1.1 1.6 2 3 2H20" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M4 17h3.5c1.4 0 2.2-.9 3-2l3-4c.8-1.1 1.6-2 3-2H20" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="m17 4 3 3-3 3M17 14l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
 export const RepeatIcon = ({ className = base, one = false }: P & { one?: boolean }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className={className} aria-hidden>
     <path d="M4 12V9.5A3.5 3.5 0 0 1 7.5 6H19M19 6l-3-3M19 6l-3 3" strokeLinecap="round" strokeLinejoin="round" />

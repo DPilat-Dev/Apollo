@@ -14,6 +14,8 @@ import {
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
+import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
+import { AUTOPLAY_AT, UpNext } from '../components/UpNext'
 import { BITRATE_OPTIONS, useSettings } from '../lib/settings'
 import { displayTitle, episodeCode, formatTimecode, ticksToSeconds } from '../lib/format'
 import {
@@ -118,6 +120,19 @@ export function Player() {
       : 0
   }
 
+  /*
+    Advancing an episode reuses this component — /watch/:id keeps the same
+    instance — so the clock has to be reset by hand. Leaving the previous
+    episode's position in state briefly makes the next one look finished, which
+    fires the up-next card immediately and skips through the queue.
+  */
+  useEffect(() => {
+    setCurrentTime(0)
+    setDuration(0)
+    setBuffered(0)
+    setDismissedUpNext(null)
+  }, [item?.Id])
+
   const effectiveBitrate = bitrateOverride ?? settings.maxBitrate
 
   const streamQuery = useQuery({
@@ -154,6 +169,31 @@ export function Player() {
     enabled: Boolean(item?.Id && item?.Type === 'Episode'),
     staleTime: 5 * 60 * 1000,
   })
+
+  /*
+    A shuffle queue, when one is running, decides what comes next — otherwise
+    "next" would walk the series in order and quietly undo the shuffle.
+
+    The queue lives in sessionStorage, so clearing it needs a render to be
+    observed; `shuffleCleared` exists only to force that.
+  */
+  const [shuffleCleared, setShuffleCleared] = useState(0)
+  void shuffleCleared
+  const shuffle = queuePosition(item?.Id ?? undefined)
+  const nextId = shuffle ? nextInQueue(item?.Id ?? undefined) : siblings.data?.next?.Id
+  const previousId = shuffle
+    ? previousInQueue(item?.Id ?? undefined)
+    : siblings.data?.previous?.Id
+
+  // The card needs the next episode's artwork and title, not just its id.
+  const nextEpisode = useQuery({
+    queryKey: ['item', api.userId, nextId],
+    queryFn: () => api.item(nextId!),
+    enabled: Boolean(nextId),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const [dismissedUpNext, setDismissedUpNext] = useState<string | null>(null)
 
   // Absolute media position — transcoded streams restart their clock at zero.
   const offset = plan?.startOffsetSeconds ?? 0
@@ -312,6 +352,13 @@ export function Player() {
     [navigate],
   )
 
+  const goToId = useCallback(
+    (id?: string | null) => {
+      if (id) navigate(`/watch/${id}`, { replace: true })
+    },
+    [navigate],
+  )
+
   useEffect(() => {
     const video = videoRef.current
     if (!video || !item) return
@@ -322,15 +369,16 @@ export function Player() {
         void video.play().catch(() => {})
         return
       }
-      const next = siblings.data?.next
-      if (next && (repeat === 'all' || settings.autoplayNext)) return goTo(next)
+      if (nextId && (repeat === 'all' || settings.autoplayNext)) return goToId(nextId)
       // End of the series with repeat-all on: wrap to the first episode.
-      if (repeat === 'all' && !next) goTo(await resolveFirstEpisode(api, item).catch(() => null))
+      if (repeat === 'all' && !nextId) {
+        goTo(await resolveFirstEpisode(api, item).catch(() => null))
+      }
     }
 
     video.addEventListener('ended', onEnded)
     return () => video.removeEventListener('ended', onEnded)
-  }, [api, item, repeat, settings.autoplayNext, siblings.data, goTo])
+  }, [api, item, repeat, settings.autoplayNext, nextId, goTo, goToId])
 
   // --------------------------------------------------------------- controls
 
@@ -406,10 +454,10 @@ export function Player() {
           setTextTrackIndex((i) => (i === null ? (plan?.subtitles.find((s) => s.url)?.index ?? null) : null))
           break
         case 'n':
-          goTo(siblings.data?.next)
+          goToId(nextId)
           break
         case 'p':
-          goTo(siblings.data?.previous)
+          goToId(previousId)
           break
         case 'i':
           setShowStats((v) => !v)
@@ -422,7 +470,7 @@ export function Player() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, siblings.data, goTo, menu])
+  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu])
 
   /*
     Apply a subtitle chosen on the detail page. Which mechanism depends on the
@@ -467,6 +515,21 @@ export function Player() {
     () => selectTrickplay(item, plan?.mediaSource.Id ?? undefined, 320),
     [item, plan],
   )
+
+  /*
+    Show the card only near the end, and only when there is somewhere to go.
+    `absoluteDuration > 0` is what stops it flashing before metadata loads —
+    an earlier `remaining > 0` did that too, but it also hid the card at exactly
+    zero, which is the moment the countdown is supposed to advance.
+  */
+  const remaining = absoluteDuration - absoluteTime
+  const upNextVisible =
+    Boolean(nextId) &&
+    absoluteDuration > 0 &&
+    remaining <= AUTOPLAY_AT &&
+    dismissedUpNext !== item?.Id &&
+    menu === 'none' &&
+    !showStats
 
   const asMessage = (e: unknown) => (e instanceof Error ? e.message : null)
   const failure = error ?? asMessage(playable.error) ?? asMessage(streamQuery.error) ?? null
@@ -529,6 +592,21 @@ export function Player() {
         </div>
       )}
 
+      {/*
+        Up next. Held back until the episode is nearly over, hidden once
+        dismissed, and never shown while the menus are open — the countdown
+        should not appear over something the viewer is reading.
+      */}
+      {upNextVisible && nextEpisode.data && (
+        <UpNext
+          next={nextEpisode.data}
+          secondsLeft={absoluteDuration - absoluteTime}
+          autoplay={settings.autoplayNext && repeat !== 'one'}
+          onPlay={() => goToId(nextId)}
+          onDismiss={() => setDismissedUpNext(item?.Id ?? null)}
+        />
+      )}
+
       {showStats && plan && (
         <StatsPanel
           plan={plan}
@@ -558,6 +636,19 @@ export function Player() {
               <h1 className="truncate text-lg font-semibold sm:text-2xl">{title}</h1>
               {sub && <p className="truncate text-sm text-white/60">{sub}</p>}
             </div>
+
+            {shuffle && (
+              <button
+                onClick={() => {
+                  clearQueue()
+                  setShuffleCleared((n) => n + 1)
+                }}
+                title="Stop shuffling and return to episode order"
+                className="ml-auto shrink-0 rounded-full border border-accent/50 px-3 py-1.5 text-[11px] font-medium text-accent transition hover:bg-accent/10"
+              >
+                Shuffling {shuffle.position}/{shuffle.total} · stop
+              </button>
+            )}
           </div>
         </div>
 
@@ -576,8 +667,8 @@ export function Player() {
           />
 
           <div className="mt-2 flex items-center gap-1 sm:gap-2.5">
-            {siblings.data?.previous && (
-              <IconButton onClick={() => goTo(siblings.data?.previous)} label="Previous episode">
+            {previousId && (
+              <IconButton onClick={() => goToId(previousId)} label="Previous episode">
                 <NextTrackIcon className="size-6" back />
               </IconButton>
             )}
@@ -592,8 +683,8 @@ export function Player() {
             <IconButton onClick={() => seekBy(10)} label="Forward 10 seconds">
               <Skip10Icon className="size-7" />
             </IconButton>
-            {siblings.data?.next && (
-              <IconButton onClick={() => goTo(siblings.data?.next)} label="Next episode">
+            {nextId && (
+              <IconButton onClick={() => goToId(nextId)} label="Next episode">
                 <NextTrackIcon className="size-6" />
               </IconButton>
             )}
@@ -813,7 +904,6 @@ export function Player() {
 
           {/* Quiet status line, so the active choices are visible without a menu. */}
           <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-white/35">
-            {plan && <span className="uppercase tracking-wide">{plan.playMethod}</span>}
             {speed !== 1 && <span>{speed}× speed</span>}
             {activeSubtitle && <span>Subtitles: {activeSubtitle.label}</span>}
             {repeat !== 'off' && <span>Repeat {repeat}</span>}
