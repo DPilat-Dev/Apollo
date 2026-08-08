@@ -40,12 +40,53 @@ export interface Session {
   token: string
 }
 
+/**
+ * A v4 UUID that works outside a secure context.
+ *
+ * `crypto.randomUUID` is only defined on HTTPS or localhost. Served over plain
+ * HTTP on a LAN address it is undefined — and because this is called from
+ * `authHeader()`, that threw before any authenticated request was sent. The
+ * symptom was bizarre: unauthenticated calls succeeded, everything else
+ * silently never happened, and sign-in was impossible.
+ *
+ * `getRandomValues` has no such restriction, so it is the real fallback.
+ */
+function randomUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+
+  // Last resort. This only labels a device in Jellyfin's session list; it is
+  // not a secret and nothing is authorised by it.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
+}
+
 /** Stable per-browser id — Jellyfin ties playback sessions and "device" listings to it. */
 export function deviceId(): string {
-  let id = localStorage.getItem(DEVICE_KEY)
+  let id: string | null = null
+  try {
+    id = localStorage.getItem(DEVICE_KEY)
+  } catch {
+    // Private mode with storage blocked — fall through to a fresh id.
+  }
   if (!id) {
-    id = crypto.randomUUID()
-    localStorage.setItem(DEVICE_KEY, id)
+    id = randomUuid()
+    try {
+      localStorage.setItem(DEVICE_KEY, id)
+    } catch {
+      /* not persisting is survivable; the session still works */
+    }
   }
   return id
 }

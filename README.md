@@ -94,6 +94,23 @@ cp apollo.service /etc/systemd/system/
 systemctl enable --now apollo
 ```
 
+### Secure contexts
+
+Several browser APIs exist only on HTTPS or `localhost`. Apollo avoids them, but
+it is worth knowing why: `crypto.randomUUID` — used to label this browser in
+Jellyfin's device list — is undefined when a page is served over plain HTTP on a
+LAN address. It is called while building the `Authorization` header, so it threw
+before any authenticated request was sent.
+
+The symptom was deeply confusing: unauthenticated calls (`/System/Info/Public`,
+`/Branding/Configuration`) succeeded, so the server appeared connected and
+reported its version — while every authenticated call, including sign-in,
+silently never happened. `getRandomValues` has no such restriction and is the
+fallback.
+
+Development on `localhost` never sees this, because localhost counts as a secure
+context. Test on a real LAN address before deploying.
+
 ### Mixed content — read this before putting it behind HTTPS
 
 The browser talks to Jellyfin **directly**. If Apollo is served over HTTPS and

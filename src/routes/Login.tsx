@@ -54,8 +54,11 @@ export function Login() {
         setUsers(list)
         // No published users means there is nothing to pick from.
         setMode(list.length > 0 ? 'picker' : 'manual')
-      } catch {
-        // Public user list is optional — the server may have it disabled.
+      } catch (err) {
+        // A server may legitimately hide its user list, so this is not fatal —
+        // but swallowing it entirely once hid a client-side crash that made
+        // sign-in impossible. Leave a trace.
+        console.warn('[apollo] could not list public users', err)
         setUsers([])
         setMode('manual')
       }
