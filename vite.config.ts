@@ -21,6 +21,9 @@ function apolloRuntime() {
 }
 
 export default defineConfig({
+  // GitHub Pages serves a project site under /<repo>/, so assets need that
+  // prefix. Everything else (a container, a reverse proxy) sits at the root.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [react(), tailwindcss(), apolloRuntime()],
   server: {
     host: true,

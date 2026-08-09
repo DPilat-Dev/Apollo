@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useQueryClient } from '@tanstack/react-query'
 import { connectJellyseerr } from '../lib/jellyseerrConnect'
 import { useBranding } from '../lib/branding'
+import { DemoNotice } from '../components/DemoNotice'
 
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
@@ -195,7 +196,11 @@ export function Login() {
               onChange={() => setEditingServer(true)}
             />
 
-            <form onSubmit={submit} className="mt-6 space-y-4">
+            <div className="mt-5">
+              <DemoNotice />
+            </div>
+
+            <form onSubmit={submit} className="space-y-4">
               {(editingServer || !connected) && (
                 <Field label="Server address">
                   <div className="flex gap-2">

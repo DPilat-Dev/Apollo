@@ -10,6 +10,21 @@ Built against **Jellyfin 10.11.8**, with endpoints verified against that server'
 own OpenAPI document — which matters, because 10.11 removed the legacy
 `/Users/{userId}/...` routes that older documentation still describes.
 
+## Try it without installing anything
+
+**<https://dpilat-dev.github.io/Apollo/>** — the live build, which asks for your
+own server address and talks to it directly from your browser. Nothing is
+proxied through GitHub and no credentials are stored anywhere but your browser.
+
+One hard limitation: the demo is served over HTTPS, so browsers will refuse to
+let it reach a plain-HTTP server. It works if your Jellyfin is behind HTTPS with
+a valid certificate; a bare `http://192.168.x.x:8096` will be blocked, and no
+client-side code can get around that rule. Self-host (below) to use Apollo on a
+LAN address.
+
+The demo also has no Jellyseerr integration, since that needs the small Node
+server to proxy around Jellyseerr's missing CORS headers.
+
 ## Quick start
 
 ```bash
