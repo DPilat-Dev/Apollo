@@ -67,7 +67,7 @@ export function SeasonCard({ season, series }: { season: BaseItemDto; series: Ba
         className={`absolute left-2 top-2 rounded-full bg-black/70 p-1 backdrop-blur transition disabled:opacity-50 ${
           watched
             ? 'text-emerald-400'
-            : 'text-white/70 opacity-0 hover:text-white group-hover/season:opacity-100'
+            : 'text-white/70 opacity-0 hover:text-white group-hover/season:opacity-100 touch:opacity-100'
         }`}
       >
         <WatchedIcon className="size-4" filled={watched} />

@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+/*
+  Anything revealed by :hover is unreachable on a touchscreen, where hover
+  does not exist. `touch:` targets exactly those devices so the same controls
+  can be shown outright rather than hidden behind an interaction that will
+  never happen.
+*/
+@custom-variant touch (@media (hover: none));
+
 @theme {
   --color-ink: #0a0a0b;
   --color-ink-soft: #141416;

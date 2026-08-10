@@ -9,6 +9,7 @@ import {
   remainingLabel,
 } from '../lib/format'
 import { useSettings } from '../lib/settings'
+import { blurhashBackground } from '../lib/blurhash'
 import { useTogglePlayed } from '../lib/queries'
 import { MatchBadge } from './MatchBadge'
 import { PlayIcon, ChevronDown, WatchedIcon } from './icons'
@@ -78,7 +79,9 @@ export function MediaCard({ item, shape = 'poster', showProgress = false }: Prop
               src={img}
               alt=""
               loading="lazy"
+              decoding="async"
               draggable={false}
+              style={blurhashBackground(item, img)}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -95,7 +98,7 @@ export function MediaCard({ item, shape = 'poster', showProgress = false }: Prop
             <button
               onClick={play}
               aria-label={`Resume ${displayTitle(item)}`}
-              className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity duration-200 group-hover/card:opacity-100"
+              className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity duration-200 group-hover/card:opacity-100 touch:opacity-100"
             >
               <span className="flex size-12 items-center justify-center rounded-full border-2 border-white/90 bg-black/45 backdrop-blur-sm">
                 <PlayIcon className="ml-0.5 size-6" />

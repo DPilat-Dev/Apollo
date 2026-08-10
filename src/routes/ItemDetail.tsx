@@ -4,6 +4,7 @@ import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
 import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, WatchedIcon } from '../components/icons'
 import { useApi } from '../lib/auth'
+import { blurhashBackground } from '../lib/blurhash'
 import {
   displayTitle,
   episodeCode,
@@ -81,7 +82,13 @@ export function ItemDetail() {
     <div className="pb-24">
       <div className="relative h-[52vh] min-h-[22rem] w-full sm:h-[68vh]">
         {backdrop ? (
-          <img src={backdrop} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-top" />
+          <img
+            src={backdrop}
+            alt=""
+            fetchPriority="high"
+            decoding="async"
+            style={blurhashBackground(item, backdrop)}
+            className="absolute inset-0 h-full w-full object-cover object-top" />
         ) : (
           <div className="absolute inset-0 bg-ink-soft" />
         )}
@@ -382,7 +389,14 @@ function EpisodeRow({
         aria-label={`${resumable ? 'Resume' : 'Play'} ${episode.Name ?? 'episode'}`}
         className="relative aspect-video w-40 shrink-0 overflow-hidden rounded bg-ink-card sm:w-48"
       >
-        {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+        {thumb && <img
+            src={thumb}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            style={blurhashBackground(episode, thumb)}
+            className="h-full w-full object-cover"
+          />}
         <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">
           <PlayIcon className="size-8" />
         </span>
@@ -407,7 +421,7 @@ function EpisodeRow({
           )}
         </h3>
         <p className="mt-1 line-clamp-2 text-sm text-white/55">{episode.Overview}</p>
-        <span className="mt-1 inline-block text-[11px] text-white/30 opacity-0 transition group-hover:opacity-100">
+        <span className="mt-1 inline-block text-[11px] text-white/30 opacity-0 transition group-hover:opacity-100 touch:opacity-100">
           Details, audio &amp; subtitles →
         </span>
       </button>
@@ -423,7 +437,7 @@ function EpisodeRow({
         {onEdit && (
           <button
             onClick={onEdit}
-            className="rounded border border-white/20 px-2 py-1 text-[11px] text-white/70 opacity-0 transition hover:border-white/50 hover:text-white group-hover:opacity-100"
+            className="rounded border border-white/20 px-2 py-1 text-[11px] text-white/70 opacity-0 transition hover:border-white/50 hover:text-white group-hover:opacity-100 touch:opacity-100"
           >
             Edit
           </button>
@@ -436,7 +450,7 @@ function EpisodeRow({
             className={`rounded-full p-1 transition ${
               watched
                 ? 'text-emerald-400'
-                : 'text-white/50 opacity-0 hover:text-white group-hover:opacity-100'
+                : 'text-white/50 opacity-0 hover:text-white group-hover:opacity-100 touch:opacity-100'
             }`}
           >
             <WatchedIcon className="size-5" filled={watched} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
+import { blurhashBackground } from '../lib/blurhash'
 import { displayTitle, episodeCode, formatRuntime, isResumable, playedFraction } from '../lib/format'
 import { MatchBadge } from './MatchBadge'
 import { useSettings } from '../lib/settings'
@@ -63,7 +64,12 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
             className={`absolute inset-0 h-full w-full object-cover object-top ${
               reduceMotion ? '' : 'transition-opacity duration-[1200ms] ease-out'
             }`}
-            style={{ opacity: i === index ? 1 : 0 }}
+            style={{
+              // Blurred preview underneath, so the hero is never a black void
+              // while a 1920px backdrop crosses a phone connection.
+              ...blurhashBackground(candidate, src),
+              opacity: i === index ? 1 : 0,
+            }}
           />
         )
       })}

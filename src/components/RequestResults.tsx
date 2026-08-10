@@ -140,7 +140,7 @@ function RequestCard({ result }: { result: SeerrResult }) {
         </span>
 
         {(requestable || done) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 touch:opacity-100">
             <button
               onClick={submit}
               disabled={request.isPending || done}
