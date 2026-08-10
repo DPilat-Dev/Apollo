@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
-const SRC = path.resolve(__dirname, '../..')
+// Repo-hygiene check, kept out of src/ so it is not compiled with the
+// browser tsconfig — it needs Node APIs.
+const SRC = path.resolve(import.meta.dirname, '../src')
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
