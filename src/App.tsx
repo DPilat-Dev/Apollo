@@ -22,7 +22,19 @@ const Player = lazyWithReload(() =>
 /** Browse chrome: nav + scroll reset. The player deliberately opts out of both. */
 function BrowseLayout() {
   const { pathname } = useLocation()
-  useEffect(() => window.scrollTo(0, 0), [pathname])
+
+  /*
+    Block body, deliberately. Written as `useEffect(() => window.scrollTo(0, 0))`
+    the arrow returns whatever scrollTo returns, and React treats an effect's
+    return value as its cleanup function. Production React only checks that the
+    value is not undefined before calling it — it never checks it is callable —
+    so on any browser where scrollTo returns something instead of undefined,
+    the next navigation threw `is not a function` from the commit phase. That
+    unmounted the tree and left a black page.
+  */
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
 
   return (
     <>
