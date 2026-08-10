@@ -13,10 +13,15 @@ import path from 'node:path'
  * is a 200, so a caching proxy stores that HTML under the .js URL and keeps
  * serving it long after the deploy — reloading does not clear it.
  *
- * Module and asset requests send `Accept: *​/*`; navigations ask for text/html.
- * Anything carrying a file extension is a file request whatever it claims.
+ * The file extension is what decides. Everything the build emits has one, so
+ * refusing to fall back for extensioned paths fixes the case above without
+ * touching routes.
+ *
+ * Requiring `Accept: text/html` as well was too strict and 404'd the site for
+ * anything that does not send it — curl, health checks, link unfurlers, and
+ * any client whose Accept header is rewritten in transit. A route is a route
+ * whoever is asking, so only the extension is consulted.
  */
-export function wantsSpaFallback(accept, urlPath) {
-  if (path.extname(urlPath) !== '') return false
-  return (accept ?? '').includes('text/html')
+export function wantsSpaFallback(urlPath) {
+  return path.extname(urlPath) === ''
 }

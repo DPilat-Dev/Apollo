@@ -76,7 +76,13 @@ export default function App() {
         }
       />
 
-      <Route element={<BrowseLayout />}>
+      <Route
+        element={
+          <ErrorBoundary resetKey="layout">
+            <BrowseLayout />
+          </ErrorBoundary>
+        }
+      >
         <Route path="/" element={<Home />} />
         <Route path="/library/:viewId" element={<Library />} />
         <Route path="/item/:itemId" element={<ItemDetail />} />

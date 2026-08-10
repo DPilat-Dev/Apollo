@@ -46,7 +46,7 @@ function serveStatic(req, res) {
   const safe = candidate.startsWith(DIST) ? candidate : DIST
 
   const hit = existsSync(safe) && statSync(safe).isFile()
-  if (!hit && !wantsSpaFallback(req.headers.accept, urlPath)) {
+  if (!hit && !wantsSpaFallback(urlPath)) {
     // no-store keeps a proxy from caching the miss and outliving the deploy.
     res.writeHead(404, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
     res.end('Not found')
