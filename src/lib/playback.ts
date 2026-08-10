@@ -242,3 +242,15 @@ export async function resolveFirstEpisode(
   if (item.Type !== 'Episode' || !item.SeriesId) return null
   return (await api.episodes(item.SeriesId)).Items?.[0] ?? null
 }
+
+/**
+ * Whether hls.js could work here at all.
+ *
+ * It needs Media Source Extensions. Checking before importing avoids fetching
+ * half a megabyte on browsers that would only report it unsupported — iPhones
+ * below iOS 17 among them, which then play HLS through the native path.
+ */
+export function supportsMediaSource(): boolean {
+  if (typeof window === 'undefined') return false
+  return 'MediaSource' in window || 'ManagedMediaSource' in window
+}

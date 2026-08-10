@@ -43,7 +43,7 @@ export function UpNext({
     <div className="pointer-events-auto absolute bottom-28 right-4 z-30 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/15 bg-black/90 shadow-2xl backdrop-blur sm:bottom-32 sm:right-8">
       <div className="flex gap-3 p-3">
         <div className="aspect-video w-28 shrink-0 overflow-hidden rounded bg-ink-card">
-          {still && <img src={still} alt="" className="h-full w-full object-cover" />}
+          {still && <img src={still} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-white/45">

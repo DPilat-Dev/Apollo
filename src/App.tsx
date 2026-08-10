@@ -12,12 +12,24 @@ import { Login } from './routes/Login'
 import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
 import { Settings } from './routes/Settings'
-import { Admin } from './routes/Admin'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
 const Player = lazyWithReload(() =>
   import('./routes/Player').then((m) => ({ default: m.Player })),
 )
+
+// The dashboard is ~18% of the entry chunk and one user in twelve opens it.
+const Admin = lazyWithReload(() =>
+  import('./routes/Admin').then((m) => ({ default: m.Admin })),
+)
+
+function RouteSpinner() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="size-10 animate-spin rounded-full border-3 border-white/15 border-t-accent" />
+    </div>
+  )
+}
 
 /** Browse chrome: nav + scroll reset. The player deliberately opts out of both. */
 function BrowseLayout() {
@@ -44,7 +56,9 @@ function BrowseLayout() {
       <main>
         {/* Keyed on the path so navigating away clears a failed screen. */}
         <ErrorBoundary resetKey={pathname}>
-          <Outlet />
+          <Suspense fallback={<RouteSpinner />}>
+            <Outlet />
+          </Suspense>
         </ErrorBoundary>
       </main>
     </>

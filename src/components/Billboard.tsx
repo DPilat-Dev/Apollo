@@ -57,6 +57,8 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
             key={candidate.Id}
             src={src}
             alt=""
+            fetchPriority={i === index ? 'high' : 'auto'}
+            decoding="async"
             aria-hidden={i !== index}
             className={`absolute inset-0 h-full w-full object-cover object-top ${
               reduceMotion ? '' : 'transition-opacity duration-[1200ms] ease-out'
@@ -87,6 +89,7 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
             <img
               src={logo}
               alt={displayTitle(item)}
+              decoding="async"
               className="mb-5 max-h-32 w-auto max-w-[85%] object-contain object-left drop-shadow-2xl sm:max-h-40"
             />
           ) : (

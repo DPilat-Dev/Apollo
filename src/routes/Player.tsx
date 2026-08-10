@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import Hls from 'hls.js'
+import type Hls from 'hls.js'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
 import { useItem } from '../lib/queries'
@@ -10,6 +10,7 @@ import {
   resolvePlayableItem,
   resolveSiblingEpisodes,
   resolveStream,
+  supportsMediaSource,
   type StreamPlan,
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
@@ -238,26 +239,44 @@ export function Player() {
       }
     }
 
-    if (plan.isHls && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: false, backBufferLength: 90 })
-      hlsRef.current = hls
-      hls.loadSource(plan.url)
-      hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        seekToTarget()
-        void video.play().catch(() => {})
-      })
-      hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (!data.fatal) return
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
-        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
-        else setError('Playback failed. The server may not be able to transcode this file.')
-      })
-    } else {
+    const playNatively = () => {
       // Safari plays HLS natively; direct/direct-stream is a plain file URL.
       video.src = plan.url
       video.addEventListener('loadedmetadata', seekToTarget, { once: true })
       void video.play().catch(() => {})
+    }
+
+    /*
+      hls.js is half a megabyte, so it is fetched only when it will actually
+      be used — not on direct play, and never on a browser without Media
+      Source Extensions, where `Hls.isSupported()` would just return false
+      after the download. iPhones fall in that second group, so they were
+      paying the whole cost to then play through the native path anyway.
+    */
+    if (plan.isHls && supportsMediaSource()) {
+      void import('hls.js').then(({ default: Hls }) => {
+        if (cancelled) return
+        if (!Hls.isSupported()) return playNatively()
+
+        const hls = new Hls({ enableWorker: true, lowLatencyMode: false, backBufferLength: 90 })
+        hlsRef.current = hls
+        hls.loadSource(plan.url)
+        hls.attachMedia(video)
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          seekToTarget()
+          void video.play().catch(() => {})
+        })
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (!data.fatal) return
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
+          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
+          else setError('Playback failed. The server may not be able to transcode this file.')
+        })
+      }).catch(() => {
+        if (!cancelled) setError('The player failed to load. Check your connection and retry.')
+      })
+    } else {
+      playNatively()
     }
 
     return () => {

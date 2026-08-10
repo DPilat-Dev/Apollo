@@ -398,7 +398,7 @@ function Avatar({
       className={`flex ${dimension} items-center justify-center overflow-hidden rounded-full bg-white/10 font-bold text-white/75 ring-2 ring-transparent transition group-hover:ring-accent`}
     >
       {src ? (
-        <img src={src} alt="" className="h-full w-full object-cover" />
+        <img src={src} alt="" fetchPriority="high" decoding="async" className="h-full w-full object-cover" />
       ) : (
         (user.Name ?? '?').charAt(0).toUpperCase()
       )}

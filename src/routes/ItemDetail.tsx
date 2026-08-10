@@ -81,7 +81,7 @@ export function ItemDetail() {
     <div className="pb-24">
       <div className="relative h-[52vh] min-h-[22rem] w-full sm:h-[68vh]">
         {backdrop ? (
-          <img src={backdrop} alt="" className="absolute inset-0 h-full w-full object-cover object-top" />
+          <img src={backdrop} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-top" />
         ) : (
           <div className="absolute inset-0 bg-ink-soft" />
         )}
@@ -125,6 +125,7 @@ export function ItemDetail() {
               <img
                 src={logo}
                 alt={displayTitle(item)}
+                decoding="async"
                 className="mb-4 max-h-24 w-auto max-w-[80%] object-contain object-left drop-shadow-2xl sm:max-h-32"
               />
             ) : (
@@ -381,7 +382,7 @@ function EpisodeRow({
         aria-label={`${resumable ? 'Resume' : 'Play'} ${episode.Name ?? 'episode'}`}
         className="relative aspect-video w-40 shrink-0 overflow-hidden rounded bg-ink-card sm:w-48"
       >
-        {thumb && <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />}
+        {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
         <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">
           <PlayIcon className="size-8" />
         </span>
