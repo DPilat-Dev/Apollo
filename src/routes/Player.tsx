@@ -14,6 +14,8 @@ import {
   type StreamPlan,
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
+import { useSyncPlay } from '../lib/syncplay'
+import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
 import { AUTOPLAY_AT, UpNext } from '../components/UpNext'
@@ -53,6 +55,7 @@ export function Player() {
   const api = useApi()
   const navigate = useNavigate()
   const settings = useSettings()
+  const syncPlay = useSyncPlay()
   const { data: requestedItem } = useItem(itemId)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -401,20 +404,15 @@ export function Player() {
 
   // --------------------------------------------------------------- controls
 
-  const togglePlay = useCallback(() => {
-    const v = videoRef.current
-    if (!v) return
-    if (v.paused) void v.play().catch(() => {})
-    else v.pause()
+  const playLocally = useCallback(() => {
+    void videoRef.current?.play().catch(() => {})
   }, [])
 
-  const seekBy = useCallback((delta: number) => {
-    const v = videoRef.current
-    if (!v) return
-    v.currentTime = Math.max(0, Math.min(v.currentTime + delta, v.duration || Infinity))
+  const pauseLocally = useCallback(() => {
+    videoRef.current?.pause()
   }, [])
 
-  const seekAbsolute = useCallback(
+  const seekAbsoluteLocally = useCallback(
     (absolute: number) => {
       const v = videoRef.current
       if (!v || !plan) return
@@ -422,6 +420,60 @@ export function Player() {
     },
     [plan],
   )
+
+  /*
+    In a SyncPlay group the server owns the timeline: these ask it to act and
+    the command comes back over the socket for everyone at once. Outside a
+    group the same calls fall through to the local player.
+  */
+  const inGroup = Boolean(syncPlay?.group)
+
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) syncPlay ? syncPlay.requestPlay() : playLocally()
+    else syncPlay ? syncPlay.requestPause() : pauseLocally()
+  }, [syncPlay, playLocally, pauseLocally])
+
+  const seekAbsolute = useCallback(
+    (absolute: number) => {
+      if (syncPlay && inGroup) return syncPlay.requestSeek(absolute)
+      seekAbsoluteLocally(absolute)
+    },
+    [syncPlay, inGroup, seekAbsoluteLocally],
+  )
+
+  const seekBy = useCallback(
+    (delta: number) => {
+      const v = videoRef.current
+      if (!v || !plan) return
+      const target = Math.max(
+        0,
+        Math.min(v.currentTime + delta, v.duration || Infinity) + plan.startOffsetSeconds,
+      )
+      seekAbsolute(target)
+    },
+    [plan, seekAbsolute],
+  )
+
+  // Hand the group a way to drive this player.
+  useEffect(() => {
+    if (!syncPlay) return
+    syncPlay.registerPlayer({
+      play: playLocally,
+      pause: pauseLocally,
+      seekTo: seekAbsoluteLocally,
+      position: () => (videoRef.current?.currentTime ?? 0) + (plan?.startOffsetSeconds ?? 0),
+      isPlaying: () => !(videoRef.current?.paused ?? true),
+      playlistItemId: item?.Id ?? undefined,
+    })
+    return () => syncPlay.registerPlayer(null)
+  }, [syncPlay, playLocally, pauseLocally, seekAbsoluteLocally, plan, item?.Id])
+
+  // Stalling here has to hold the whole group, not just this screen.
+  useEffect(() => {
+    syncPlay?.reportBuffering(waiting)
+  }, [syncPlay, waiting])
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen()
@@ -764,6 +816,8 @@ export function Player() {
                   <CastIcon className="size-6" />
                 </IconButton>
               )}
+
+              <SyncPlayMenu />
 
               <div className="relative">
                 <IconButton

@@ -30,6 +30,28 @@ import type {
 export const CLIENT_NAME = 'Apollo'
 export const CLIENT_VERSION = '1.0.0'
 
+/** A SyncPlay group as the server lists it. */
+export interface GroupInfoDto {
+  GroupId?: string
+  GroupName?: string
+  State?: 'Idle' | 'Waiting' | 'Paused' | 'Playing'
+  Participants?: string[]
+  LastUpdatedAt?: string
+}
+
+/**
+ * What this device reports about itself when the group is waiting.
+ *
+ * `When` is this device's clock expressed on the server's, which is why the
+ * offset has to be measured before any of this is meaningful.
+ */
+export interface SyncPlayReadyState {
+  When: string
+  PositionTicks: number
+  IsPlaying: boolean
+  PlaylistItemId: string
+}
+
 const SESSION_KEY = 'apollo.session'
 const DEVICE_KEY = 'apollo.deviceId'
 
@@ -236,6 +258,73 @@ export class JellyfinApi {
     }
     const text = await res.text()
     return (text ? JSON.parse(text) : undefined) as T
+  }
+
+  // -------------------------------------------------------------- syncplay
+
+  /** Server-side timestamps for the four-timestamp clock exchange. */
+  async utcTime(): Promise<{ RequestReceptionTime: string; ResponseTransmissionTime: string }> {
+    return this.request('/GetUtcTime')
+  }
+
+  async syncPlayGroups(): Promise<GroupInfoDto[]> {
+    return (await this.request<GroupInfoDto[]>('/SyncPlay/List')) ?? []
+  }
+
+  async syncPlayNew(groupName: string): Promise<void> {
+    await this.request('/SyncPlay/New', {
+      method: 'POST',
+      body: JSON.stringify({ GroupName: groupName }),
+    })
+  }
+
+  async syncPlayJoin(groupId: string): Promise<void> {
+    await this.request('/SyncPlay/Join', {
+      method: 'POST',
+      body: JSON.stringify({ GroupId: groupId }),
+    })
+  }
+
+  async syncPlayLeave(): Promise<void> {
+    await this.request('/SyncPlay/Leave', { method: 'POST' })
+  }
+
+  /*
+    The group acts on these rather than the local player: pressing pause asks
+    the server to pause everyone, and the resulting command comes back over the
+    socket. Acting locally first would put this device out of step.
+  */
+  async syncPlayPlay(): Promise<void> {
+    await this.request('/SyncPlay/Unpause', { method: 'POST' })
+  }
+
+  async syncPlayPause(): Promise<void> {
+    await this.request('/SyncPlay/Pause', { method: 'POST' })
+  }
+
+  async syncPlaySeek(positionTicks: number): Promise<void> {
+    await this.request('/SyncPlay/Seek', {
+      method: 'POST',
+      body: JSON.stringify({ PositionTicks: Math.max(0, Math.round(positionTicks)) }),
+    })
+  }
+
+  /** Tells the group this device has buffered and is ready to resume. */
+  async syncPlayReady(state: SyncPlayReadyState): Promise<void> {
+    await this.request('/SyncPlay/Ready', { method: 'POST', body: JSON.stringify(state) })
+  }
+
+  /** Tells the group this device stalled, so everyone waits for it. */
+  async syncPlayBuffering(state: SyncPlayReadyState): Promise<void> {
+    await this.request('/SyncPlay/Buffering', { method: 'POST', body: JSON.stringify(state) })
+  }
+
+  /** Reports measured latency so the server can compensate per device. */
+  async syncPlayPing(pingMs: number): Promise<void> {
+    await this.request('/SyncPlay/Ping', {
+      method: 'POST',
+      body: JSON.stringify({ Ping: Math.round(pingMs) }),
+    })
   }
 
   // ---------------------------------------------------------------- images

@@ -200,3 +200,14 @@ export const MenuIcon = ({ className = '' }: { className?: string }) => (
     <path d="M3 6h18M3 12h18M3 18h18" />
   </svg>
 )
+
+/** Two arrows in a loop — devices kept in step. */
+export const SyncPlayIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+       strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M4 12a8 8 0 0 1 13.3-5.9L20 8" />
+    <path d="M20 4v4h-4" />
+    <path d="M20 12a8 8 0 0 1-13.3 5.9L4 16" />
+    <path d="M4 20v-4h4" />
+  </svg>
+)
