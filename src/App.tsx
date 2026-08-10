@@ -1,9 +1,10 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './lib/auth'
 import { useBranding } from './lib/branding'
+import { lazyWithReload } from './lib/lazyChunk'
 import { Home } from './routes/Home'
 import { ItemDetail } from './routes/ItemDetail'
 import { Library } from './routes/Library'
@@ -14,7 +15,9 @@ import { Settings } from './routes/Settings'
 import { Admin } from './routes/Admin'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
-const Player = lazy(() => import('./routes/Player').then((m) => ({ default: m.Player })))
+const Player = lazyWithReload(() =>
+  import('./routes/Player').then((m) => ({ default: m.Player })),
+)
 
 /** Browse chrome: nav + scroll reset. The player deliberately opts out of both. */
 function BrowseLayout() {

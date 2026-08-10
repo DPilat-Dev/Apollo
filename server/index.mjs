@@ -11,6 +11,7 @@ import http from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { handleConfigRequest, proxyJellyseerr, readConfig } from './runtime.mjs'
+import { wantsSpaFallback } from './static.mjs'
 
 const PORT = Number(process.env.PORT ?? 4173)
 const DIST = process.env.APOLLO_DIST ?? path.resolve(process.cwd(), 'dist')
@@ -44,11 +45,18 @@ function serveStatic(req, res) {
   const candidate = path.resolve(DIST, `.${urlPath}`)
   const safe = candidate.startsWith(DIST) ? candidate : DIST
 
-  const file =
-    existsSync(safe) && statSync(safe).isFile() ? safe : path.join(DIST, 'index.html')
+  const hit = existsSync(safe) && statSync(safe).isFile()
+  if (!hit && !wantsSpaFallback(req.headers.accept, urlPath)) {
+    // no-store keeps a proxy from caching the miss and outliving the deploy.
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
+    res.end('Not found')
+    return
+  }
+
+  const file = hit ? safe : path.join(DIST, 'index.html')
 
   if (!existsSync(file)) {
-    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
     res.end('Run `npm run build` first.')
     return
   }

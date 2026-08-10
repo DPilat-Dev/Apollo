@@ -42,8 +42,10 @@ export class ErrorBoundary extends Component<
           >
             Try again
           </button>
+          {/* A full load, not a router Link — the router is what may have
+              failed. BASE_URL keeps it correct when served under a subpath. */}
           <a
-            href="/"
+            href={import.meta.env.BASE_URL}
             className="rounded border border-white/25 px-5 py-2 text-sm transition hover:border-white/50"
           >
             Go home

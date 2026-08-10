@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useIsAdmin, useViews } from '../lib/queries'
-import { SearchIcon } from './icons'
+import { MenuIcon, SearchIcon } from './icons'
 
 /**
  * Transparent over the billboard, solid once scrolled — the standard streaming
@@ -20,6 +20,7 @@ export function TopNav() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [term, setTerm] = useState(params.get('q') ?? '')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -55,10 +56,21 @@ export function TopNav() {
     if (searchOpen) inputRef.current?.focus()
   }, [searchOpen])
 
+  // Any navigation closes both menus — including one triggered from elsewhere.
+  useEffect(() => {
+    setNavOpen(false)
+    setMenuOpen(false)
+  }, [location.pathname, location.search])
+
   // Every library the user can see, named as they named it on the server.
   // Live TV needs a tuner/guide UI this client doesn't have, so it's the only
   // thing held back; mixed and custom libraries browse fine through /Items.
   const browsable = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
+
+  const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `block px-3 py-2.5 text-sm transition-colors ${
+      isActive ? 'bg-white/10 font-semibold text-white' : 'text-white/80 hover:bg-white/5'
+    }`
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `shrink-0 whitespace-nowrap text-sm transition-colors ${
@@ -71,7 +83,46 @@ export function TopNav() {
         scrolled ? 'bg-ink/95 backdrop-blur-md shadow-lg shadow-black/40' : 'bg-gradient-to-b from-black/80 to-transparent'
       }`}
     >
-      <div className="flex h-14 items-center gap-4 px-4 sm:h-16 sm:gap-7 sm:px-14">
+      <div className="flex h-14 items-center gap-3 px-4 sm:h-16 sm:gap-7 sm:px-14">
+        {/* Below `sm` the library row has nowhere to go, so it moves behind an
+            explicit menu button. It used to live inside the account menu,
+            where nobody thinks to look for navigation. */}
+        <div className="relative sm:hidden">
+          <button
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label="Browse libraries"
+            aria-expanded={navOpen}
+            className="-ml-2 flex size-11 items-center justify-center text-white/85 transition hover:text-white"
+          >
+            <MenuIcon className="size-6" />
+          </button>
+          {navOpen && (
+            <>
+              <div className="fixed inset-0 z-0" onClick={() => setNavOpen(false)} />
+              <div className="absolute left-0 z-10 mt-1 max-h-[70vh] w-56 overflow-y-auto rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur">
+                <NavLink
+                  to="/"
+                  end
+                  onClick={() => setNavOpen(false)}
+                  className={mobileLinkClass}
+                >
+                  Home
+                </NavLink>
+                {browsable.map((v) => (
+                  <NavLink
+                    key={v.Id}
+                    to={`/library/${v.Id}`}
+                    onClick={() => setNavOpen(false)}
+                    className={mobileLinkClass}
+                  >
+                    {v.Name}
+                  </NavLink>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         <Link to="/" className="shrink-0 text-xl font-black tracking-tight text-accent sm:text-2xl">
           APOLLO
         </Link>
@@ -131,26 +182,6 @@ export function TopNav() {
                     Signed in as{' '}
                     <span className="font-medium text-white/80">{session?.userName}</span>
                   </p>
-                  <div className="sm:hidden">
-                    <div className="my-1 h-px bg-white/10" />
-                    <Link
-                      to="/"
-                      onClick={() => setMenuOpen(false)}
-                      className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
-                    >
-                      Home
-                    </Link>
-                    {browsable.map((v) => (
-                      <Link
-                        key={v.Id}
-                        to={`/library/${v.Id}`}
-                        onClick={() => setMenuOpen(false)}
-                        className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
-                      >
-                        {v.Name}
-                      </Link>
-                    ))}
-                  </div>
                   <div className="my-1 h-px bg-white/10" />
                   <Link
                     to="/settings"
