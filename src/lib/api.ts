@@ -261,6 +261,63 @@ export class JellyfinApi {
     return (text ? JSON.parse(text) : undefined) as T
   }
 
+  // ------------------------------------------------------------- playlists
+
+  /** Playlists this user can see, as ordinary items of type Playlist. */
+  async playlists(): Promise<BaseItemDto[]> {
+    const res = await this.items({
+      includeItemTypes: ['Playlist'],
+      recursive: true,
+      sortBy: 'SortName',
+      sortOrder: 'Ascending',
+    })
+    return res.Items ?? []
+  }
+
+  async playlistItems(playlistId: string): Promise<BaseItemDto[]> {
+    const res = await this.request<BaseItemDtoQueryResult>(`/Playlists/${playlistId}/Items`, {
+      query: {
+        userId: this.userId,
+        enableUserData: true,
+        enableImageTypes: ['Primary', 'Backdrop', 'Thumb'],
+        fields: ['Overview', 'ParentId'],
+      },
+    })
+    return res?.Items ?? []
+  }
+
+  async createPlaylist(name: string, itemIds: string[] = []): Promise<{ Id?: string }> {
+    return this.request('/Playlists', {
+      method: 'POST',
+      body: JSON.stringify({ Name: name, Ids: itemIds, UserId: this.userId }),
+    })
+  }
+
+  async addToPlaylist(playlistId: string, itemIds: string[]): Promise<void> {
+    await this.request(`/Playlists/${playlistId}/Items`, {
+      method: 'POST',
+      query: { ids: itemIds, userId: this.userId },
+    })
+  }
+
+  /** Removes by playlist entry id, which is not the item id. */
+  async removeFromPlaylist(playlistId: string, entryIds: string[]): Promise<void> {
+    await this.request(`/Playlists/${playlistId}/Items`, {
+      method: 'DELETE',
+      query: { entryIds },
+    })
+  }
+
+  async movePlaylistItem(playlistId: string, entryId: string, newIndex: number): Promise<void> {
+    await this.request(`/Playlists/${playlistId}/Items/${entryId}/Move/${newIndex}`, {
+      method: 'POST',
+    })
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> {
+    await this.request(`/Items/${playlistId}`, { method: 'DELETE' })
+  }
+
   // -------------------------------------------------------------- syncplay
 
   /** Server-side timestamps for the four-timestamp clock exchange. */

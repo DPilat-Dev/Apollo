@@ -221,3 +221,12 @@ export const TrailerIcon = ({ className = '' }: { className?: string }) => (
     <path d="m8.4 6 -1.2 3.4M13.3 7.1 12.1 10.5" />
   </svg>
 )
+
+/** Stacked lines with a plus — a list you can add to. */
+export const PlaylistIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+       strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M3 6h13M3 11h13M3 16h8" />
+    <path d="M18 13v7M14.5 16.5h7" />
+  </svg>
+)

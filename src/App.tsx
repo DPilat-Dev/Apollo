@@ -14,6 +14,8 @@ import { Login } from './routes/Login'
 import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
 import { Settings } from './routes/Settings'
+import { Playlists } from './routes/Playlists'
+import { PlaylistDetail } from './routes/PlaylistDetail'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
 const Player = lazyWithReload(() =>
@@ -151,6 +153,8 @@ export default function App() {
           <Route path="/item/:itemId" element={<ItemDetail />} />
           <Route path="/search" element={<Search />} />
           <Route path="/browse" element={<Browse />} />
+          <Route path="/playlists" element={<Playlists />} />
+          <Route path="/playlist/:playlistId" element={<PlaylistDetail />} />
           <Route path="/settings" element={<Settings />} />
           {/* Admin gates on the user's policy internally, not on the route. */}
           <Route path="/admin" element={<Admin />} />

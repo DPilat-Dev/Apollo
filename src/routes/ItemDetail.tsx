@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
-import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
+import { CheckIcon, PlayIcon, PlusIcon, PlaylistIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
 import { TrailerModal } from '../components/TrailerModal'
+import { AddToPlaylist } from '../components/AddToPlaylist'
 import { hasTrailer } from '../lib/trailers'
 import { useApi } from '../lib/auth'
 import { blurhashBackground } from '../lib/blurhash'
@@ -44,6 +45,7 @@ export function ItemDetail() {
   // a season, or a single episode.
   const [editingItem, setEditingItem] = useState<BaseItemDto | null>(null)
   const [trailerOpen, setTrailerOpen] = useState(false)
+  const [playlistOpen, setPlaylistOpen] = useState(false)
   const [tracks, setTracks] = useTrackSelection()
 
   const isSeries = item?.Type === 'Series'
@@ -206,6 +208,15 @@ export function ItemDetail() {
                 </button>
               )}
 
+              <button
+                onClick={() => setPlaylistOpen(true)}
+                aria-label="Add to playlist"
+                title="Add to playlist"
+                className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40 transition hover:border-white"
+              >
+                <PlaylistIcon className="size-5" />
+              </button>
+
               {showTrailer && (
                 <button
                   onClick={() => setTrailerOpen(true)}
@@ -363,6 +374,7 @@ export function ItemDetail() {
       )}
 
       {trailerOpen && <TrailerModal item={item} onClose={() => setTrailerOpen(false)} />}
+      {playlistOpen && <AddToPlaylist item={item} onClose={() => setPlaylistOpen(false)} />}
 
       {editingItem && (
         <MetadataEditor item={editingItem} onClose={() => setEditingItem(null)} />

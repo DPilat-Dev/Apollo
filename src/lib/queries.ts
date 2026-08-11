@@ -114,6 +114,63 @@ export function useMediaSegments(itemId?: string) {
   })
 }
 
+export function usePlaylists() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['playlists', api.userId],
+    queryFn: () => api.playlists(),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function usePlaylistItems(playlistId?: string) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['playlistItems', api.userId, playlistId],
+    queryFn: () => api.playlistItems(playlistId!),
+    enabled: Boolean(playlistId),
+  })
+}
+
+/**
+ * Playlist mutations. Every one invalidates both the list and its contents,
+ * because adding to a playlist changes its child count as well as its items.
+ */
+function usePlaylistMutation<T>(fn: (api: JellyfinApi, vars: T) => Promise<unknown>) {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: T) => fn(api, vars),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['playlists'] })
+      void qc.invalidateQueries({ queryKey: ['playlistItems'] })
+    },
+  })
+}
+
+export const useCreatePlaylist = () =>
+  usePlaylistMutation<{ name: string; itemIds?: string[] }>((api, v) =>
+    api.createPlaylist(v.name, v.itemIds ?? []),
+  )
+
+export const useAddToPlaylist = () =>
+  usePlaylistMutation<{ playlistId: string; itemIds: string[] }>((api, v) =>
+    api.addToPlaylist(v.playlistId, v.itemIds),
+  )
+
+export const useRemoveFromPlaylist = () =>
+  usePlaylistMutation<{ playlistId: string; entryIds: string[] }>((api, v) =>
+    api.removeFromPlaylist(v.playlistId, v.entryIds),
+  )
+
+export const useMovePlaylistItem = () =>
+  usePlaylistMutation<{ playlistId: string; entryId: string; newIndex: number }>((api, v) =>
+    api.movePlaylistItem(v.playlistId, v.entryId, v.newIndex),
+  )
+
+export const useDeletePlaylist = () =>
+  usePlaylistMutation<{ playlistId: string }>((api, v) => api.deletePlaylist(v.playlistId))
+
 export function useSimilar(itemId?: string) {
   const api = useApi()
   return useQuery({

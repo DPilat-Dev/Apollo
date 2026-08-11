@@ -108,6 +108,13 @@ export function TopNav() {
                 >
                   Home
                 </NavLink>
+                <NavLink
+                  to="/playlists"
+                  onClick={() => setNavOpen(false)}
+                  className={mobileLinkClass}
+                >
+                  Playlists
+                </NavLink>
                 {browsable.map((v) => (
                   <NavLink
                     key={v.Id}
@@ -138,6 +145,9 @@ export function TopNav() {
               {v.Name}
             </NavLink>
           ))}
+          <NavLink to="/playlists" className={linkClass}>
+            Playlists
+          </NavLink>
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-3">
