@@ -485,8 +485,21 @@ export class JellyfinApi {
 
   item(itemId: string) {
     return this.request<BaseItemDto>(`/Items/${itemId}`, {
-      query: { userId: this.userId },
+      // Trailer fields are not returned unless asked for by name.
+      query: {
+        userId: this.userId,
+        fields: ['RemoteTrailers', 'LocalTrailerCount'],
+      },
     })
+  }
+
+  /** Trailer files held on the server, playable like any other item. */
+  async localTrailers(itemId: string): Promise<BaseItemDto[]> {
+    return (
+      (await this.request<BaseItemDto[]>(`/Items/${itemId}/LocalTrailers`, {
+        query: { userId: this.userId },
+      })) ?? []
+    )
   }
 
   items(query: Query) {

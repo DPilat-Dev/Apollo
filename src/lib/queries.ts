@@ -85,6 +85,20 @@ export function useItem(itemId?: string) {
   })
 }
 
+/**
+ * Trailer files on the server. Only fetched when the item says it has some,
+ * so the common case costs no request at all.
+ */
+export function useLocalTrailers(itemId?: string, count = 0) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['localTrailers', api.userId, itemId],
+    queryFn: () => api.localTrailers(itemId!),
+    enabled: Boolean(itemId) && count > 0,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useSimilar(itemId?: string) {
   const api = useApi()
   return useQuery({

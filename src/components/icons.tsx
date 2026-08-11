@@ -211,3 +211,13 @@ export const SyncPlayIcon = ({ className = '' }: { className?: string }) => (
     <path d="M4 20v-4h4" />
   </svg>
 )
+
+/** A film clapper — a trailer rather than the feature itself. */
+export const TrailerIcon = ({ className = '' }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+       strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d="M3 10h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z" />
+    <path d="m3 10 1.6-4.2a1 1 0 0 1 1.2-.6l13.4 3.1a1 1 0 0 1 .7 1.2L19.5 10" />
+    <path d="m8.4 6 -1.2 3.4M13.3 7.1 12.1 10.5" />
+  </svg>
+)

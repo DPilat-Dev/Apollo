@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
-import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, WatchedIcon } from '../components/icons'
+import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
+import { TrailerModal } from '../components/TrailerModal'
+import { hasTrailer } from '../lib/trailers'
 import { useApi } from '../lib/auth'
 import { blurhashBackground } from '../lib/blurhash'
 import {
@@ -41,6 +43,7 @@ export function ItemDetail() {
   // Holds whichever item the metadata editor is open for — the series itself,
   // a season, or a single episode.
   const [editingItem, setEditingItem] = useState<BaseItemDto | null>(null)
+  const [trailerOpen, setTrailerOpen] = useState(false)
   const [tracks, setTracks] = useTrackSelection()
 
   const isSeries = item?.Type === 'Series'
@@ -67,6 +70,7 @@ export function ItemDetail() {
   const logo = api.logoUrl(item, 640)
   const isFav = Boolean(item.UserData?.IsFavorite)
   const isWatched = Boolean(item.UserData?.Played)
+  const showTrailer = hasTrailer(item, item.LocalTrailerCount ?? 0)
 
   // For a series, "Play" should continue from the next unwatched episode.
   const playTarget = isSeries
@@ -199,6 +203,17 @@ export function ItemDetail() {
                 >
                   <ShuffleIcon className="size-5" />
                   Shuffle
+                </button>
+              )}
+
+              {showTrailer && (
+                <button
+                  onClick={() => setTrailerOpen(true)}
+                  title="Watch the trailer"
+                  className="flex items-center gap-2 rounded bg-white/20 px-5 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/30"
+                >
+                  <TrailerIcon className="size-5" />
+                  Trailer
                 </button>
               )}
 
@@ -346,6 +361,8 @@ export function ItemDetail() {
           <Row title="More Like This" items={similar.data} />
         </div>
       )}
+
+      {trailerOpen && <TrailerModal item={item} onClose={() => setTrailerOpen(false)} />}
 
       {editingItem && (
         <MetadataEditor item={editingItem} onClose={() => setEditingItem(null)} />
