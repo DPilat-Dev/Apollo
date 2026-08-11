@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-
 import { useAuth } from '../lib/auth'
 import { useIsAdmin, useViews } from '../lib/queries'
 import { MenuIcon, SearchIcon } from './icons'
+import { RemoteControl } from './RemoteControl'
 
 /**
  * Transparent over the billboard, solid once scrolled — the standard streaming
@@ -175,6 +176,8 @@ export function TopNav() {
               </button>
             )}
           </div>
+
+          <RemoteControl />
 
           <div className="relative">
             <button

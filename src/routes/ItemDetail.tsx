@@ -5,6 +5,7 @@ import { Row } from '../components/Row'
 import { CheckIcon, PlayIcon, PlusIcon, PlaylistIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
 import { TrailerModal } from '../components/TrailerModal'
 import { AddToPlaylist } from '../components/AddToPlaylist'
+import { RemoteControl } from '../components/RemoteControl'
 import { hasTrailer } from '../lib/trailers'
 import { useApi } from '../lib/auth'
 import { blurhashBackground } from '../lib/blurhash'
@@ -207,6 +208,10 @@ export function ItemDetail() {
                   Shuffle
                 </button>
               )}
+
+              <div className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40">
+                <RemoteControl item={item} />
+              </div>
 
               <button
                 onClick={() => setPlaylistOpen(true)}

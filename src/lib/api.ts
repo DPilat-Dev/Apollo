@@ -261,6 +261,63 @@ export class JellyfinApi {
     return (text ? JSON.parse(text) : undefined) as T
   }
 
+  // -------------------------------------------------------- remote control
+
+  /**
+   * Other devices signed in to this server that accept remote control.
+   *
+   * `activeWithinSeconds` keeps the list to things plausibly still on — a
+   * phone that was used yesterday is not somewhere you want to start playback.
+   */
+  async controllableSessions(activeWithinSeconds = 600): Promise<SessionInfoDto[]> {
+    const sessions = await this.request<SessionInfoDto[]>('/Sessions', {
+      query: { activeWithinSeconds },
+    })
+    return (sessions ?? []).filter(
+      (s) => s.SupportsRemoteControl && s.DeviceId !== deviceId() && s.Id,
+    )
+  }
+
+  /** Starts playback of an item on another device. */
+  async remotePlay(
+    sessionId: string,
+    itemIds: string[],
+    opts: { startPositionTicks?: number; playCommand?: 'PlayNow' | 'PlayNext' | 'PlayLast' } = {},
+  ): Promise<void> {
+    await this.request(`/Sessions/${sessionId}/Playing`, {
+      method: 'POST',
+      query: {
+        playCommand: opts.playCommand ?? 'PlayNow',
+        itemIds,
+        ...(opts.startPositionTicks ? { startPositionTicks: opts.startPositionTicks } : {}),
+      },
+    })
+  }
+
+  /** Transport control for a session this client is driving. */
+  async remoteCommand(
+    sessionId: string,
+    command: 'PlayPause' | 'Pause' | 'Unpause' | 'Stop' | 'NextTrack' | 'PreviousTrack' | 'Seek',
+    seekPositionTicks?: number,
+  ): Promise<void> {
+    await this.request(`/Sessions/${sessionId}/Playing/${command}`, {
+      method: 'POST',
+      query: seekPositionTicks != null ? { seekPositionTicks } : {},
+    })
+  }
+
+  /** General commands: volume, mute, and the rest of the device's own controls. */
+  async remoteGeneralCommand(
+    sessionId: string,
+    name: string,
+    args: Record<string, string | number> = {},
+  ): Promise<void> {
+    await this.request(`/Sessions/${sessionId}/Command`, {
+      method: 'POST',
+      body: JSON.stringify({ Name: name, Arguments: args }),
+    })
+  }
+
   // ------------------------------------------------------------- playlists
 
   /** Playlists this user can see, as ordinary items of type Playlist. */
