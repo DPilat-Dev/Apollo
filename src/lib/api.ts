@@ -270,10 +270,10 @@ export class JellyfinApi {
    * phone that was used yesterday is not somewhere you want to start playback.
    */
   async controllableSessions(activeWithinSeconds = 600): Promise<SessionInfoDto[]> {
-    const sessions = await this.request<SessionInfoDto[]>('/Sessions', {
+    const sessions = await this.requestArray<SessionInfoDto>('/Sessions', {
       query: { activeWithinSeconds },
     })
-    return (sessions ?? []).filter(
+    return sessions.filter(
       (s) => s.SupportsRemoteControl && s.DeviceId !== deviceId() && s.Id,
     )
   }
@@ -440,6 +440,24 @@ export class JellyfinApi {
       method: 'POST',
       body: JSON.stringify({ Ping: Math.round(pingMs) }),
     })
+  }
+
+  /**
+   * A request whose response is expected to be a JSON array.
+   *
+   * Guarantees one. Jellyfin returns a bare array from some endpoints and a
+   * QueryResult from others, a 204 from a few, and an error body if something
+   * upstream goes wrong — and every caller here immediately does .map or
+   * .find, which throws on anything else and takes the screen down with it.
+   */
+  private async requestArray<T>(
+    path: string,
+    init: RequestInit & { query?: Query } = {},
+  ): Promise<T[]> {
+    const res = await this.request<T[] | { Items?: T[] }>(path, init)
+    if (Array.isArray(res)) return res
+    const items = (res as { Items?: T[] } | undefined)?.Items
+    return Array.isArray(items) ? items : []
   }
 
   // ---------------------------------------------------------------- images
@@ -673,7 +691,7 @@ export class JellyfinApi {
 
   /** /Items/Latest returns a bare array, not a query result. */
   latest(query: Query = {}) {
-    return this.request<BaseItemDto[]>('/Items/Latest', {
+    return this.requestArray<BaseItemDto>('/Items/Latest', {
       query: {
         userId: this.userId,
         limit: 20,
@@ -762,16 +780,16 @@ export class JellyfinApi {
   }
 
   allUsers() {
-    return this.request<UserDto[]>('/Users')
+    return this.requestArray<UserDto>('/Users')
   }
 
   /** Sessions seen recently — the server keeps stale ones around otherwise. */
   sessions(activeWithinSeconds = 960) {
-    return this.request<SessionInfoDto[]>('/Sessions', { query: { activeWithinSeconds } })
+    return this.requestArray<SessionInfoDto>('/Sessions', { query: { activeWithinSeconds } })
   }
 
   scheduledTasks() {
-    return this.request<TaskInfo[]>('/ScheduledTasks', { query: { isHidden: false } })
+    return this.requestArray<TaskInfo>('/ScheduledTasks', { query: { isHidden: false } })
   }
 
   runTask(taskId: string) {
@@ -844,7 +862,7 @@ export class JellyfinApi {
   // ------------------------------------------------------------------- logs
 
   logFiles() {
-    return this.request<LogFile[]>('/System/Logs')
+    return this.requestArray<LogFile>('/System/Logs')
   }
 
   /** Log contents are plain text, not JSON. */
@@ -907,7 +925,7 @@ export class JellyfinApi {
   // ------------------------------------------------------------- libraries
 
   virtualFolders() {
-    return this.request<VirtualFolderInfo[]>('/Library/VirtualFolders')
+    return this.requestArray<VirtualFolderInfo>('/Library/VirtualFolders')
   }
 
   addLibrary(opts: {
@@ -965,19 +983,19 @@ export class JellyfinApi {
 
   /** Server-side file browser, for picking library folders. */
   directoryContents(path: string) {
-    return this.request<FileSystemEntryInfo[]>('/Environment/DirectoryContents', {
+    return this.requestArray<FileSystemEntryInfo>('/Environment/DirectoryContents', {
       query: { path, includeDirectories: true, includeFiles: false },
     })
   }
 
   drives() {
-    return this.request<FileSystemEntryInfo[]>('/Environment/Drives')
+    return this.requestArray<FileSystemEntryInfo>('/Environment/Drives')
   }
 
   // ------------------------------------------------- plugins, keys, culture
 
   plugins() {
-    return this.request<PluginInfo[]>('/Plugins')
+    return this.requestArray<PluginInfo>('/Plugins')
   }
 
   uninstallPlugin(pluginId: string) {
@@ -986,7 +1004,7 @@ export class JellyfinApi {
 
   /** The catalogue, aggregated from every enabled repository. */
   packages() {
-    return this.request<PackageInfo[]>('/Packages')
+    return this.requestArray<PackageInfo>('/Packages')
   }
 
   installPackage(
@@ -1008,7 +1026,7 @@ export class JellyfinApi {
   }
 
   repositories() {
-    return this.request<RepositoryInfo[]>('/Repositories')
+    return this.requestArray<RepositoryInfo>('/Repositories')
   }
 
   saveRepositories(repositories: RepositoryInfo[]) {
@@ -1031,15 +1049,15 @@ export class JellyfinApi {
   }
 
   cultures() {
-    return this.request<CultureDto[]>('/Localization/Cultures')
+    return this.requestArray<CultureDto>('/Localization/Cultures')
   }
 
   countries() {
-    return this.request<CountryInfo[]>('/Localization/Countries')
+    return this.requestArray<CountryInfo>('/Localization/Countries')
   }
 
   localizationOptions() {
-    return this.request<LocalizationOption[]>('/Localization/Options')
+    return this.requestArray<LocalizationOption>('/Localization/Options')
   }
 
   quickConnectEnabled() {
