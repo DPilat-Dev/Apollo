@@ -1,10 +1,12 @@
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
-import { Suspense, useEffect } from 'react'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Suspense, useEffect, useState } from 'react'
 import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './lib/auth'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
+import { ShortcutsModal } from './components/ShortcutsModal'
+import { isTypingTarget } from './lib/shortcuts'
 import { Home } from './routes/Home'
 import { ItemDetail } from './routes/ItemDetail'
 import { Library } from './routes/Library'
@@ -22,6 +24,38 @@ const Player = lazyWithReload(() =>
 const Admin = lazyWithReload(() =>
   import('./routes/Admin').then((m) => ({ default: m.Admin })),
 )
+
+/**
+ * The shortcuts that work anywhere, and the sheet describing them.
+ *
+ * Anything typed into a field is left alone — a global handler that eats keys
+ * inside a text box is the classic way to make a search field unusable.
+ */
+function useGlobalShortcuts(signedIn: boolean) {
+  const [helpOpen, setHelpOpen] = useState(false)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (isTypingTarget(e.target)) return
+
+      if (e.key === '?') {
+        e.preventDefault()
+        setHelpOpen((v) => !v)
+        return
+      }
+      if (signedIn && e.key === '/') {
+        e.preventDefault()
+        navigate('/search')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [signedIn, navigate])
+
+  return { helpOpen, closeHelp: () => setHelpOpen(false) }
+}
 
 function RouteSpinner() {
   return (
@@ -67,6 +101,7 @@ function BrowseLayout() {
 
 export default function App() {
   const { session } = useAuth()
+  const { helpOpen, closeHelp } = useGlobalShortcuts(Boolean(session))
   // Keeps the server's custom CSS applied across every signed-in screen.
   useBranding(session?.server)
 
@@ -78,47 +113,52 @@ export default function App() {
         <Routes>
           <Route path="*" element={<Login />} />
         </Routes>
+        {helpOpen && <ShortcutsModal onClose={closeHelp} />}
       </ErrorBoundary>
     )
   }
 
   return (
-    <Routes>
-      {/* Fullscreen, chrome-free. */}
-      <Route
-        path="/watch/:itemId"
-        element={
-          <Suspense
-            fallback={
-              <div className="flex h-dvh items-center justify-center bg-black">
-                <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
-              </div>
-            }
-          >
-            <ErrorBoundary>
-              <Player />
-            </ErrorBoundary>
-          </Suspense>
-        }
-      />
+    <>
+      <Routes>
+        {/* Fullscreen, chrome-free. */}
+        <Route
+          path="/watch/:itemId"
+          element={
+            <Suspense
+              fallback={
+                <div className="flex h-dvh items-center justify-center bg-black">
+                  <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
+                </div>
+              }
+            >
+              <ErrorBoundary>
+                <Player />
+              </ErrorBoundary>
+            </Suspense>
+          }
+        />
 
-      <Route
-        element={
-          <ErrorBoundary resetKey="layout">
-            <BrowseLayout />
-          </ErrorBoundary>
-        }
-      >
-        <Route path="/" element={<Home />} />
-        <Route path="/library/:viewId" element={<Library />} />
-        <Route path="/item/:itemId" element={<ItemDetail />} />
-        <Route path="/search" element={<Search />} />
-        <Route path="/browse" element={<Browse />} />
-        <Route path="/settings" element={<Settings />} />
-        {/* Admin gates on the user's policy internally, not on the route. */}
-        <Route path="/admin" element={<Admin />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+        <Route
+          element={
+            <ErrorBoundary resetKey="layout">
+              <BrowseLayout />
+            </ErrorBoundary>
+          }
+        >
+          <Route path="/" element={<Home />} />
+          <Route path="/library/:viewId" element={<Library />} />
+          <Route path="/item/:itemId" element={<ItemDetail />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/browse" element={<Browse />} />
+          <Route path="/settings" element={<Settings />} />
+          {/* Admin gates on the user's policy internally, not on the route. */}
+          <Route path="/admin" element={<Admin />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+
+      {helpOpen && <ShortcutsModal onClose={closeHelp} />}
+    </>
   )
 }
