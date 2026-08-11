@@ -26,6 +26,11 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
+  // Browsers ignore a manifest served as anything else, which silently costs
+  // installability with nothing in the console to explain it.
+  '.webmanifest': 'application/manifest+json',
+  '.json': 'application/json',
+  '.txt': 'text/plain; charset=utf-8',
 }
 
 const server = http.createServer(async (req, res) => {

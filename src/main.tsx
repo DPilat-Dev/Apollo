@@ -6,6 +6,7 @@ import App from './App'
 import { AuthProvider } from './lib/auth'
 import { SyncPlayProvider } from './lib/syncplay'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { registerServiceWorker } from './lib/registerSw'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -41,3 +42,5 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 )
+
+registerServiceWorker()

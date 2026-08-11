@@ -17,6 +17,7 @@ import { useProgressReporter } from '../lib/useProgressReporter'
 import { useSyncPlay } from '../lib/syncplay'
 import { useMediaSegments } from '../lib/queries'
 import { segmentAt, shouldAutoSkip } from '../lib/segments'
+import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
@@ -467,6 +468,13 @@ export function Player() {
     if (!skipTargetRef.current) return
     seekAbsolute(skipTargetRef.current.skipToSeconds)
   }, [seekAbsolute])
+
+  // ::cue cannot be styled inline, so it goes through a managed stylesheet
+  // that lives only while the player is mounted.
+  useEffect(() => {
+    applySubtitleCss(subtitleCss(settings))
+    return () => applySubtitleCss(null)
+  }, [settings])
 
   // Hand the group a way to drive this player.
   useEffect(() => {
