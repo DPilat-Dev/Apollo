@@ -15,6 +15,8 @@ import {
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { useSyncPlay } from '../lib/syncplay'
+import { useMediaSegments } from '../lib/queries'
+import { segmentAt, shouldAutoSkip } from '../lib/segments'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
@@ -135,6 +137,7 @@ export function Player() {
     setDuration(0)
     setBuffered(0)
     setDismissedUpNext(null)
+    setDismissedSkip(null)
   }, [item?.Id])
 
   const effectiveBitrate = bitrateOverride ?? settings.maxBitrate
@@ -167,6 +170,8 @@ export function Player() {
   })
   const plan: StreamPlan | null = streamQuery.data ?? null
 
+  const segments = useMediaSegments(item?.Id ?? undefined)
+
   const siblings = useQuery({
     queryKey: ['siblings', api.userId, item?.Id],
     queryFn: () => resolveSiblingEpisodes(api, item!),
@@ -198,6 +203,8 @@ export function Player() {
   })
 
   const [dismissedUpNext, setDismissedUpNext] = useState<string | null>(null)
+  const [dismissedSkip, setDismissedSkip] = useState<string | null>(null)
+  const skipTargetRef = useRef<ReturnType<typeof segmentAt>>(null)
 
   // Absolute media position — transcoded streams restart their clock at zero.
   const offset = plan?.startOffsetSeconds ?? 0
@@ -456,6 +463,11 @@ export function Player() {
     [plan, seekAbsolute],
   )
 
+  const doSkip = useCallback(() => {
+    if (!skipTargetRef.current) return
+    seekAbsolute(skipTargetRef.current.skipToSeconds)
+  }, [seekAbsolute])
+
   // Hand the group a way to drive this player.
   useEffect(() => {
     if (!syncPlay) return
@@ -594,13 +606,44 @@ export function Player() {
     zero, which is the moment the countdown is supposed to advance.
   */
   const remaining = absoluteDuration - absoluteTime
-  const upNextVisible =
+  const upNextVisibleBase =
     Boolean(nextId) &&
     absoluteDuration > 0 &&
     remaining <= AUTOPLAY_AT &&
     dismissedUpNext !== item?.Id &&
     menu === 'none' &&
     !showStats
+
+  /*
+    Skip ranges. A server that has never run intro detection returns none, and
+    everything below simply produces no button.
+  */
+  const skipTarget = segmentAt(segments.data, absoluteTime)
+  const skipVisible =
+    Boolean(skipTarget) &&
+    dismissedSkip !== skipTarget?.key &&
+    menu === 'none' &&
+    !showStats &&
+    // Up Next owns the end of the episode; two stacked prompts is one too many.
+    !upNextVisibleBase
+
+  const upNextVisible = upNextVisibleBase
+
+  skipTargetRef.current = skipTarget
+
+  /*
+    Auto-skip, when the viewer asked for it. Keyed on the segment so it fires
+    once per range: without that, seeking back into an intro would skip it
+    again and make the player feel like it was fighting you.
+  */
+  const autoSkippedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!skipVisible || !skipTarget) return
+    if (!shouldAutoSkip(skipTarget, settings.autoSkipIntros)) return
+    if (autoSkippedRef.current === skipTarget.key) return
+    autoSkippedRef.current = skipTarget.key
+    seekAbsolute(skipTarget.skipToSeconds)
+  }, [skipVisible, skipTarget, settings.autoSkipIntros, seekAbsolute])
 
   const asMessage = (e: unknown) => (e instanceof Error ? e.message : null)
   const failure = error ?? asMessage(playable.error) ?? asMessage(streamQuery.error) ?? null
@@ -668,6 +711,26 @@ export function Player() {
         dismissed, and never shown while the menus are open — the countdown
         should not appear over something the viewer is reading.
       */}
+      {/*
+        Sits above the control bar so it never covers the scrubber, and to the
+        right where a thumb reaches it — the same corner every streaming app
+        puts it, because muscle memory is the whole point.
+      */}
+      {skipVisible && skipTarget && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-28 z-30 flex justify-end px-4 sm:bottom-32 sm:px-10">
+          <button
+            onClick={doSkip}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setDismissedSkip(skipTarget.key)
+            }}
+            className="pointer-events-auto rounded bg-white/95 px-6 py-2.5 text-sm font-bold text-black shadow-2xl transition hover:bg-white"
+          >
+            {skipTarget.label}
+          </button>
+        </div>
+      )}
+
       {upNextVisible && nextEpisode.data && (
         <UpNext
           next={nextEpisode.data}

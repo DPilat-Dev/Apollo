@@ -76,6 +76,12 @@ export function Settings() {
           hint="Turns on the default subtitle track whenever a title has one."
           checked={settings.subtitlesDefault}
         />
+        <Toggle
+          name="autoSkipIntros"
+          label="Skip intros automatically"
+          hint="Jumps past intros and recaps without asking. Credits are never skipped on their own, in case there is a scene after them."
+          checked={settings.autoSkipIntros}
+        />
       </Section>
 
       <JellyseerrSection />

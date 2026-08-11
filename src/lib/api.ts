@@ -1,3 +1,4 @@
+import type { MediaSegment } from './segments'
 import type {
   ActivityLogEntry,
   AuthenticationInfo,
@@ -491,6 +492,19 @@ export class JellyfinApi {
         fields: ['RemoteTrailers', 'LocalTrailerCount'],
       },
     })
+  }
+
+  /**
+   * Intro, recap and credits ranges, when something has scanned for them.
+   * An empty list simply means no skip buttons, never an error.
+   */
+  async mediaSegments(itemId: string): Promise<MediaSegment[]> {
+    const res = await this.request<{ Items?: MediaSegment[] } | MediaSegment[]>(
+      `/MediaSegments/${itemId}`,
+      { query: { includeSegmentTypes: ['Intro', 'Outro', 'Recap', 'Preview', 'Commercial'] } },
+    )
+    // Jellyfin returns a QueryResult here, but a bare array elsewhere; accept both.
+    return Array.isArray(res) ? res : (res?.Items ?? [])
   }
 
   /** Trailer files held on the server, playable like any other item. */

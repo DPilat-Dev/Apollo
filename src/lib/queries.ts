@@ -99,6 +99,21 @@ export function useLocalTrailers(itemId?: string, count = 0) {
   })
 }
 
+/**
+ * Skip ranges for the item being played. Failure is silent by design: a
+ * server with no segment data must simply show no buttons.
+ */
+export function useMediaSegments(itemId?: string) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['segments', itemId],
+    queryFn: () => api.mediaSegments(itemId!).catch(() => []),
+    enabled: Boolean(itemId),
+    staleTime: 30 * 60 * 1000,
+    retry: false,
+  })
+}
+
 export function useSimilar(itemId?: string) {
   const api = useApi()
   return useQuery({

@@ -12,6 +12,12 @@ export interface Settings {
   jellyseerrEnabled: boolean
   /** Request every season of a series in one go, rather than season one only. */
   requestAllSeasons: boolean
+  /** Jump past intros and recaps without being asked. */
+  autoSkipIntros: boolean
+  /** Subtitle appearance, applied through ::cue. */
+  subtitleSize: number
+  subtitleColor: string
+  subtitleBackground: 'none' | 'subtle' | 'solid'
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,6 +27,10 @@ export const DEFAULT_SETTINGS: Settings = {
   reduceMotion: false,
   jellyseerrEnabled: true,
   requestAllSeasons: true,
+  autoSkipIntros: false,
+  subtitleSize: 100,
+  subtitleColor: '#ffffff',
+  subtitleBackground: 'subtle',
 }
 
 export const BITRATE_OPTIONS = [
