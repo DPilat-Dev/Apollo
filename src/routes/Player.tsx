@@ -16,6 +16,7 @@ import {
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { useSyncPlay } from '../lib/syncplay'
 import { segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
+import type { MediaSegment } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
@@ -671,7 +672,13 @@ export function Player() {
     from the same segments the skip button uses, so the two always agree.
   */
   const chapterStarts = useMemo(
-    () => (item?.Chapters ?? []).map((c) => ticksToSeconds(c.StartPositionTicks ?? 0)),
+    () =>
+      (item?.Chapters ?? [])
+        .map((c, i) => ({
+          start: ticksToSeconds(c.StartPositionTicks ?? 0),
+          name: c.Name?.trim() || `Chapter ${i + 1}`,
+        }))
+        .sort((a, b) => a.start - b.start),
     [item?.Chapters],
   )
   const segmentRanges = useMemo(
@@ -771,7 +778,7 @@ export function Player() {
         puts it, because muscle memory is the whole point.
       */}
       {skipVisible && skipTarget && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-28 z-30 flex justify-end px-4 sm:bottom-32 sm:px-10">
+        <div className="pointer-events-none absolute bottom-28 right-4 z-30 sm:bottom-32 sm:right-8">
           <button
             onClick={doSkip}
             onContextMenu={(e) => {
@@ -801,6 +808,7 @@ export function Player() {
           video={videoRef.current}
           selectedAudioIndex={audioIndex}
           bufferedAhead={Math.max(0, buffered - currentTime)}
+          segments={segments.data}
           onClose={() => setShowStats(false)}
         />
       )}
@@ -1035,6 +1043,30 @@ export function Player() {
                       </div>
                     </MenuGroup>
 
+                    {chapterStarts.length > 1 && (
+                      <MenuGroup title="Chapters">
+                        <div className="max-h-56 overflow-y-auto">
+                          {chapterStarts.map((c) => (
+                            <MenuItem
+                              key={c.start}
+                              active={chapterAt(chapterStarts, absoluteTime) === c.name}
+                              onClick={() => {
+                                seekAbsolute(c.start)
+                                setMenu('none')
+                              }}
+                            >
+                              <span className="flex w-full items-center justify-between gap-3">
+                                <span className="truncate">{c.name}</span>
+                                <span className="shrink-0 text-[11px] tabular-nums text-white/40">
+                                  {formatTimecode(c.start)}
+                                </span>
+                              </span>
+                            </MenuItem>
+                          ))}
+                        </div>
+                      </MenuGroup>
+                    )}
+
                     <MenuGroup title="Quality">
                       <MenuItem
                         active={effectiveBitrate === 0}
@@ -1188,12 +1220,14 @@ function StatsPanel({
   video,
   selectedAudioIndex,
   bufferedAhead,
+  segments,
   onClose,
 }: {
   plan: StreamPlan
   video: HTMLVideoElement | null
   selectedAudioIndex?: number
   bufferedAhead: number
+  segments?: MediaSegment[]
   onClose: () => void
 }) {
   const source = plan.mediaSource
@@ -1252,6 +1286,20 @@ function StatsPanel({
     ['Play session', plan.playSessionId?.slice(0, 12)],
   ]
 
+  /*
+    Whether anything has scanned this item for intros. Without this line a
+    missing Skip button is indistinguishable from a library that no detection
+    plugin has ever looked at, and there is nowhere else to find out.
+  */
+  rows.push([
+    'Skip ranges',
+    segments?.length
+      ? segments
+          .map((seg) => `${seg.Type ?? 'Segment'} @ ${formatTimecode((seg.StartTicks ?? 0) / 10_000_000)}`)
+          .join(', ')
+      : 'none — needs an intro-detection plugin',
+  ])
+
   return (
     <div className="absolute right-4 top-20 z-30 w-80 rounded-lg border border-white/10 bg-black/90 p-4 text-xs backdrop-blur sm:right-8">
       <div className="mb-2 flex items-center justify-between">
@@ -1292,8 +1340,8 @@ function Scrubber({
   duration: number
   buffered: number
   onSeek: (seconds: number) => void
-  /** Chapter starts, in seconds, drawn as ticks along the track. */
-  chapters?: number[]
+  /** Chapters, drawn as divisions and named in the hover preview. */
+  chapters?: { start: number; name: string }[]
   /** Skip ranges, shaded so intros and credits are visible before you reach them. */
   ranges?: { start: number; end: number }[]
   /** Returns the sprite covering a moment, when the server has thumbnails. */
@@ -1345,12 +1393,12 @@ function Scrubber({
             only be a mark against the left edge. */}
         {duration > 0 &&
           chapters
-            ?.filter((c) => c > 1 && c < duration)
+            ?.filter((c) => c.start > 1 && c.start < duration)
             .map((c) => (
               <div
-                key={c}
+                key={c.start}
                 className="absolute inset-y-0 w-px bg-black/55"
-                style={{ left: `${(c / duration) * 100}%` }}
+                style={{ left: `${(c.start / duration) * 100}%` }}
               />
             ))}
       </div>
@@ -1366,6 +1414,7 @@ function Scrubber({
           x={hoverX ?? 0}
           trackWidth={trackRef.current?.clientWidth ?? 0}
           preview={preview}
+          chapterName={chapterAt(chapters, hoverSeconds)}
         />
       )}
     </div>
@@ -1378,16 +1427,32 @@ function Scrubber({
  *
  * Clamped to the track so a preview near either end doesn't hang off-screen.
  */
+/** The chapter covering an instant: the last one to have started. */
+function chapterAt(
+  chapters: { start: number; name: string }[] | undefined,
+  seconds: number,
+): string | null {
+  if (!chapters?.length) return null
+  let found: string | null = null
+  for (const c of chapters) {
+    if (c.start <= seconds) found = c.name
+    else break
+  }
+  return found
+}
+
 function ScrubPreview({
   seconds,
   x,
   trackWidth,
   preview,
+  chapterName,
 }: {
   seconds: number
   x: number
   trackWidth: number
   preview?: (seconds: number) => ReturnType<typeof trickplaySprite>
+  chapterName?: string | null
 }) {
   const sprite = preview?.(seconds) ?? null
   const boxWidth = sprite?.width ?? 0
@@ -1412,8 +1477,9 @@ function ScrubPreview({
           }}
         />
       )}
-      <span className="mx-auto block w-fit rounded bg-black/90 px-1.5 py-0.5 text-[11px] tabular-nums text-white">
-        {formatTimecode(seconds)}
+      <span className="mx-auto block w-fit max-w-56 truncate rounded bg-black/90 px-1.5 py-0.5 text-center text-[11px] text-white">
+        {chapterName && <span className="mr-1.5 text-white/70">{chapterName}</span>}
+        <span className="tabular-nums">{formatTimecode(seconds)}</span>
       </span>
     </div>
   )
