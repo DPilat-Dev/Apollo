@@ -489,7 +489,7 @@ export class JellyfinApi {
       // Trailer fields are not returned unless asked for by name.
       query: {
         userId: this.userId,
-        fields: ['RemoteTrailers', 'LocalTrailerCount'],
+        fields: ['RemoteTrailers', 'LocalTrailerCount', 'Chapters'],
       },
     })
   }

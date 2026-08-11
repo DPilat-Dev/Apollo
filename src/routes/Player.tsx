@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type Hls from 'hls.js'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
-import { useItem } from '../lib/queries'
+import { useItem, useMediaSegments } from '../lib/queries'
 import {
   resolveFirstEpisode,
   resolvePlayableItem,
@@ -15,8 +15,7 @@ import {
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { useSyncPlay } from '../lib/syncplay'
-import { useMediaSegments } from '../lib/queries'
-import { segmentAt, shouldAutoSkip } from '../lib/segments'
+import { segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
@@ -550,6 +549,36 @@ export function Player() {
         case 'p':
           goToId(previousId)
           break
+        // j/l alongside the arrows: the convention every video site shares.
+        case 'j':
+          seekBy(-10)
+          break
+        case 'l':
+          seekBy(10)
+          break
+        case 's':
+          if (skipTargetRef.current) doSkip()
+          break
+        case '<':
+        case ',':
+          setSpeed((v) => SPEEDS[Math.max(0, SPEEDS.indexOf(v) - 1)] ?? v)
+          break
+        case '>':
+        case '.':
+          setSpeed((v) => SPEEDS[Math.min(SPEEDS.length - 1, SPEEDS.indexOf(v) + 1)] ?? v)
+          break
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (absoluteDuration > 0) seekAbsolute((Number(e.key) / 10) * absoluteDuration)
+          break
         case 'i':
           setShowStats((v) => !v)
           break
@@ -636,6 +665,23 @@ export function Player() {
     !upNextVisibleBase
 
   const upNextVisible = upNextVisibleBase
+
+  /*
+    Marker data for the scrubber. Chapters come with the item; skip ranges come
+    from the same segments the skip button uses, so the two always agree.
+  */
+  const chapterStarts = useMemo(
+    () => (item?.Chapters ?? []).map((c) => ticksToSeconds(c.StartPositionTicks ?? 0)),
+    [item?.Chapters],
+  )
+  const segmentRanges = useMemo(
+    () =>
+      usableSegments(segments.data).map((seg) => ({
+        start: ticksToSeconds(seg.StartTicks ?? 0),
+        end: ticksToSeconds(seg.EndTicks ?? 0),
+      })),
+    [segments.data],
+  )
 
   skipTargetRef.current = skipTarget
 
@@ -800,6 +846,8 @@ export function Player() {
             duration={absoluteDuration}
             buffered={buffered + offset}
             onSeek={seekAbsolute}
+            chapters={chapterStarts}
+            ranges={segmentRanges}
             preview={
               item?.Id && trickplay
                 ? (seconds) =>
@@ -1236,12 +1284,18 @@ function Scrubber({
   duration,
   buffered,
   onSeek,
+  chapters,
+  ranges,
   preview,
 }: {
   current: number
   duration: number
   buffered: number
   onSeek: (seconds: number) => void
+  /** Chapter starts, in seconds, drawn as ticks along the track. */
+  chapters?: number[]
+  /** Skip ranges, shaded so intros and credits are visible before you reach them. */
+  ranges?: { start: number; end: number }[]
   /** Returns the sprite covering a moment, when the server has thumbnails. */
   preview?: (seconds: number) => ReturnType<typeof trickplaySprite>
 }) {
@@ -1270,7 +1324,35 @@ function Scrubber({
     >
       <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 group-hover/track:h-1.5">
         <div className="absolute inset-y-0 left-0 bg-white/35" style={{ width: `${bufferedPct}%` }} />
+
+        {/* Skip ranges, so an intro or the credits are visible before you
+            reach them and scrubbing past them is deliberate. */}
+        {duration > 0 &&
+          ranges?.map((r) => (
+            <div
+              key={`${r.start}-${r.end}`}
+              className="absolute inset-y-0 bg-white/25"
+              style={{
+                left: `${(r.start / duration) * 100}%`,
+                width: `${((r.end - r.start) / duration) * 100}%`,
+              }}
+            />
+          ))}
+
         <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: `${pct}%` }} />
+
+        {/* Chapter divisions. The first is always at zero, where a tick would
+            only be a mark against the left edge. */}
+        {duration > 0 &&
+          chapters
+            ?.filter((c) => c > 1 && c < duration)
+            .map((c) => (
+              <div
+                key={c}
+                className="absolute inset-y-0 w-px bg-black/55"
+                style={{ left: `${(c / duration) * 100}%` }}
+              />
+            ))}
       </div>
 
       <div
