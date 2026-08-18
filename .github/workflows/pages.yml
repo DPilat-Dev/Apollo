@@ -1,8 +1,14 @@
 name: Demo
 
+# Releases only, deliberately. This demo is the public face of the project and
+# every push to main used to redeploy it — including commits that cannot change
+# the build at all, and every intermediate state of a feature in progress.
+# A release is the point at which the code is meant to be seen.
+#
+# workflow_dispatch stays for republishing without cutting a version.
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
