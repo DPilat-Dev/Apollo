@@ -145,6 +145,20 @@ export const CastIcon = ({ className = base }: P) => (
   </svg>
 )
 
+export const PipIcon = ({ className = base, active = false }: P & { active?: boolean }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden>
+    <rect x="2.5" y="4.5" width="19" height="15" rx="2" />
+    <rect
+      x="12"
+      y="11"
+      width="8"
+      height="7"
+      rx="1"
+      fill={active ? 'currentColor' : 'none'}
+    />
+  </svg>
+)
+
 export const NextTrackIcon = ({ className = base, back = false }: P & { back?: boolean }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
     <g transform={back ? 'scale(-1,1) translate(-24,0)' : undefined}>

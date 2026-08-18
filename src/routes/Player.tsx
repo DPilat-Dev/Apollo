@@ -14,6 +14,9 @@ import {
   type StreamPlan,
 } from '../lib/playback'
 import { useProgressReporter } from '../lib/useProgressReporter'
+import { useMediaSession } from '../lib/useMediaSession'
+import { usePictureInPicture } from '../lib/usePictureInPicture'
+import { useWakeLock } from '../lib/useWakeLock'
 import { useSyncPlay } from '../lib/syncplay'
 import { segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
 import type { MediaSegment } from '../lib/segments'
@@ -33,6 +36,7 @@ import {
   MuteIcon,
   NextTrackIcon,
   PauseIcon,
+  PipIcon,
   PlayIcon,
   RepeatIcon,
   Skip10Icon,
@@ -436,12 +440,22 @@ export function Player() {
   */
   const inGroup = Boolean(syncPlay?.group)
 
+  const requestPlay = useCallback(
+    () => (syncPlay ? syncPlay.requestPlay() : playLocally()),
+    [syncPlay, playLocally],
+  )
+
+  const requestPause = useCallback(
+    () => (syncPlay ? syncPlay.requestPause() : pauseLocally()),
+    [syncPlay, pauseLocally],
+  )
+
   const togglePlay = useCallback(() => {
     const v = videoRef.current
     if (!v) return
-    if (v.paused) syncPlay ? syncPlay.requestPlay() : playLocally()
-    else syncPlay ? syncPlay.requestPause() : pauseLocally()
-  }, [syncPlay, playLocally, pauseLocally])
+    if (v.paused) requestPlay()
+    else requestPause()
+  }, [requestPlay, requestPause])
 
   const seekAbsolute = useCallback(
     (absolute: number) => {
@@ -468,6 +482,39 @@ export function Player() {
     if (!skipTargetRef.current) return
     seekAbsolute(skipTargetRef.current.skipToSeconds)
   }, [seekAbsolute])
+
+  // ------------------------------------------------------ system integration
+
+  const pip = usePictureInPicture(videoRef)
+  const togglePip = pip.toggle
+
+  // The screen is allowed to sleep the moment playback stops, so a paused
+  // episode left on the sofa does not burn the battery down.
+  useWakeLock(!paused)
+
+  const goNext = useCallback(() => goToId(nextId), [goToId, nextId])
+  const goPrevious = useCallback(() => goToId(previousId), [goToId, previousId])
+  const squareArtwork = useCallback(
+    (edge: number) => (item ? api.coverUrl(item, edge, edge) : null),
+    [api, item],
+  )
+
+  useMediaSession({
+    item,
+    artwork: squareArtwork,
+    paused,
+    // Absolute, so the lock-screen scrubber matches the episode rather than
+    // the transcode's own clock.
+    positionSeconds: absoluteTime,
+    durationSeconds: absoluteDuration,
+    playbackRate: speed,
+    onPlay: requestPlay,
+    onPause: requestPause,
+    onSeekTo: seekAbsolute,
+    onSeekBy: seekBy,
+    onNext: nextId ? goNext : undefined,
+    onPrevious: previousId ? goPrevious : undefined,
+  })
 
   // ::cue cannot be styled inline, so it goes through a managed stylesheet
   // that lives only while the player is mounted.
@@ -580,6 +627,10 @@ export function Player() {
         case '9':
           if (absoluteDuration > 0) seekAbsolute((Number(e.key) / 10) * absoluteDuration)
           break
+        // Shift, because a bare `p` is already "previous episode".
+        case 'P':
+          togglePip()
+          break
         case 'i':
           setShowStats((v) => !v)
           break
@@ -591,7 +642,9 @@ export function Player() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu])
+    // `togglePip` and not `pip`: the hook returns a fresh object every render,
+    // which would tear down and re-add this listener on every timeupdate.
+  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu, togglePip])
 
   /*
     Apply a subtitle chosen on the detail page. Which mechanism depends on the
@@ -706,6 +759,29 @@ export function Player() {
     seekAbsolute(skipTarget.skipToSeconds)
   }, [skipVisible, skipTarget, settings.autoSkipIntros, seekAbsolute])
 
+  /*
+    Something to look at while the stream resolves. A transcode can take several
+    seconds to hand over its first frame, and until then this was a black
+    rectangle with a spinner on it.
+
+    The browser drops the poster the instant a frame decodes, and puts it back
+    on the `load()` in the attach effect's cleanup — so advancing an episode
+    shows the next title's art rather than flashing black.
+
+    The same art the Continue Watching row uses — that row is landscape, and
+    `MediaCard` resolves landscape to exactly this pair. Matching it means the
+    card you clicked and the frame it opens into show the same picture, and
+    16:9 art fills a 16:9 player with no bars.
+
+    `backdropUrl` leads with curated Thumb art before any backdrop, and only
+    reaches an episode's own screenshot once nothing else exists — so this is
+    still cover art in every case where the library has some.
+  */
+  const posterImage = useMemo(
+    () => (item ? (api.backdropUrl(item, 1280) ?? api.posterUrl(item, 780) ?? undefined) : undefined),
+    [api, item],
+  )
+
   const asMessage = (e: unknown) => (e instanceof Error ? e.message : null)
   const failure = error ?? asMessage(playable.error) ?? asMessage(streamQuery.error) ?? null
 
@@ -729,6 +805,7 @@ export function Player() {
         }`}
         playsInline
         autoPlay
+        poster={posterImage}
         onClick={() => (menu === 'none' ? togglePlay() : setMenu('none'))}
         crossOrigin="anonymous"
       >
@@ -747,7 +824,7 @@ export function Player() {
       </video>
 
       {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70">
           <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
         </div>
       )}
@@ -934,6 +1011,16 @@ export function Player() {
               >
                 <RepeatIcon className="size-6" one={repeat === 'one'} />
               </IconButton>
+
+              {pip.supported && (
+                <IconButton
+                  onClick={pip.toggle}
+                  label={pip.active ? 'Exit picture in picture' : 'Picture in picture'}
+                  active={pip.active}
+                >
+                  <PipIcon className="size-6" active={pip.active} />
+                </IconButton>
+              )}
 
               {castAvailable && (
                 <IconButton

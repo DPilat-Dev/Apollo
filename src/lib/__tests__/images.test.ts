@@ -183,3 +183,79 @@ describe('stillUrl — one row per episode', () => {
     expect(at(api.stillUrl(withStill))).toBe('/Items/e1/Images/Primary?tag=still')
   })
 })
+
+/**
+ * OS media artwork declares a `sizes` of NxN, and widgets lay out against that
+ * number rather than the pixels they get back. A 2:3 poster returned for a
+ * square declaration comes out stretched, so the request has to crop.
+ */
+describe('square artwork', () => {
+  it('asks the server to crop to both edges, not just scale a width', () => {
+    const item = { Id: 'i1', ImageTags: { Primary: 'pt' } } as unknown as BaseItemDto
+    const url = new URL(api.posterUrl(item, 256, 256)!)
+    expect(url.searchParams.get('fillWidth')).toBe(url.searchParams.get('fillHeight'))
+    expect(url.searchParams.get('fillHeight')).not.toBeNull()
+  })
+
+  it('still crops when the art is inherited from the series', () => {
+    const ep = {
+      Id: 'e1',
+      Type: 'Episode',
+      SeriesId: 'sr1',
+      SeriesPrimaryImageTag: 'sp',
+      ImageTags: {},
+    } as unknown as BaseItemDto
+    const url = new URL(api.posterUrl(ep, 256, 256)!)
+    expect(url.pathname).toBe('/Items/sr1/Images/Primary')
+    expect(url.searchParams.get('fillWidth')).toBe(url.searchParams.get('fillHeight'))
+  })
+
+  it('leaves the poster shape alone when no height is asked for', () => {
+    const item = { Id: 'i1', ImageTags: { Primary: 'pt' } } as unknown as BaseItemDto
+    const url = new URL(api.posterUrl(item, 256)!)
+    expect(url.searchParams.get('fillHeight')).toBeNull()
+  })
+})
+
+/**
+ * Regression: the player's poster and the OS lock-screen artwork both showed a
+ * screenshot of the episode instead of the show's cover. `posterUrl` prefers an
+ * item's own Primary image, and an episode's Primary *is* its screenshot, so it
+ * only ever reached the series art for episodes that had no image of their own.
+ */
+describe('coverUrl', () => {
+  const episode = {
+    Id: 'e1',
+    Type: 'Episode',
+    ImageTags: { Primary: 'episode-still' },
+    SeriesId: 'sr1',
+    SeriesPrimaryImageTag: 'series-poster',
+  } as unknown as BaseItemDto
+
+  it('takes the series poster over the episode’s own screenshot', () => {
+    expect(at(api.coverUrl(episode))).toBe('/Items/sr1/Images/Primary?tag=series-poster')
+  })
+
+  it('is the opposite of posterUrl, which keeps preferring the screenshot', () => {
+    expect(at(api.posterUrl(episode))).toBe('/Items/e1/Images/Primary?tag=episode-still')
+  })
+
+  it('falls back to the episode’s own image when the series has no poster', () => {
+    const orphan = { ...episode, SeriesPrimaryImageTag: undefined } as BaseItemDto
+    expect(at(api.coverUrl(orphan))).toBe('/Items/e1/Images/Primary?tag=episode-still')
+  })
+
+  it('leaves a film alone — its Primary already is the cover', () => {
+    const movie = {
+      Id: 'm1',
+      Type: 'Movie',
+      ImageTags: { Primary: 'mp' },
+    } as unknown as BaseItemDto
+    expect(at(api.coverUrl(movie))).toBe('/Items/m1/Images/Primary?tag=mp')
+  })
+
+  it('still crops square when both edges are asked for', () => {
+    const url = new URL(api.coverUrl(episode, 256, 256)!)
+    expect(url.searchParams.get('fillWidth')).toBe(url.searchParams.get('fillHeight'))
+  })
+})

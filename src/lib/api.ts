@@ -202,7 +202,7 @@ const WIDTH_BUCKETS = [
  */
 const MAX_PIXEL_RATIO = 2
 
-function scaleForDisplay(width: number): number {
+export function scaleForDisplay(width: number): number {
   const ratio = Math.min(
     typeof window === 'undefined' ? 1 : (window.devicePixelRatio ?? 1),
     MAX_PIXEL_RATIO,
@@ -492,20 +492,40 @@ export class JellyfinApi {
     })
   }
 
-  /** Falls back through parent ids so episodes can borrow series art. */
-  posterUrl(item: BaseItemDto, width = 400): string | null {
-    const own = this.imageUrl(item, 'Primary', { width })
+  /**
+   * Falls back through parent ids so episodes can borrow series art.
+   *
+   * `height` is optional and only worth passing where the consumer needs a
+   * known shape rather than a poster — OS media artwork, which is square.
+   */
+  posterUrl(item: BaseItemDto, width = 400, height?: number): string | null {
+    const own = this.imageUrl(item, 'Primary', { width, height })
     if (own) return own
     const parentId = item.SeriesId ?? item.AlbumId ?? item.ParentId
     const parentTag = item.SeriesPrimaryImageTag ?? item.AlbumPrimaryImageTag
     if (parentId && parentTag) {
-      return this.inherited(parentId, 'Primary', parentTag, width)
+      return this.inherited(parentId, 'Primary', parentTag, width, height)
     }
     return null
   }
 
-  private inherited(itemId: string, type: string, tag: string, width: number) {
-    return this.imageUrlFor(itemId, type, tag, { width })
+  private inherited(itemId: string, type: string, tag: string, width: number, height?: number) {
+    return this.imageUrlFor(itemId, type, tag, { width, height })
+  }
+
+  /**
+   * Cover art for the *title* an item belongs to, never a frame of it.
+   *
+   * `posterUrl` prefers an item's own Primary image, and an episode's Primary
+   * is its screenshot — so asking it for an episode gets you a picture of a
+   * scene, not the show. Anywhere the job is to identify what you are watching
+   * rather than where you are in it, this is the one to use.
+   */
+  coverUrl(item: BaseItemDto, width = 400, height?: number): string | null {
+    if (item.Type === 'Episode' && item.SeriesId && item.SeriesPrimaryImageTag) {
+      return this.inherited(item.SeriesId, 'Primary', item.SeriesPrimaryImageTag, width, height)
+    }
+    return this.posterUrl(item, width, height)
   }
 
   /**

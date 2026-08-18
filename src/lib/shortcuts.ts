@@ -42,6 +42,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: ['↑', '↓'], description: 'Volume' },
       { keys: ['M'], description: 'Mute' },
       { keys: ['F'], description: 'Fullscreen' },
+      { keys: ['Shift', 'P'], description: 'Picture in picture' },
       { keys: ['C'], description: 'Subtitles on or off' },
     ],
   },

@@ -29,7 +29,6 @@ const MIME = {
   // Browsers ignore a manifest served as anything else, which silently costs
   // installability with nothing in the console to explain it.
   '.webmanifest': 'application/manifest+json',
-  '.json': 'application/json',
   '.txt': 'text/plain; charset=utf-8',
 }
 
