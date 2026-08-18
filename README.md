@@ -144,6 +144,21 @@ Updating afterwards is one command, run as root:
 /opt/apollo/scripts/update.sh
 ```
 
+It moves to the **latest release tag**, not to the tip of `main`. A server people
+actually watch things on should not follow every commit — that includes work in
+progress, and anything pushed between a bug being introduced and being noticed.
+
+```bash
+/opt/apollo/scripts/update.sh              # latest release
+/opt/apollo/scripts/update.sh --edge       # current main, unreleased
+/opt/apollo/scripts/update.sh --ref v1.0.0 # pin to a version, or roll back
+/opt/apollo/scripts/update.sh --force      # rebuild even if nothing changed
+```
+
+Running it when the server is already on the target version does nothing, rather
+than rebuilding and bouncing the service under whoever is watching. `.env` and
+`apollo.runtime.json` are untracked, so they survive every path through this.
+
 ### Secure contexts
 
 Several browser APIs exist only on HTTPS or `localhost`. Apollo avoids them, but
