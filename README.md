@@ -10,6 +10,34 @@ Built against **Jellyfin 10.11.8**, with endpoints verified against that server'
 own OpenAPI document — which matters, because 10.11 removed the legacy
 `/Users/{userId}/...` routes that older documentation still describes.
 
+![Apollo home screen — a full-bleed hero with Continue Watching below it](docs/screenshots/home.webp)
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/library.webp" alt="A library grid of series posters with genre and sort controls"></td>
+    <td width="50%"><img src="docs/screenshots/detail.webp" alt="A series detail page with logo, ratings, actions and cast"></td>
+  </tr>
+  <tr>
+    <td>Library, with unwatched counts, genre filter and sorting</td>
+    <td>Series detail — external ratings, trailer, playlists, cast and crew</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/player.webp" alt="The player with a chapter-marked scrubber and transport controls"></td>
+    <td><img src="docs/screenshots/player-menu.webp" alt="The player subtitle and audio menu, showing which tracks need burning in"></td>
+  </tr>
+  <tr>
+    <td>The player. Chapters mark the scrubber; skip ranges sit alongside them</td>
+    <td>Subtitles and audio, labelled where a track has to be burned in</td>
+  </tr>
+</table>
+
+![Search results grouped by library, with per-library counts](docs/screenshots/search.webp)
+
+Search groups by library and counts each one, with a Jellyseerr filter for
+things you do not have yet.
+
 ## Try it without installing anything
 
 **<https://dpilat-dev.github.io/Apollo/>** — the live build, which asks for your
