@@ -16,15 +16,17 @@ import {
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { useMediaSession } from '../lib/useMediaSession'
 import { usePictureInPicture } from '../lib/usePictureInPicture'
+import { useTapGestures, type TapFeedback } from '../lib/useTapGestures'
 import { useWakeLock } from '../lib/useWakeLock'
 import { useSyncPlay } from '../lib/syncplay'
-import { segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
+import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
 import type { MediaSegment } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
+import { chapterAt, Scrubber } from '../components/Scrubber'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
-import { AUTOPLAY_AT, UpNext } from '../components/UpNext'
+import { UpNext, upNextLeadSeconds } from '../components/UpNext'
 import { BITRATE_OPTIONS, useSettings } from '../lib/settings'
 import { displayTitle, episodeCode, formatTimecode, ticksToSeconds } from '../lib/format'
 import {
@@ -560,6 +562,45 @@ export function Player() {
 
   const showControls = controlsVisible || paused || menu !== 'none' || waiting
 
+  /*
+    A touch only keeps the controls alive, never summons them. Revealing them
+    is the tap gesture's job, and a nudge here would fire first — on the
+    `touchstart` half of the very tap being asked to hide them.
+  */
+  const nudgeOnTouch = useCallback(() => {
+    if (controlsVisible) nudgeActivity()
+  }, [controlsVisible, nudgeActivity])
+
+  const toggleControls = useCallback(() => {
+    if (showControls) {
+      window.clearTimeout(idleTimer.current)
+      setControlsVisible(false)
+    } else {
+      nudgeActivity()
+    }
+  }, [showControls, nudgeActivity])
+
+  /*
+    Touch gestures on the video itself: one tap for the controls, two near an
+    edge to jump. `seekFlash` exists because a double tap usually happens with
+    the chrome hidden, and a jump nothing acknowledges reads as a dropped tap.
+  */
+  const [seekFlash, setSeekFlash] = useState<TapFeedback | null>(null)
+  const flashTimer = useRef<number | undefined>(undefined)
+  const showSeekFlash = useCallback((feedback: TapFeedback | null) => {
+    setSeekFlash(feedback)
+    window.clearTimeout(flashTimer.current)
+    if (feedback) flashTimer.current = window.setTimeout(() => setSeekFlash(null), 650)
+  }, [])
+  useEffect(() => () => window.clearTimeout(flashTimer.current), [])
+
+  const onVideoPointerUp = useTapGestures({
+    onSeekBy: seekBy,
+    onTogglePlay: togglePlay,
+    onSingleTap: toggleControls,
+    onFeedback: showSeekFlash,
+  })
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return
@@ -697,10 +738,20 @@ export function Player() {
     zero, which is the moment the countdown is supposed to advance.
   */
   const remaining = absoluteDuration - absoluteTime
+  /*
+    When to show it. Where the server has detected credits the card appears as
+    they start, which is the moment the episode is actually over; everywhere
+    else a fixed lead stands in. Both are capped, so a misdetected outro cannot
+    park the card on screen for half the episode.
+  */
+  const upNextLead = useMemo(
+    () => upNextLeadSeconds(absoluteDuration, creditsStartSeconds(segments.data)),
+    [absoluteDuration, segments.data],
+  )
   const upNextVisibleBase =
     Boolean(nextId) &&
     absoluteDuration > 0 &&
-    remaining <= AUTOPLAY_AT &&
+    remaining <= upNextLead &&
     dismissedUpNext !== item?.Id &&
     menu === 'none' &&
     !showStats
@@ -794,8 +845,17 @@ export function Player() {
   return (
     <div
       className="relative h-dvh w-full select-none overflow-hidden bg-black"
-      onMouseMove={nudgeActivity}
-      onTouchStart={nudgeActivity}
+      /*
+        Pointer events and not `onMouseMove`: a browser fires a compatibility
+        `mousemove` after every touch tap, which summoned the controls again a
+        fraction of a second before the tap gesture asked to hide them. They
+        flickered and stayed. `pointerType` is the only thing that tells the
+        two apart.
+      */
+      onPointerMove={(e) => (e.pointerType === 'mouse' ? nudgeActivity() : nudgeOnTouch())}
+      onPointerDown={(e) => {
+        if (e.pointerType !== 'mouse') nudgeOnTouch()
+      }}
       style={{ cursor: showControls ? 'default' : 'none' }}
     >
       <video
@@ -806,7 +866,10 @@ export function Player() {
         playsInline
         autoPlay
         poster={posterImage}
-        onClick={() => (menu === 'none' ? togglePlay() : setMenu('none'))}
+        /* `touch-manipulation` is what stops a double tap zooming the page
+           instead of seeking. */
+        style={{ touchAction: 'manipulation' }}
+        onPointerUp={(e) => (menu === 'none' ? onVideoPointerUp(e) : setMenu('none'))}
         crossOrigin="anonymous"
       >
         {plan?.subtitles
@@ -826,6 +889,23 @@ export function Player() {
       {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70">
           <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
+        </div>
+      )}
+
+      {/*
+        Acknowledgement for a double tap. Deliberately on the side that was
+        tapped rather than centre-screen: it confirms the gesture was read as
+        "the right edge", which is the part people get wrong at first.
+      */}
+      {seekFlash && (
+        <div
+          key={seekFlash.key}
+          className={`pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 animate-[seek-flash_650ms_ease-out_forwards] items-center gap-2 rounded-full bg-black/60 px-4 py-2.5 text-sm font-semibold backdrop-blur ${
+            seekFlash.zone === 'left' ? 'left-6' : 'right-6'
+          }`}
+        >
+          <Skip10Icon className="size-6" back={seekFlash.seconds < 0} />
+          {Math.abs(seekFlash.seconds)}s
         </div>
       )}
 
@@ -873,6 +953,7 @@ export function Player() {
         <UpNext
           next={nextEpisode.data}
           secondsLeft={absoluteDuration - absoluteTime}
+          windowSeconds={upNextLead}
           autoplay={settings.autoplayNext && repeat !== 'one'}
           onPlay={() => goToId(nextId)}
           onDismiss={() => setDismissedUpNext(item?.Id ?? null)}
@@ -892,8 +973,15 @@ export function Player() {
 
       {/* ----------------------------------------------------------- chrome */}
       <div
-        className={`pointer-events-none absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0'
+        /*
+          `invisible` and not just `opacity-0`: the bars keep `pointer-events:
+          auto` so their buttons stay clickable, which meant a hidden control
+          bar was still swallowing taps aimed at the video behind it — the
+          bottom one covers the whole thumb-rest of a phone screen. Visibility
+          transitions discretely, so it holds until the fade finishes.
+        */
+        className={`pointer-events-none absolute inset-0 flex flex-col justify-between transition-[opacity,visibility] duration-300 ${
+          showControls ? 'visible opacity-100' : 'invisible opacity-0'
         }`}
       >
         <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-16 pt-4 sm:px-8">
@@ -1410,164 +1498,6 @@ function StatsPanel({
           Transcoding because: {reasons.join(', ')}
         </p>
       )}
-    </div>
-  )
-}
-
-function Scrubber({
-  current,
-  duration,
-  buffered,
-  onSeek,
-  chapters,
-  ranges,
-  preview,
-}: {
-  current: number
-  duration: number
-  buffered: number
-  onSeek: (seconds: number) => void
-  /** Chapters, drawn as divisions and named in the hover preview. */
-  chapters?: { start: number; name: string }[]
-  /** Skip ranges, shaded so intros and credits are visible before you reach them. */
-  ranges?: { start: number; end: number }[]
-  /** Returns the sprite covering a moment, when the server has thumbnails. */
-  preview?: (seconds: number) => ReturnType<typeof trickplaySprite>
-}) {
-  const [hoverX, setHoverX] = useState<number | null>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
-
-  const pct = duration > 0 ? (current / duration) * 100 : 0
-  const bufferedPct = duration > 0 ? Math.min((buffered / duration) * 100, 100) : 0
-
-  const hoverSeconds =
-    hoverX != null && trackRef.current ? (hoverX / trackRef.current.clientWidth) * duration : null
-
-  return (
-    <div
-      ref={trackRef}
-      className="group/track relative h-6 cursor-pointer"
-      onMouseMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        setHoverX(e.clientX - rect.left)
-      }}
-      onMouseLeave={() => setHoverX(null)}
-      onClick={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        onSeek(((e.clientX - rect.left) / rect.width) * duration)
-      }}
-    >
-      <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 group-hover/track:h-1.5">
-        <div className="absolute inset-y-0 left-0 bg-white/35" style={{ width: `${bufferedPct}%` }} />
-
-        {/* Skip ranges, so an intro or the credits are visible before you
-            reach them and scrubbing past them is deliberate. */}
-        {duration > 0 &&
-          ranges?.map((r) => (
-            <div
-              key={`${r.start}-${r.end}`}
-              className="absolute inset-y-0 bg-white/25"
-              style={{
-                left: `${(r.start / duration) * 100}%`,
-                width: `${((r.end - r.start) / duration) * 100}%`,
-              }}
-            />
-          ))}
-
-        <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: `${pct}%` }} />
-
-        {/* Chapter divisions. The first is always at zero, where a tick would
-            only be a mark against the left edge. */}
-        {duration > 0 &&
-          chapters
-            ?.filter((c) => c.start > 1 && c.start < duration)
-            .map((c) => (
-              <div
-                key={c.start}
-                className="absolute inset-y-0 w-px bg-black/55"
-                style={{ left: `${(c.start / duration) * 100}%` }}
-              />
-            ))}
-      </div>
-
-      <div
-        className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover/track:opacity-100"
-        style={{ left: `${pct}%` }}
-      />
-
-      {hoverSeconds != null && Number.isFinite(hoverSeconds) && (
-        <ScrubPreview
-          seconds={hoverSeconds}
-          x={hoverX ?? 0}
-          trackWidth={trackRef.current?.clientWidth ?? 0}
-          preview={preview}
-          chapterName={chapterAt(chapters, hoverSeconds)}
-        />
-      )}
-    </div>
-  )
-}
-
-/**
- * The tooltip that follows the cursor along the scrubber: a trickplay frame
- * where one exists, and the timecode either way.
- *
- * Clamped to the track so a preview near either end doesn't hang off-screen.
- */
-/** The chapter covering an instant: the last one to have started. */
-function chapterAt(
-  chapters: { start: number; name: string }[] | undefined,
-  seconds: number,
-): string | null {
-  if (!chapters?.length) return null
-  let found: string | null = null
-  for (const c of chapters) {
-    if (c.start <= seconds) found = c.name
-    else break
-  }
-  return found
-}
-
-function ScrubPreview({
-  seconds,
-  x,
-  trackWidth,
-  preview,
-  chapterName,
-}: {
-  seconds: number
-  x: number
-  trackWidth: number
-  preview?: (seconds: number) => ReturnType<typeof trickplaySprite>
-  chapterName?: string | null
-}) {
-  const sprite = preview?.(seconds) ?? null
-  const boxWidth = sprite?.width ?? 0
-  const half = boxWidth / 2
-  const left = boxWidth > 0 && trackWidth > 0 ? Math.min(Math.max(x, half), trackWidth - half) : x
-
-  return (
-    <div
-      className="pointer-events-none absolute bottom-full mb-2 -translate-x-1/2"
-      style={{ left: `${left}px` }}
-    >
-      {sprite && (
-        <div
-          className="mb-1 overflow-hidden rounded border border-white/20 bg-black shadow-2xl"
-          style={{
-            width: sprite.width,
-            height: sprite.height,
-            backgroundImage: `url("${sprite.url}")`,
-            backgroundSize: sprite.backgroundSize,
-            backgroundPosition: sprite.backgroundPosition,
-            backgroundRepeat: 'no-repeat',
-          }}
-        />
-      )}
-      <span className="mx-auto block w-fit max-w-56 truncate rounded bg-black/90 px-1.5 py-0.5 text-center text-[11px] text-white">
-        {chapterName && <span className="mr-1.5 text-white/70">{chapterName}</span>}
-        <span className="tabular-nums">{formatTimecode(seconds)}</span>
-      </span>
     </div>
   )
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { segmentAt, shouldAutoSkip, usableSegments, type MediaSegment } from '../segments'
+import {
+  creditsStartSeconds,
+  segmentAt,
+  shouldAutoSkip,
+  usableSegments,
+  type MediaSegment,
+} from '../segments'
 
 const S = 10_000_000
 const seg = (type: string, start: number, end: number, id?: string): MediaSegment =>
@@ -80,5 +86,26 @@ describe('shouldAutoSkip', () => {
   it('does nothing when the setting is off, or there is no segment', () => {
     expect(shouldAutoSkip(target('Intro'), false)).toBe(false)
     expect(shouldAutoSkip(null, true)).toBe(false)
+  })
+})
+
+describe('creditsStartSeconds', () => {
+  it('finds where the credits begin', () => {
+    expect(creditsStartSeconds([seg('Intro', 30, 90), seg('Outro', 1340, 1400)])).toBe(1340)
+  })
+
+  it('takes the last outro, not a mid-episode one', () => {
+    // Some shows carry a "next time on" card the server also labels Outro.
+    expect(creditsStartSeconds([seg('Outro', 600, 630), seg('Outro', 1340, 1400)])).toBe(1340)
+  })
+
+  it('is null when nothing has scanned the library', () => {
+    expect(creditsStartSeconds(undefined)).toBeNull()
+    expect(creditsStartSeconds([])).toBeNull()
+    expect(creditsStartSeconds([seg('Intro', 30, 90)])).toBeNull()
+  })
+
+  it('ignores a one-second artefact the way the skip button does', () => {
+    expect(creditsStartSeconds([seg('Outro', 1399, 1400)])).toBeNull()
   })
 })

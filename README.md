@@ -636,7 +636,7 @@ PlaybackInfo shows Jellyfin's actual reason in the player instead of a bare 500.
 ## Player controls
 
 Transport: play/pause, ±10s, previous/next episode, volume, scrubber with hover
-preview. On the right: repeat (off → all → one), cast, a subtitles/audio menu,
+preview and drag-to-scrub. On the right: repeat (off → all → one), cast, a subtitles/audio menu,
 and a settings menu holding speed, quality, aspect ratio, and playback info.
 
 Some choices are client-side and some cost a stream reload, because the server
@@ -656,6 +656,44 @@ is set to wherever playback is before the query key changes.
 Transcode reasons in the playback-info panel are parsed out of the
 `TranscodingUrl` query string — the server does not return them on the media
 source, which is where you would expect to find them.
+
+### Touch gestures
+
+A touchscreen has no hover and no second mouse button, so the video surface
+carries three gestures instead:
+
+| Gesture | Does |
+| --- | --- |
+| Single tap | Show the controls, or hide them |
+| Double tap, left or right third | Jump ∓10s, and again for each extra tap |
+| Double tap, middle third | Play/pause |
+
+The middle third is deliberately not a seek zone: it is where a thumb rests,
+and an accidental jump there would be the most annoying place to have one.
+
+A tap is only known to be single once the double-tap window (300 ms) closes, so
+the single-tap action waits that long. Mouse clicks do **not** wait — deferring
+every desktop pause by a third of a second to watch for a second click would
+feel broken — which is why `useTapGestures` branches on `pointerType`.
+
+Two things this needed that are easy to miss:
+
+- Browsers fire a **compatibility `mousemove` after every touch tap**. With the
+  idle timer listening on `onMouseMove`, that re-showed the controls a moment
+  before the tap gesture asked to hide them, so tap-to-hide flickered and gave
+  up. The player listens on `onPointerMove` and checks `pointerType` instead.
+- The control bars keep `pointer-events: auto` so their buttons work, which
+  meant a *hidden* bar still swallowed taps aimed at the video behind it — and
+  the bottom one covers the whole thumb-rest of a phone screen. The chrome is
+  `invisible` rather than merely `opacity-0`; visibility transitions discretely,
+  so it holds through the fade and stops hit-testing at the end of it.
+
+The scrubber drags rather than only accepting taps, and its hit area reaches
+8px past the drawn bar on both sides — 24px is a comfortable mouse target and a
+miserable thumb one. Dragging commits **on release**: every intermediate
+position on a transcoded stream would be a fresh transcode for the server to
+start and abandon, so the bar and the preview follow the finger while only the
+video waits.
 
 ### Trickplay thumbnails
 
@@ -733,11 +771,24 @@ follow the queue rather than episode order, which would otherwise quietly undo
 the shuffle. Jumping to an episode by hand re-syncs the position instead of
 snapping back.
 
-**Up next** appears in the final 20 seconds with the episode still, a countdown,
-and two ways out: play now, or hide. Hiding stops the countdown as well as the
-card — a timer that keeps running after you said no is the thing people dislike
-about this pattern. With *Autoplay next episode* off the card still appears, but
-nothing happens on its own.
+**Up next** carries the episode still, a countdown, and two ways out: play now,
+or hide. Hiding stops the countdown as well as the card — a timer that keeps
+running after you said no is the thing people dislike about this pattern. With
+*Autoplay next episode* off the card still appears, but nothing happens on its
+own.
+
+*When* it appears is `upNextLeadSeconds`. Where the server has detected credits
+it appears as they start, which is the moment the episode is over in every
+sense but the clock; elsewhere it falls back to 45 seconds. Both ends are
+clamped — never later than that fallback, and never earlier than 120s or a
+quarter of the runtime, so a misdetected outro covering half an episode cannot
+park the card on screen for minutes. The countdown bar fills across whatever
+window this produced rather than a fixed one, so the bar and the number agree
+on every episode.
+
+Showing the card suppresses the **Skip Credits** button, which is why the two
+share a timing source: two stacked prompts in the same corner is one too many,
+and for an episode with a next one they lead to the same place anyway.
 
 Two things this needed that are easy to miss: advancing reuses the same
 component (`/watch/:id` only changes a param), so the clock has to be reset by

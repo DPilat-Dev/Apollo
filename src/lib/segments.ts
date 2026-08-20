@@ -93,3 +93,16 @@ export function shouldAutoSkip(target: SkipTarget | null, enabled: boolean): boo
   if (!enabled || !target) return false
   return target.type === 'Intro' || target.type === 'Recap'
 }
+
+/**
+ * Where the credits start, in seconds, if the server detected them.
+ *
+ * The last Outro wins: a server that reports both a mid-episode "next time on"
+ * card and the real credits lists them in playback order, and it is the final
+ * one that means the episode is over.
+ */
+export function creditsStartSeconds(segments: MediaSegment[] | undefined): number | null {
+  const outros = usableSegments(segments).filter((s) => s.Type === 'Outro')
+  const last = outros[outros.length - 1]
+  return last ? ticks(last.StartTicks) : null
+}

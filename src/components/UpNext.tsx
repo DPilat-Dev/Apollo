@@ -15,6 +15,7 @@ import { PlayIcon } from './icons'
 export function UpNext({
   next,
   secondsLeft,
+  windowSeconds,
   autoplay,
   onPlay,
   onDismiss,
@@ -22,6 +23,11 @@ export function UpNext({
   next: BaseItemDto
   /** Seconds remaining in the current episode. */
   secondsLeft: number
+  /**
+   * How long the card is on screen for, so the bar fills across exactly the
+   * time it is visible. Varies per episode once credits detection has a say.
+   */
+  windowSeconds: number
   /** When false the card still appears, but nothing happens on its own. */
   autoplay: boolean
   onPlay: () => void
@@ -68,7 +74,7 @@ export function UpNext({
         <div className="h-0.5 bg-white/15">
           <div
             className="h-full bg-accent transition-[width] duration-1000 ease-linear"
-            style={{ width: `${Math.min(100, Math.max(0, (1 - countdown / AUTOPLAY_AT) * 100))}%` }}
+            style={{ width: `${progressPercent(countdown, windowSeconds)}%` }}
           />
         </div>
       )}
@@ -92,8 +98,42 @@ export function UpNext({
   )
 }
 
+/** How full the countdown bar is, given the seconds left of a window. */
+export function progressPercent(secondsLeft: number, windowSeconds: number): number {
+  if (!(windowSeconds > 0)) return 0
+  return Math.min(100, Math.max(0, (1 - secondsLeft / windowSeconds) * 100))
+}
+
 /**
- * How long before the end the card appears. Also the countdown's full length,
- * so the progress bar and the number agree.
+ * How long before the end the card appears when nothing better is known.
+ *
+ * Twenty seconds was not enough time to reach for a phone and press Hide
+ * before the next episode started itself.
  */
-export const AUTOPLAY_AT = 20
+export const UP_NEXT_AT = 45
+
+/**
+ * The earliest the card may appear, however long the credits run.
+ *
+ * A misdetected outro covering half the episode would otherwise park the card
+ * on screen for minutes, and a feature-length credit roll is not a cue that
+ * this episode is nearly over.
+ */
+export const UP_NEXT_MAX = 120
+
+/**
+ * How long before the end the card should appear for this episode.
+ *
+ * Where the server has detected credits, that is the honest answer: the moment
+ * the episode is over in every sense but the clock. Elsewhere it falls back to
+ * a fixed lead, and either way it is never *later* than that fallback.
+ */
+export function upNextLeadSeconds(
+  durationSeconds: number,
+  creditsStartSeconds: number | null,
+): number {
+  if (!(durationSeconds > 0) || creditsStartSeconds == null) return UP_NEXT_AT
+  const lead = durationSeconds - creditsStartSeconds
+  const ceiling = Math.max(Math.min(UP_NEXT_MAX, durationSeconds * 0.25), UP_NEXT_AT)
+  return Math.min(Math.max(lead, UP_NEXT_AT), ceiling)
+}
