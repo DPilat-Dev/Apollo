@@ -113,7 +113,9 @@ printf '%s\n' "${DIM}  Optional. Leave blank to set it later in Dashboard → Co
 ask JELLYSEERR_URL "Jellyseerr address (optional)"    ""
 ask PORT           "Port Apollo listens on"           "4173"
 ask REPO           "Repository"                       "https://github.com/DPilat-Dev/Apollo.git"
-ask BRANCH         "Branch"                           "main"
+printf '%s\n' "${DIM}  Blank installs the latest release, which is what update.sh follows.${RESET}"
+printf '%s\n' "${DIM}  Name a tag to pin one, or 'main' to run unreleased code.${RESET}"
+ask REF            "Version (blank = latest release)"  ""
 ask_yes_no START_ON_BOOT "Start on boot? (yes/no)"    "yes"
 
 # --------------------------------------------------------------- validation
@@ -164,7 +166,7 @@ cat <<SUMMARY
   Jellyfin     ${JELLYFIN_URL}
   Jellyseerr   ${JELLYSEERR_URL:-(configure later in the dashboard)}
   Listens on   :${PORT}
-  Source       ${REPO} (${BRANCH})
+  Source       ${REPO} (${REF:-latest release})
 SUMMARY
 
 if (( ! ASSUME_YES )); then
@@ -233,7 +235,21 @@ ok "node $(run 'node -v' | tr -d '\r')"
 
 step "Installing Apollo"
 run "adduser --system --group --home /opt/apollo apollo >/dev/null 2>&1 || true"
-run "git clone -q --branch '${BRANCH}' '${REPO}' /opt/apollo"
+# Clone whole, then resolve — `--branch` cannot take "whatever the newest
+# release is", and landing on main would leave the box ahead of every release
+# so the first update.sh run would move it *backwards*.
+run "git clone -q '${REPO}' /opt/apollo"
+if [[ -z "${REF:-}" ]]; then
+  REF=$(run "cd /opt/apollo && git tag --list 'v*' --sort=-v:refname | head -n 1" | tr -d '\r')
+  [[ -n "$REF" ]] || die "No release tags found in ${REPO}. Re-run and name a branch."
+fi
+# A fresh clone only creates a local branch for the default one, so a branch
+# name that is not it resolves solely as origin/<name>. Try both, and check out
+# the commit rather than the name so either spelling lands the same way.
+TARGET=$(run "cd /opt/apollo && git rev-parse --verify --quiet '${REF}^{commit}' || git rev-parse --verify --quiet 'origin/${REF}^{commit}' || true" | tr -d '\r')
+[[ -n "$TARGET" ]] || die "No such tag or branch in ${REPO}: ${REF}"
+run "cd /opt/apollo && git -c advice.detachedHead=false checkout --quiet --detach '${TARGET}'"
+ok "on ${REF}"
 
 # .env is read at build time; the runtime file is what the dashboard edits.
 run "printf 'VITE_JELLYFIN_SERVER=%s\n' '${JELLYFIN_URL}' > /opt/apollo/.env"

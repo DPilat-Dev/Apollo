@@ -822,23 +822,29 @@ re-encoding it.
 | `M` | Mute |
 | `Esc` | Close menu, else back |
 
-### Not implemented: SyncPlay
+### SyncPlay
 
-There is no SyncPlay button. The REST half (create/join/leave a group) is small,
-but keeping playback actually in sync needs a WebSocket client for the server's
-group commands plus clock offset estimation and buffering coordination. A button
-that joins a group and then drifts is worse than no button, so it is left out
-rather than stubbed.
+Watching together, coordinated by the server. `syncplay.tsx` holds the group
+state and the REST half (create, join, leave); `socket.ts` carries the group
+commands; `timeSync.ts` estimates the offset between this client's clock and the
+server's, because a group command names a moment in *server* time and acting on
+it needs to know how far out the local clock is.
+
+Play, pause and seek route through `requestPlay` / `requestPause` /
+`requestSeek` while in a group, so the server decides when everyone moves rather
+than each client moving itself. Buffering is reported up (`reportBuffering`), so
+one client stalling holds the group instead of leaving it behind.
 
 ## Status
 
-Verified against the live server: sign-in flow, server discovery, public user
-list, clean console.
+Running against a live server: sign-in and discovery, library browsing, item
+detail, playback across both the direct-play and transcode branches, SyncPlay,
+and the mobile touch gestures.
 
-Home layout verified with a mocked API (hero/row spacing, nav library list,
-hover states). Still unexercised against real data: library browsing, item
-detail, and playback — those need a real login, and playback in particular has a
-direct-play vs. transcode branch that depends on your files' codecs.
+Not covered by any automated test, and worth knowing before you trust a change:
+anything requiring real Apple hardware (iOS Safari) or a phone's lock screen.
+Browser-side behaviour is otherwise verified in headless Chromium rather than
+assumed.
 
 ### Layout invariant
 
