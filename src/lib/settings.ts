@@ -14,6 +14,8 @@ export interface Settings {
   requestAllSeasons: boolean
   /** Jump past intros and recaps without being asked. */
   autoSkipIntros: boolean
+  /** On a phone, take the player fullscreen and turn it sideways on play. */
+  rotateToLandscape: boolean
   /** Subtitle appearance, applied through ::cue. */
   subtitleSize: number
   subtitleColor: string
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   jellyseerrEnabled: true,
   requestAllSeasons: true,
   autoSkipIntros: false,
+  rotateToLandscape: true,
   subtitleSize: 100,
   subtitleColor: '#ffffff',
   subtitleBackground: 'subtle',

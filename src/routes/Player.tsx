@@ -32,6 +32,7 @@ import { useTapGestures, type TapFeedback } from '../lib/useTapGestures'
 import { usePressGestures, type PressFeedback } from '../lib/usePressGestures'
 import { HOLD_RATE } from '../lib/pressGesture'
 import { useWakeLock } from '../lib/useWakeLock'
+import { useOrientationLock } from '../lib/useOrientationLock'
 import { useSyncPlay } from '../lib/syncplay'
 import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
 import type { MediaSegment } from '../lib/segments'
@@ -576,6 +577,25 @@ export function Player() {
     [setBoostGain],
   )
 
+  // Enter-only, and the exact call the fullscreen button makes — automatic
+  // and manual routes into fullscreen should not differ.
+  const enterFullscreen = useCallback(
+    () => document.documentElement.requestFullscreen().catch(() => {}),
+    [],
+  )
+
+  /*
+    Turn the handset sideways so a 16:9 picture fills it. Fullscreen is a
+    precondition of the rotation, so the hook takes care of both — and undoes
+    both, because an orientation lock outlives the page that set it.
+  */
+  useOrientationLock({
+    enabled: settings.rotateToLandscape,
+    fullscreen,
+    playing: !paused,
+    enterFullscreen,
+  })
+
   // The screen is allowed to sleep the moment playback stops, so a paused
   // episode left on the sofa does not burn the battery down.
   useWakeLock(!paused)
@@ -1000,8 +1020,13 @@ export function Player() {
            browser as a pan, which cancelled the pointer stream halfway through
            the volume swipe. Nothing on this screen scrolls, so there is no
            panning to give up. */
-        style={{ touchAction: 'none' }}
-        {...pressGestures}
+        style={{
+          touchAction: 'none',
+          // iOS shows its own callout on a long press rather than firing
+          // `contextmenu`, so suppressing the event is not enough there.
+          WebkitTouchCallout: 'none',
+        }}
+        {...pressGestures.handlers}
         crossOrigin="anonymous"
       >
         {plan?.subtitles

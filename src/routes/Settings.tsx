@@ -91,6 +91,12 @@ export function Settings() {
           hint="Jumps past intros and recaps without asking. Credits are never skipped on their own, in case there is a scene after them."
           checked={settings.autoSkipIntros}
         />
+        <Toggle
+          name="rotateToLandscape"
+          label="Rotate to landscape on phones"
+          hint="Takes the player fullscreen and turns the picture sideways when playback starts, so a 16:9 film fills the handset. Touchscreens only, and iOS does not allow it at all."
+          checked={settings.rotateToLandscape}
+        />
       </Section>
 
       <Section title="Subtitle appearance">
