@@ -18,6 +18,7 @@ import { useMediaSession } from '../lib/useMediaSession'
 import { usePictureInPicture } from '../lib/usePictureInPicture'
 import { useTapGestures, type TapFeedback } from '../lib/useTapGestures'
 import { usePressGestures, type PressFeedback } from '../lib/usePressGestures'
+import { HOLD_RATE } from '../lib/pressGesture'
 import { useWakeLock } from '../lib/useWakeLock'
 import { useSyncPlay } from '../lib/syncplay'
 import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
@@ -338,6 +339,10 @@ export function Player() {
   const speedRef = useRef(speed)
   speedRef.current = speed
 
+  // Declared here because `registerPlayer` runs above the gesture hook that
+  // fills it in, and the two need to see each other.
+  const isHoldingRef = useRef<(() => boolean) | null>(null)
+
   /*
     Playback rate is reset by every source change, so reapply it. This also
     deliberately overwrites any drift correction in flight: reaching for the
@@ -578,7 +583,14 @@ export function Player() {
       position: () => (videoRef.current?.currentTime ?? 0) + (plan?.startOffsetSeconds ?? 0),
       isPlaying: () => !(videoRef.current?.paused ?? true),
       playbackRate: () => videoRef.current?.playbackRate ?? 1,
-      chosenRate: () => speedRef.current,
+      /*
+        A press-and-hold counts as a deliberate speed for as long as it lasts.
+        Reporting it here is what makes drift correction stand off, reusing the
+        same rule that keeps it from fighting the speed menu — otherwise the
+        correction pulls the rate back out of the hold within 250ms and the
+        gesture does nothing at all while in a group.
+      */
+      chosenRate: () => (isHoldingRef.current?.() ? HOLD_RATE : speedRef.current),
       setPlaybackRate: (rate: number) => {
         if (videoRef.current) videoRef.current.playbackRate = rate
       },
@@ -660,7 +672,9 @@ export function Player() {
     videoRef,
     onTap: (e) => (menu === 'none' ? onVideoPointerUp(e) : setMenu('none')),
     onFeedback: setPressFlash,
+    chosenRate: () => speedRef.current,
   })
+  isHoldingRef.current = pressGestures.isHolding
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

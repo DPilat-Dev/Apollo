@@ -7,6 +7,7 @@ import {
   MAX_RATE_NUDGE,
   RATE_CORRECTION_WINDOW_SECONDS,
 } from '../syncplayDrift'
+import { HOLD_RATE } from '../pressGesture'
 
 /** The common case: in a group, viewer has not touched the speed menu. */
 const at = (localSeconds: number, expectedSeconds: number, currentRate = 1) =>
@@ -284,5 +285,40 @@ describe('expectedPositionSeconds', () => {
 
   it('never reports a negative position', () => {
     expect(expectedPositionSeconds({ ...timeline, positionSeconds: -50 }, 1_000_000)).toBe(0)
+  })
+})
+
+/*
+  The seam between drift correction and the press-and-hold gesture, which are
+  the only two things that write `playbackRate`. Both were correct alone: the
+  hold set 2x, and the correction dragged it back within 250ms because from
+  its side a client running at 2x looks like one racing away from the group.
+
+  The hold reports itself as the chosen rate for as long as it lasts, so the
+  existing "viewer picked a speed" rule stands the correction down. These pin
+  that, so a change to either constant cannot quietly re-break it.
+*/
+describe('correctDrift — a press-and-hold is a deliberate speed', () => {
+  it('stands down entirely while a 2x hold is running', () => {
+    const decision = correctDrift({
+      localSeconds: 130,
+      expectedSeconds: 100,
+      currentRate: HOLD_RATE,
+      baseRate: HOLD_RATE,
+    })
+    // 30 seconds adrift is deep into the seek tier, and it still must not act.
+    expect(decision.action).toBe('hold')
+    expect(decision.rate).toBe(HOLD_RATE)
+  })
+
+  it('re-arms the moment the hold is released', () => {
+    const decision = correctDrift({
+      localSeconds: 130,
+      expectedSeconds: 100,
+      currentRate: HOLD_RATE,
+      baseRate: 1,
+    })
+    expect(decision.action).toBe('seek')
+    expect(decision.rate).toBe(1)
   })
 })

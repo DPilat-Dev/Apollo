@@ -33,11 +33,14 @@ export function usePressGestures({
   videoRef,
   onTap,
   onFeedback,
+  chosenRate,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>
   /** The release of a press that stayed a tap. */
   onTap: (e: React.PointerEvent<HTMLElement>) => void
   onFeedback?: (feedback: PressFeedback | null) => void
+  /** The speed the viewer picked, which a hold returns to when released. */
+  chosenRate: () => number
 }) {
   const start = useRef<{
     x: number
@@ -52,30 +55,40 @@ export function usePressGestures({
   const travel = useRef({ dx: 0, dy: 0 })
   const holdTimer = useRef<number | undefined>(undefined)
   /**
-   * The rate to go back to. Read off the element rather than assumed to be 1:
-   * someone watching at 1.25× has to get 1.25× back, not a silent reset.
+   * Whether a hold is currently speeding playback up, so the caller can tell
+   * anything else that writes `playbackRate` to stand off.
    */
-  const restoreRate = useRef<number | null>(null)
+  const holding = useRef(false)
 
   // Same reason as in `useTapGestures`: these go straight onto the video
   // element, so the handlers have to keep one identity for the whole session.
-  const cbs = useRef({ onTap, onFeedback })
-  cbs.current = { onTap, onFeedback }
+  const cbs = useRef({ onTap, onFeedback, chosenRate })
+  cbs.current = { onTap, onFeedback, chosenRate }
 
   useEffect(() => () => window.clearTimeout(holdTimer.current), [])
 
+  /*
+    The rate to go back to is the speed the *viewer* chose, not whatever the
+    element happens to be running at.
+
+    Reading it off the element looks equivalent and is not: SyncPlay drift
+    correction nudges `playbackRate` by a percent or two to close a gap, so a
+    hold that began mid-correction would capture 1.02 and hand that back as if
+    the viewer had asked for it — a permanent, invisible 2% too fast.
+  */
   const beginHold = useCallback(() => {
     const video = videoRef.current
     if (!video) return
-    restoreRate.current = video.playbackRate || 1
+    holding.current = true
     video.playbackRate = HOLD_RATE
     cbs.current.onFeedback?.({ kind: 'speed', rate: HOLD_RATE })
   }, [videoRef])
 
   const endHold = useCallback(() => {
+    if (!holding.current) return
+    holding.current = false
     const video = videoRef.current
-    if (video && restoreRate.current != null) video.playbackRate = restoreRate.current
-    restoreRate.current = null
+    if (video) video.playbackRate = cbs.current.chosenRate()
   }, [videoRef])
 
   /** Move the press to its new state and act on whatever it just became. */
@@ -194,8 +207,16 @@ export function usePressGestures({
     [finish],
   )
 
+  /*
+    Exposed so SyncPlay drift correction can stand down for the duration. It
+    writes `playbackRate` a few times a second, and a 2x hold left to fight
+    that loses: the correction sees a client racing ahead of the group and
+    drags the rate back within a quarter of a second, so the hold does nothing.
+  */
+  const isHolding = useCallback(() => holding.current, [])
+
   return useMemo(
-    () => ({ onPointerDown, onPointerMove, onPointerUp, onPointerCancel }),
-    [onPointerDown, onPointerMove, onPointerUp, onPointerCancel],
+    () => ({ onPointerDown, onPointerMove, onPointerUp, onPointerCancel, isHolding }),
+    [onPointerDown, onPointerMove, onPointerUp, onPointerCancel, isHolding],
   )
 }
