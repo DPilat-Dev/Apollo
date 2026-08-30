@@ -561,6 +561,9 @@ export function Player() {
   const setBoostGain = boost.setGain
   const level = muted ? 0 : volume * boost.gain
   const levelPosition = positionForLevel(level)
+  // Read by the swipe gesture, which is declared further down.
+  const levelPositionRef = useRef(levelPosition)
+  levelPositionRef.current = levelPosition
   const setLevel = useCallback(
     (next: number) => {
       const v = videoRef.current
@@ -708,6 +711,12 @@ export function Player() {
     onTap: (e) => (menu === 'none' ? onVideoPointerUp(e) : setMenu('none')),
     onFeedback: setPressFlash,
     chosenRate: () => speedRef.current,
+    volumePosition: () => levelPositionRef.current,
+    setVolumePosition: (position) => {
+      const next = levelForPosition(position)
+      setLevel(next)
+      return next
+    },
   })
   isHoldingRef.current = pressGestures.isHolding
 
@@ -1047,13 +1056,21 @@ export function Player() {
               ) : (
                 <VolumeIcon className="size-6" />
               )}
+              {/*
+                The bar tracks the slider *position* and the number the level,
+                which stop agreeing above 100%: a full bar is the top of the
+                range, and the range now runs to 300%. Driving the bar off the
+                level would have it overflow its own track at any boost.
+              */}
               <span className="h-1 w-28 rounded-full bg-white/25">
                 <span
-                  className="block h-full rounded-full bg-white"
-                  style={{ width: `${Math.round(pressFlash.level * 100)}%` }}
+                  className={`block h-full rounded-full ${
+                    pressFlash.level > 1 ? 'bg-amber-300' : 'bg-white'
+                  }`}
+                  style={{ width: `${Math.round(pressFlash.position * 100)}%` }}
                 />
               </span>
-              <span className="w-9 text-right tabular-nums">
+              <span className="w-11 text-right tabular-nums">
                 {Math.round(pressFlash.level * 100)}%
               </span>
             </>
