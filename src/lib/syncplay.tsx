@@ -12,6 +12,7 @@ import { useAuth } from './auth'
 import { JellyfinSocket, type SocketMessage } from './socket'
 import { bestOffsetMs, sampleFromExchange, serverNow, type TimeSample } from './timeSync'
 import { planCommand, secondsToTicks, type SendCommand } from './syncplayCommands'
+import { correctDrift, expectedPositionSeconds, type GroupTimeline } from './syncplayDrift'
 import type { GroupInfoDto, JellyfinApi } from './api'
 
 /**
@@ -22,8 +23,12 @@ import type { GroupInfoDto, JellyfinApi } from './api'
  * everyone acts at that instant on their own corrected clock. Acting locally
  * first is what makes group playback drift apart.
  *
- * This first version follows the group and reports readiness. It does not yet
- * correct drift during playback.
+ * Agreeing on the starting instant is only half of it, because devices come
+ * apart again as they play. So every command also anchors a local copy of the
+ * group's timeline, and a check a few times a second compares where this
+ * device actually is against where that timeline says it should be. What to do
+ * about the difference lives in `syncplayDrift`, away from the socket and the
+ * video element, because the thresholds are the part worth testing.
  */
 
 /** What the player exposes so the group can drive it. */
@@ -34,6 +39,11 @@ export interface SyncPlayerControls {
   /** Current position in seconds, on the item's own timeline. */
   position: () => number
   isPlaying: () => boolean
+  /** The rate the element is running at, any drift correction included. */
+  playbackRate: () => number
+  /** The speed the viewer picked from the speed menu, uncorrected. */
+  chosenRate: () => number
+  setPlaybackRate: (rate: number) => void
   playlistItemId?: string
 }
 
@@ -66,6 +76,36 @@ const SyncPlayContext = createContext<SyncPlayValue | null>(null)
 
 const CLOCK_SAMPLES = 5
 const RESYNC_MS = 60_000
+
+/**
+ * How often drift is measured. Four times a second is far more often than a
+ * correction is ever needed, but it is cheap and it means the gap is caught
+ * while it is still small enough to nudge away instead of seek away.
+ */
+const DRIFT_CHECK_MS = 250
+
+/**
+ * How long the picture is left alone after any jump.
+ *
+ * A video element reports the *old* `currentTime` for a moment after a seek
+ * and while it refills its buffer. Measuring drift in that window reads a gap
+ * that is not really there and seeks again, and again, which turns one jump
+ * into a stutter.
+ */
+const SETTLE_MS = 1500
+
+/**
+ * The server-clock instant a command takes effect.
+ *
+ * The declared `When` is the anchor rather than the moment this device got
+ * round to running it: a timer that fired late would otherwise write a
+ * timeline that is late by the same amount, and the correction would then
+ * faithfully hold the device at the wrong place.
+ */
+function commandInstant(command: SendCommand, offsetMs: number): number {
+  const when = command.When ? Date.parse(command.When) : NaN
+  return Number.isFinite(when) ? when : serverNow(offsetMs)
+}
 
 async function measureOffset(api: JellyfinApi): Promise<{ offsetMs: number; pingMs: number }> {
   const samples: TimeSample[] = []
@@ -106,6 +146,9 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
   const offsetRef = useRef<number>(0)
   const groupRef = useRef<GroupInfoDto | null>(null)
   const timers = useRef<number[]>([])
+  const timelineRef = useRef<GroupTimeline | null>(null)
+  const bufferingRef = useRef(false)
+  const settleUntilRef = useRef(0)
 
   groupRef.current = group
 
@@ -118,6 +161,18 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
     timers.current = []
   }
 
+  /**
+   * Forget the group's timeline and hand the rate back to the viewer.
+   *
+   * Leaving a group mid-correction would otherwise strand the player a few
+   * percent off, and there is no longer anything to correct against.
+   */
+  const stopCorrecting = () => {
+    timelineRef.current = null
+    const controls = controlsRef.current
+    controls?.setPlaybackRate(controls.chosenRate())
+  }
+
   /** Runs a command at the instant the group agreed on. */
   const runCommand = useCallback((command: SendCommand) => {
     const plan = planCommand(command, offsetRef.current)
@@ -126,6 +181,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
     const execute = () => {
       const controls = controlsRef.current
       if (!controls) return
+      const atServerMs = commandInstant(command, offsetRef.current)
       switch (plan.action) {
         case 'play':
           // Seek first: a device that joined mid-playback is elsewhere.
@@ -133,18 +189,35 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
             controls.seekTo(plan.positionSeconds)
           }
           controls.play()
+          timelineRef.current = { positionSeconds: plan.positionSeconds, atServerMs, playing: true }
           break
         case 'pause':
           controls.pause()
           controls.seekTo(plan.positionSeconds)
+          timelineRef.current = {
+            positionSeconds: plan.positionSeconds,
+            atServerMs,
+            playing: false,
+          }
           break
         case 'seek':
           controls.seekTo(plan.positionSeconds)
+          // A seek says where, not whether: the group carries on doing
+          // whatever it was doing from the new position.
+          timelineRef.current = {
+            positionSeconds: plan.positionSeconds,
+            atServerMs,
+            playing: timelineRef.current?.playing ?? false,
+          }
           break
         case 'stop':
           controls.pause()
+          timelineRef.current = null
           break
       }
+      // Every one of these moves the picture, and a moved picture reads back
+      // wrong for a moment.
+      settleUntilRef.current = Date.now() + SETTLE_MS
     }
 
     if (plan.delayMs <= 0) execute()
@@ -206,6 +279,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
         case 'NotInGroup':
           setGroup(null)
           clearTimers()
+          stopCorrecting()
           break
         case 'UserJoined':
         case 'UserLeft':
@@ -232,6 +306,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
       socketRef.current = null
       setConnected(false)
       clearTimers()
+      stopCorrecting()
     }
   }, [session, runCommand, refreshGroups, report])
 
@@ -258,6 +333,44 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
       window.clearInterval(interval)
     }
   }, [api])
+
+  // ------------------------------------------------------------------- drift
+
+  useEffect(() => {
+    const check = () => {
+      const controls = controlsRef.current
+      if (!controls || !groupRef.current) return
+      /*
+        Two reasons to keep hands off. A stalled device is already holding the
+        whole group through `reportBuffering`, and its clock is not advancing —
+        correcting against that would fight the hold and pile up a correction
+        for time that was never lost. And a device that is paused has no drift
+        to speak of; the next command will place it.
+      */
+      if (bufferingRef.current) return
+      if (Date.now() < settleUntilRef.current) return
+      if (!controls.isPlaying()) return
+
+      const expected = expectedPositionSeconds(timelineRef.current, serverNow(offsetRef.current))
+      if (expected === null) return
+
+      const decision = correctDrift({
+        localSeconds: controls.position(),
+        expectedSeconds: expected,
+        currentRate: controls.playbackRate(),
+        baseRate: controls.chosenRate(),
+      })
+      if (decision.action === 'hold') return
+      if (decision.action === 'seek') {
+        controls.seekTo(decision.seconds)
+        settleUntilRef.current = Date.now() + SETTLE_MS
+      }
+      controls.setPlaybackRate(decision.rate)
+    }
+
+    const interval = window.setInterval(check, DRIFT_CHECK_MS)
+    return () => window.clearInterval(interval)
+  }, [])
 
   // ------------------------------------------------------------------ groups
 
@@ -297,6 +410,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
     }
     setGroup(null)
     clearTimers()
+    stopCorrecting()
   }, [api])
 
   /*
@@ -325,6 +439,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
 
   const reportBuffering = useCallback(
     (buffering: boolean) => {
+      bufferingRef.current = buffering
       if (!groupRef.current) return
       void report(buffering ? 'buffering' : 'ready')
     },
