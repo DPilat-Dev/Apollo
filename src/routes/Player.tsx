@@ -27,6 +27,9 @@ import { chapterAt, Scrubber } from '../components/Scrubber'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
 import { UpNext, upNextLeadSeconds } from '../components/UpNext'
+import { SleepPrompt } from '../components/SleepPrompt'
+import { SLEEP_DURATIONS_MINUTES } from '../lib/sleepTimer'
+import { useSleepTimer } from '../lib/useSleepTimer'
 import { BITRATE_OPTIONS, useSettings } from '../lib/settings'
 import { displayTitle, episodeCode, formatTimecode, ticksToSeconds } from '../lib/format'
 import {
@@ -228,6 +231,23 @@ export function Player() {
     isPaused: () => paused,
   })
 
+  /*
+    Sleep timer. Firing pauses and nothing else — no navigation, no unmount —
+    so someone who dozed off finds the episode exactly where it stopped, and
+    the wake lock below releases on its own because it keys off `paused`.
+
+    Pausing locally rather than through SyncPlay on purpose: one person falling
+    asleep should not stop everyone else's watch party.
+  */
+  const sleep = useSleepTimer({
+    itemId: item?.Id ?? null,
+    positionSeconds: absoluteTime,
+    durationSeconds: absoluteDuration,
+    onFire: () => videoRef.current?.pause(),
+  })
+  const sleepBlocksAutoplay = sleep.status.blocksAutoplay
+  const sleepFire = sleep.fire
+
   /** Re-resolve the stream from where we are now, not from the start. */
   const reloadFrom = useCallback(
     (apply: () => void) => {
@@ -413,6 +433,13 @@ export function Player() {
     if (!video || !item) return
 
     const onEnded = async () => {
+      /*
+        A sleep timer due before this item ends owns the ending: nothing starts
+        itself, not the next episode and not a repeat. Firing here as well as
+        on the countdown covers the item whose reported runtime is a second or
+        two longer than the media, where the remainder never quite reaches zero.
+      */
+      if (sleepBlocksAutoplay) return sleepFire()
       if (repeat === 'one') {
         video.currentTime = 0
         void video.play().catch(() => {})
@@ -427,7 +454,7 @@ export function Player() {
 
     video.addEventListener('ended', onEnded)
     return () => video.removeEventListener('ended', onEnded)
-  }, [api, item, repeat, settings.autoplayNext, nextId, goTo, goToId])
+  }, [api, item, repeat, settings.autoplayNext, nextId, goTo, goToId, sleepBlocksAutoplay, sleepFire])
 
   // --------------------------------------------------------------- controls
 
@@ -972,10 +999,14 @@ export function Player() {
           next={nextEpisode.data}
           secondsLeft={absoluteDuration - absoluteTime}
           windowSeconds={upNextLead}
-          autoplay={settings.autoplayNext && repeat !== 'one'}
+          autoplay={settings.autoplayNext && repeat !== 'one' && !sleepBlocksAutoplay}
           onPlay={() => goToId(nextId)}
           onDismiss={() => setDismissedUpNext(item?.Id ?? null)}
         />
+      )}
+
+      {sleep.status.grace && sleep.status.remainingSeconds !== null && menu === 'none' && (
+        <SleepPrompt secondsLeft={sleep.status.remainingSeconds} onExtend={sleep.extend} />
       )}
 
       {showStats && plan && (
@@ -1291,6 +1322,40 @@ export function Player() {
                       ))}
                     </MenuGroup>
 
+                    {/* The remaining time rides on the active choice, so the
+                        menu answers "how long have I got?" without a second
+                        trip, and "Off" is always there to call it all off. */}
+                    <MenuGroup title="Sleep timer">
+                      <MenuItem active={!sleep.timer} onClick={sleep.cancel}>
+                        Off
+                      </MenuItem>
+                      {SLEEP_DURATIONS_MINUTES.map((minutes) => {
+                        const active =
+                          sleep.timer?.kind === 'duration' && sleep.timer.minutes === minutes
+                        return (
+                          <MenuItem
+                            key={minutes}
+                            active={active}
+                            onClick={() => sleep.startDuration(minutes)}
+                            hint={active ? (sleep.status.label ?? undefined) : undefined}
+                          >
+                            {minutes} minutes
+                          </MenuItem>
+                        )
+                      })}
+                      <MenuItem
+                        active={sleep.timer?.kind === 'episode'}
+                        onClick={sleep.startEpisode}
+                        hint={
+                          sleep.timer?.kind === 'episode'
+                            ? (sleep.status.label ?? 'armed')
+                            : undefined
+                        }
+                      >
+                        End of episode
+                      </MenuItem>
+                    </MenuGroup>
+
                     <MenuGroup title="Info">
                       <MenuItem
                         active={showStats}
@@ -1325,6 +1390,9 @@ export function Player() {
             {activeSubtitle && <span>Subtitles: {activeSubtitle.label}</span>}
             {repeat !== 'off' && <span>Repeat {repeat}</span>}
             {aspect !== 'fit' && <span>{aspect}</span>}
+            {sleep.status.active && (
+              <span>Sleep {sleep.status.label ?? 'end of episode'}</span>
+            )}
           </p>
         </div>
       </div>
