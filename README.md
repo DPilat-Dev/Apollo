@@ -738,6 +738,34 @@ Three things this needed that are easy to miss:
   `invisible` rather than merely `opacity-0`; visibility transitions discretely,
   so it holds through the fade and stops hit-testing at the end of it.
 
+A long press is also when Android fires `contextmenu`, and Chrome answers it
+with its own video menu — "Copy video frame", "Picture in Picture". That menu
+takes the pointer, so the 2x hold died at the moment it started working. The
+event is suppressed only while a touch press is in flight, so a desktop
+right-click still gets the browser's menu; iOS shows a callout instead of
+firing the event at all, which is what `-webkit-touch-callout` handles.
+
+### Rotating on a phone
+
+Playback on a touchscreen takes the player fullscreen and locks it to
+landscape, so a 16:9 picture fills the handset instead of using a third of it.
+Fullscreen is a *precondition* of `screen.orientation.lock`, not a separate
+nicety, which is why one setting controls both.
+
+Three things it has to get right, none of them obvious:
+
+- The lock rejects outside fullscreen, so asking unconditionally puts an
+  unhandled rejection in the console of every player that opens on a laptop.
+- The lock **outlives the element that set it**. A player that does not unlock
+  on the way out leaves the whole site pinned sideways, including the pages
+  the viewer goes back to.
+- Going fullscreen is attempted once per player. Without that guard, leaving
+  fullscreen puts you straight back into it and there is no way out at all.
+
+Desktops are excluded by `pointer: coarse` — a monitor does not rotate — and
+iOS Safari has no orientation lock, so it stays manual there. Off by way of
+Settings → Rotate to landscape on phones.
+
 The scrubber drags rather than only accepting taps, and its hit area reaches
 8px past the drawn bar on both sides — 24px is a comfortable mouse target and a
 miserable thumb one. Dragging commits **on release**: every intermediate

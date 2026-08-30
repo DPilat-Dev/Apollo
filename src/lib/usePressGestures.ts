@@ -225,8 +225,31 @@ export function usePressGestures({
   */
   const isHolding = useCallback(() => holding.current, [])
 
-  return useMemo(
-    () => ({ onPointerDown, onPointerMove, onPointerUp, onPointerCancel, isHolding }),
-    [onPointerDown, onPointerMove, onPointerUp, onPointerCancel, isHolding],
+  /*
+    Android fires `contextmenu` partway through a long press, and Chrome puts
+    its own video menu on screen — "Copy video frame", "Picture in picture".
+    That menu takes the pointer, so the 2x hold died at the exact moment it
+    started working, which is why the gesture felt like it half-worked.
+
+    Suppressed only while a touch press is actually in flight: `start.current`
+    is set on a touch pointerdown and nowhere else, so a desktop right-click
+    still gets the browser's menu, which is a genuinely useful thing to have
+    on a video and not ours to take away.
+  */
+  const onContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (start.current) e.preventDefault()
+  }, [])
+
+  /*
+    `handlers` is kept separate from the rest so the caller can spread it onto
+    the element without spreading `isHolding` with it — React passes an
+    unrecognised prop straight through to the DOM and warns about it, which is
+    how a stray isholding="" attribute ended up on the video.
+  */
+  const handlers = useMemo(
+    () => ({ onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu }),
+    [onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu],
   )
+
+  return useMemo(() => ({ handlers, isHolding }), [handlers, isHolding])
 }
