@@ -22,6 +22,8 @@ import { useSyncPlay } from '../lib/syncplay'
 import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
 import type { MediaSegment } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
+import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
+import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { chapterAt, Scrubber } from '../components/Scrubber'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
@@ -769,6 +771,16 @@ export function Player() {
     })
   }, [textTrackIndex, plan])
 
+  // Subtitles cut for a different release of the same film run ahead of the
+  // audio; this shifts the showing track's cues to meet it.
+  const subtitleOffset = useSubtitleOffset({
+    videoRef,
+    textTrackIndex,
+    itemKey: item?.Id,
+    reloadKey: plan,
+  })
+  const offsetStatus = subtitleOffsetStatus({ textTrackIndex, burnedSubIndex })
+
   // Thumbnails for scrubbing. Absent unless the server has generated them for
   // this item, in which case the scrubber quietly shows just a timecode.
   const trickplay = useMemo(
@@ -1216,6 +1228,39 @@ export function Player() {
                       ))}
                     </MenuGroup>
 
+                    {offsetStatus.kind !== 'off' && (
+                      <MenuGroup title="Subtitle delay">
+                        {offsetStatus.kind === 'burned-in' ? (
+                          <MenuEmpty>{offsetStatus.reason}</MenuEmpty>
+                        ) : (
+                          <div className="flex items-center gap-2 px-3 py-1.5">
+                            <StepButton
+                              label="Show subtitles earlier"
+                              onClick={() => subtitleOffset.nudge(-1)}
+                            >
+                              −
+                            </StepButton>
+                            <span className="min-w-14 text-center text-sm tabular-nums text-white/80">
+                              {formatOffset(subtitleOffset.offsetMs)}
+                            </span>
+                            <StepButton
+                              label="Show subtitles later"
+                              onClick={() => subtitleOffset.nudge(1)}
+                            >
+                              +
+                            </StepButton>
+                            <button
+                              onClick={subtitleOffset.reset}
+                              disabled={subtitleOffset.offsetMs === 0}
+                              className="ml-auto rounded px-2 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </MenuGroup>
+                    )}
+
                     <MenuGroup title="Audio">
                       {plan?.audio.length === 0 && <MenuEmpty>No audio tracks</MenuEmpty>}
                       {plan?.audio.map((a) => {
@@ -1388,6 +1433,9 @@ export function Player() {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-white/35">
             {speed !== 1 && <span>{speed}× speed</span>}
             {activeSubtitle && <span>Subtitles: {activeSubtitle.label}</span>}
+            {subtitleOffset.offsetMs !== 0 && (
+              <span>Subtitle delay {formatOffset(subtitleOffset.offsetMs)}</span>
+            )}
             {repeat !== 'off' && <span>Repeat {repeat}</span>}
             {aspect !== 'fit' && <span>{aspect}</span>}
             {sleep.status.active && (
@@ -1468,6 +1516,28 @@ function MenuItem({
       <span className={`size-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'bg-transparent'}`} />
       <span className="truncate">{children}</span>
       {hint && <span className="ml-auto shrink-0 text-[10px] text-white/30">{hint}</span>}
+    </button>
+  )
+}
+
+/** A repeat-press control, so nudging an offset does not close the menu. */
+function StepButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="size-7 shrink-0 rounded bg-white/8 text-sm leading-none text-white/80 transition hover:bg-white/15 hover:text-white"
+    >
+      {children}
     </button>
   )
 }

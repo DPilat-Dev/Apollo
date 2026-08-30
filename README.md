@@ -648,7 +648,15 @@ decides them at transcode time:
 | Image subtitle (PGS/VOBSUB) | Reload — the server must burn it in |
 | Audio track | Reload |
 | Quality cap | Reload |
-| Speed, aspect ratio | Free |
+| Speed, aspect ratio, subtitle delay | Free |
+
+The subtitles/audio menu also carries a subtitle delay, in 100 ms steps up to
+±10s, for a track that was cut for a different release and runs ahead of the
+audio. It rewrites the live cue times, always recomputed from a baseline
+captured when the track loaded, so nudging it repeatedly cannot compound and
+the reset lands back on the file's own timings. A burned-in track says so
+instead of offering the control — those subtitles are already in the picture.
+The delay is per track and per item, and survives a stream reload.
 
 Reloads resume from the current position, not from the start: `resumeTargetRef`
 is set to wherever playback is before the query key changes.
