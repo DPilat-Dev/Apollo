@@ -38,6 +38,16 @@ own OpenAPI document — which matters, because 10.11 removed the legacy
 Search groups by library and counts each one, with a Jellyseerr filter for
 things you do not have yet.
 
+![The admin dashboard: library counts, an active session, scheduled tasks and the user list](docs/screenshots/dashboard.webp)
+
+The dashboard, for accounts with `IsAdministrator` — everyone else is
+redirected to Home. Active sessions refresh every five seconds and say whether
+a stream is direct playing or being transcoded, which is the question you
+actually want answered when someone reports buffering.
+
+*Account names and the device name in this screenshot are substituted. Every
+other label is exactly what the software drew.*
+
 ## Try it without installing anything
 
 **<https://dpilat-dev.github.io/Apollo/>** — the live build, which asks for your
