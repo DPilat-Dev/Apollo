@@ -92,6 +92,20 @@
   }
 }
 
+/* The live pill behind a volume swipe or a press-and-hold. Same shape as the
+   seek flash, but it only fades in: it stays on screen for as long as the
+   gesture does, and is removed when the finger lifts rather than on a timer. */
+@keyframes gesture-pill {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 @utility skeleton {
   position: relative;
   overflow: hidden;
