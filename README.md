@@ -668,24 +668,56 @@ source, which is where you would expect to find them.
 ### Touch gestures
 
 A touchscreen has no hover and no second mouse button, so the video surface
-carries three gestures instead:
+carries five gestures instead:
 
 | Gesture | Does |
 | --- | --- |
 | Single tap | Show the controls, or hide them |
 | Double tap, left or right third | Jump ∓10s, and again for each extra tap |
 | Double tap, middle third | Play/pause |
+| Drag up or down, right half | Volume, with a live pill showing the level |
+| Press and hold | 2× speed until released |
 
 The middle third is deliberately not a seek zone: it is where a thumb rests,
 and an accidental jump there would be the most annoying place to have one.
+
+Volume is on the **right** half, as it is in VLC and Plex. The left half stays
+inert on purpose: its conventional job is brightness, and the web has no
+screen-brightness API — dimming with a black overlay would darken the picture
+while leaving the backlight, and the battery it drains, exactly where they were.
+A drag there is still swallowed, so it does not become a stray tap. Setting
+`video.volume` is a no-op on iOS, where the property is read-only; the pill
+reports what the element says afterwards rather than what was asked for, so it
+stays honest until a WebAudio gain path exists.
+
+Holding restores the rate it interrupted, read off `playbackRate` at the moment
+the hold begins rather than assumed to be 1 — someone watching at 1.25× gets
+1.25× back.
+
+All five share one `pointerdown`, so the hard part is that only one of them may
+win. `pressGesture.ts` classifies a press as it happens, monotonically: it
+starts as a candidate tap and leaves for a swipe (past 12 px of travel) or a
+hold (past 500 ms of contact), and never comes back — a flick that returns the
+finger to where it started would otherwise look like a tap that never moved.
+Only a press still classed as a tap on release reaches `useTapGestures` at all,
+which is what stops a swipe or a hold also toggling the controls on the way out.
+Movement is checked before time, so a slow drag is a swipe rather than both at
+once, and the axis is committed only when one clearly dominates, so a sideways
+drag cannot yank the volume. The 500 ms hold deadline sits well clear of the
+300 ms double-tap window, so neither half of a double tap can reach it.
 
 A tap is only known to be single once the double-tap window (300 ms) closes, so
 the single-tap action waits that long. Mouse clicks do **not** wait — deferring
 every desktop pause by a third of a second to watch for a second click would
 feel broken — which is why `useTapGestures` branches on `pointerType`.
 
-Two things this needed that are easy to miss:
+Three things this needed that are easy to miss:
 
+- `touch-action` on the video is `none`, not `manipulation`. Both suppress
+  double-tap zoom, but `manipulation` still hands vertical panning to the
+  browser, which takes the pointer away mid-drag and left the volume stuck
+  wherever the finger was. Nothing on the player scrolls, so there is no
+  panning to give up.
 - Browsers fire a **compatibility `mousemove` after every touch tap**. With the
   idle timer listening on `onMouseMove`, that re-showed the controls a moment
   before the tap gesture asked to hide them, so tap-to-hide flickered and gave

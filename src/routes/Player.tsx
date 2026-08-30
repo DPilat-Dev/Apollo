@@ -17,6 +17,7 @@ import { useProgressReporter } from '../lib/useProgressReporter'
 import { useMediaSession } from '../lib/useMediaSession'
 import { usePictureInPicture } from '../lib/usePictureInPicture'
 import { useTapGestures, type TapFeedback } from '../lib/useTapGestures'
+import { usePressGestures, type PressFeedback } from '../lib/usePressGestures'
 import { useWakeLock } from '../lib/useWakeLock'
 import { useSyncPlay } from '../lib/syncplay'
 import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
@@ -648,6 +649,19 @@ export function Player() {
     onFeedback: showSeekFlash,
   })
 
+  /*
+    Drag and hold, on the same finger as the taps above: a vertical drag on the
+    right half sets the volume, a press and hold runs at 2× until it is
+    released. Both swallow their own release, so the tap handler above only
+    ever sees a press that stayed still and brief.
+  */
+  const [pressFlash, setPressFlash] = useState<PressFeedback | null>(null)
+  const pressGestures = usePressGestures({
+    videoRef,
+    onTap: (e) => (menu === 'none' ? onVideoPointerUp(e) : setMenu('none')),
+    onFeedback: setPressFlash,
+  })
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return
@@ -923,10 +937,13 @@ export function Player() {
         playsInline
         autoPlay
         poster={posterImage}
-        /* `touch-manipulation` is what stops a double tap zooming the page
-           instead of seeking. */
-        style={{ touchAction: 'manipulation' }}
-        onPointerUp={(e) => (menu === 'none' ? onVideoPointerUp(e) : setMenu('none'))}
+        /* `none`, so a double tap cannot zoom the page instead of seeking —
+           and, unlike `manipulation`, so a vertical drag is not claimed by the
+           browser as a pan, which cancelled the pointer stream halfway through
+           the volume swipe. Nothing on this screen scrolls, so there is no
+           panning to give up. */
+        style={{ touchAction: 'none' }}
+        {...pressGestures}
         crossOrigin="anonymous"
       >
         {plan?.subtitles
@@ -963,6 +980,37 @@ export function Player() {
         >
           <Skip10Icon className="size-6" back={seekFlash.seconds < 0} />
           {Math.abs(seekFlash.seconds)}s
+        </div>
+      )}
+
+      {/*
+        The live readout for a drag or a hold. Centred and held up for as long
+        as the finger is down, because unlike the seek flash it reports
+        something still happening — a volume swipe with no visible level is
+        just the sound changing for no stated reason.
+      */}
+      {pressFlash && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 animate-[gesture-pill_140ms_ease-out] items-center gap-3 rounded-full bg-black/60 px-4 py-2.5 text-sm font-semibold backdrop-blur">
+          {pressFlash.kind === 'volume' ? (
+            <>
+              {pressFlash.level === 0 ? (
+                <MuteIcon className="size-6" />
+              ) : (
+                <VolumeIcon className="size-6" />
+              )}
+              <span className="h-1 w-28 rounded-full bg-white/25">
+                <span
+                  className="block h-full rounded-full bg-white"
+                  style={{ width: `${Math.round(pressFlash.level * 100)}%` }}
+                />
+              </span>
+              <span className="w-9 text-right tabular-nums">
+                {Math.round(pressFlash.level * 100)}%
+              </span>
+            </>
+          ) : (
+            <span className="tabular-nums">{pressFlash.rate}× speed</span>
+          )}
         </div>
       )}
 
