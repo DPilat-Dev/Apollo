@@ -14,7 +14,7 @@ import {
 
 export type PressFeedback =
   /** `level` is what the element actually reports, not what was asked for. */
-  | { kind: 'volume'; level: number }
+  | { kind: 'volume'; level: number; position: number }
   | { kind: 'speed'; rate: number }
 
 /**
@@ -34,6 +34,8 @@ export function usePressGestures({
   onTap,
   onFeedback,
   chosenRate,
+  volumePosition,
+  setVolumePosition,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>
   /** The release of a press that stayed a tap. */
@@ -41,13 +43,26 @@ export function usePressGestures({
   onFeedback?: (feedback: PressFeedback | null) => void
   /** The speed the viewer picked, which a hold returns to when released. */
   chosenRate: () => number
+  /*
+    Volume is addressed as a slider *position*, not as `video.volume`.
+
+    Above 100% the level is not the element's volume at all — it is the
+    element pinned at 1 with a gain node carrying the rest — so writing
+    `video.volume` straight from a swipe both loses the boost and reports a
+    number that is not what anyone is hearing. Position is the one coordinate
+    that means the same thing across the whole range.
+  */
+  volumePosition: () => number
+  /** Applies a position and returns the level actually reached, for the pill. */
+  setVolumePosition: (position: number) => number
 }) {
   const start = useRef<{
     x: number
     y: number
     at: number
     height: number
-    volume: number
+    /** Slider position at the start of the drag, not the element's volume. */
+    volumePosition: number
     region: SwipeRegion
   } | null>(null)
   const progress = useRef<PressProgress>(PRESS_START)
@@ -62,8 +77,8 @@ export function usePressGestures({
 
   // Same reason as in `useTapGestures`: these go straight onto the video
   // element, so the handlers have to keep one identity for the whole session.
-  const cbs = useRef({ onTap, onFeedback, chosenRate })
-  cbs.current = { onTap, onFeedback, chosenRate }
+  const cbs = useRef({ onTap, onFeedback, chosenRate, volumePosition, setVolumePosition })
+  cbs.current = { onTap, onFeedback, chosenRate, volumePosition, setVolumePosition }
 
   useEffect(() => () => window.clearTimeout(holdTimer.current), [])
 
@@ -109,13 +124,12 @@ export function usePressGestures({
       if (e.pointerType !== 'touch' || e.button !== 0) return
 
       const rect = e.currentTarget.getBoundingClientRect()
-      const video = videoRef.current
       start.current = {
         x: e.clientX,
         y: e.clientY,
         at: e.timeStamp,
         height: rect.height,
-        volume: video?.muted ? 0 : (video?.volume ?? 1),
+        volumePosition: cbs.current.volumePosition(),
         region: swipeRegion(e.clientX - rect.left, rect.width),
       }
       progress.current = PRESS_START
@@ -143,7 +157,7 @@ export function usePressGestures({
         commit(advancePress(progress.current, { ...travel.current, elapsedMs: LONG_PRESS_MS }))
       }, LONG_PRESS_MS)
     },
-    [commit, videoRef],
+    [commit],
   )
 
   const onPointerMove = useCallback(
@@ -159,22 +173,18 @@ export function usePressGestures({
       const now = progress.current
       if (now.kind !== 'swipe' || now.axis !== 'vertical' || from.region !== 'volume') return
 
-      const video = videoRef.current
-      if (!video) return
-      const level = volumeAfterDrag(from.volume, dy, from.height)
+      const position = volumeAfterDrag(from.volumePosition, dy, from.height)
       /*
-        `volume` is read-only on iOS: this assignment is accepted and then
-        ignored, so the gesture does nothing there. The pill reports what the
-        element says afterwards rather than what was asked for, so it stays
-        honest until the WebAudio gain path lands.
+        `video.volume` is read-only on iOS, so the sub-100% half of the range
+        does nothing there — but the gain node above it does work, which makes
+        this the only volume control an iPhone has. Reporting the level the
+        setter actually reached, rather than the one asked for, keeps the pill
+        honest wherever the assignment is ignored.
       */
-      video.volume = level
-      // Swiping up is also an unmute — a climbing pill over silence reads as
-      // the gesture having failed.
-      video.muted = level === 0
-      cbs.current.onFeedback?.({ kind: 'volume', level: video.muted ? 0 : video.volume })
+      const level = cbs.current.setVolumePosition(position)
+      cbs.current.onFeedback?.({ kind: 'volume', level, position })
     },
-    [commit, videoRef],
+    [commit],
   )
 
   const finish = useCallback(
