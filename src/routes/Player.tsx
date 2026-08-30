@@ -306,7 +306,20 @@ export function Player() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
-  // Playback rate is reset by every source change, so reapply it.
+  /*
+    The speed the viewer chose, as opposed to the rate the element happens to
+    be running at — SyncPlay nudges the latter by a percent or two to close a
+    drift. Kept in a ref so drift correction can read it without the group
+    re-registering the player every time the speed menu is touched.
+  */
+  const speedRef = useRef(speed)
+  speedRef.current = speed
+
+  /*
+    Playback rate is reset by every source change, so reapply it. This also
+    deliberately overwrites any drift correction in flight: reaching for the
+    speed menu is an intent, and the group defers to it rather than fighting.
+  */
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed
   }, [speed, plan])
@@ -534,6 +547,11 @@ export function Player() {
       seekTo: seekAbsoluteLocally,
       position: () => (videoRef.current?.currentTime ?? 0) + (plan?.startOffsetSeconds ?? 0),
       isPlaying: () => !(videoRef.current?.paused ?? true),
+      playbackRate: () => videoRef.current?.playbackRate ?? 1,
+      chosenRate: () => speedRef.current,
+      setPlaybackRate: (rate: number) => {
+        if (videoRef.current) videoRef.current.playbackRate = rate
+      },
       playlistItemId: item?.Id ?? undefined,
     })
     return () => syncPlay.registerPlayer(null)
