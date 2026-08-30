@@ -13,6 +13,18 @@ import {
   supportsMediaSource,
   type StreamPlan,
 } from '../lib/playback'
+import {
+  boostGain,
+  clampLevel,
+  elementVolume,
+  formatLevel,
+  isBoosted,
+  levelForPosition,
+  positionForLevel,
+  SLIDER_STEP,
+  UNITY_POSITION,
+} from '../lib/audioBoost'
+import { useAudioBoost } from '../lib/useAudioBoost'
 import { useProgressReporter } from '../lib/useProgressReporter'
 import { useMediaSession } from '../lib/useMediaSession'
 import { usePictureInPicture } from '../lib/usePictureInPicture'
@@ -538,6 +550,29 @@ export function Player() {
   const pip = usePictureInPicture(videoRef)
   const togglePip = pip.toggle
 
+  /*
+    Volume and boost are one control, because to a viewer they are one thing:
+    "louder". Below 100% that is the element's own volume; above it the element
+    stays wide open and a gain node carries the rest, so the two are never
+    fighting over the same decibels. `level` is the product of both, which is
+    what the slider and the readout are actually describing.
+  */
+  const boost = useAudioBoost(videoRef)
+  const setBoostGain = boost.setGain
+  const level = muted ? 0 : volume * boost.gain
+  const levelPosition = positionForLevel(level)
+  const setLevel = useCallback(
+    (next: number) => {
+      const v = videoRef.current
+      if (!v) return
+      const target = clampLevel(next)
+      v.volume = elementVolume(target)
+      v.muted = target === 0
+      setBoostGain(boostGain(target))
+    },
+    [setBoostGain],
+  )
+
   // The screen is allowed to sleep the moment playback stops, so a paused
   // episode left on the sofa does not burn the battery down.
   useWakeLock(!paused)
@@ -693,10 +728,10 @@ export function Player() {
           seekBy(e.shiftKey ? -60 : -10)
           break
         case 'ArrowUp':
-          if (videoRef.current) videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1)
+          setLevel(level + 0.1)
           break
         case 'ArrowDown':
-          if (videoRef.current) videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1)
+          setLevel(level - 0.1)
           break
         case 'f':
           toggleFullscreen()
@@ -760,7 +795,7 @@ export function Player() {
     return () => window.removeEventListener('keydown', onKey)
     // `togglePip` and not `pip`: the hook returns a fresh object every render,
     // which would tear down and re-add this listener on every timeupdate.
-  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu, togglePip])
+  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu, togglePip, setLevel, level])
 
   /*
     Apply a subtitle chosen on the detail page. Which mechanism depends on the
@@ -1193,20 +1228,34 @@ export function Player() {
                 type="range"
                 min={0}
                 max={1}
-                step={0.02}
-                value={muted ? 0 : volume}
-                onChange={(e) => {
-                  const v = videoRef.current
-                  if (!v) return
-                  v.volume = Number(e.target.value)
-                  v.muted = Number(e.target.value) === 0
-                }}
+                step={SLIDER_STEP}
+                value={levelPosition}
+                onChange={(e) => setLevel(levelForPosition(Number(e.target.value)))}
                 aria-label="Volume"
-                className="scrubber h-1 w-0 rounded-full bg-white/25 opacity-0 transition-all duration-200 group-hover/vol:w-24 group-hover/vol:opacity-100"
+                aria-valuetext={formatLevel(level)}
+                title={
+                  boost.unavailableReason === 'casting'
+                    ? 'Volume — the device you are casting to sets its own'
+                    : boost.unavailableReason === 'unsupported'
+                      ? 'Volume — boost is not available for this stream'
+                      : 'Volume — drag past 100% to boost quiet dialogue'
+                }
+                className="scrubber h-1 w-0 rounded-full bg-white/25 opacity-0 transition-all duration-200 group-hover/vol:w-28 group-hover/vol:opacity-100"
+                /* The track changes colour past the 100% mark so the boost
+                   range reads as somewhere you have gone, not as more of the
+                   same slider. */
                 style={{
-                  backgroundImage: `linear-gradient(to right, #fff ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.25) ${(muted ? 0 : volume) * 100}%)`,
+                  backgroundImage: `linear-gradient(to right, #fff ${Math.min(levelPosition, UNITY_POSITION) * 100}%, var(--color-accent) ${Math.min(levelPosition, UNITY_POSITION) * 100}%, var(--color-accent) ${levelPosition * 100}%, rgba(255,255,255,0.25) ${levelPosition * 100}%)`,
                 }}
               />
+              {/* Shown whether or not the slider is (it only appears on hover),
+                  because audio that is 2.4× the file's own level is worth
+                  knowing about before wondering why the next episode is loud. */}
+              {isBoosted(level) && (
+                <span className="rounded-sm bg-accent px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white">
+                  {formatLevel(level)}
+                </span>
+              )}
             </div>
 
             <span className="ml-1 hidden text-xs tabular-nums text-white/70 sm:inline sm:text-sm">
