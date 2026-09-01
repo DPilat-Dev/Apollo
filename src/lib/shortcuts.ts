@@ -33,6 +33,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: ['Shift', '←/→'], description: 'Jump a minute' },
       { keys: ['0–9'], description: 'Jump to a point in the title' },
       { keys: ['S'], description: 'Take the offered skip' },
+      { keys: ['Shift', 'C'], description: 'Chapters, where a title has them' },
       { keys: [',', '.'], description: 'Slower or faster' },
     ],
   },

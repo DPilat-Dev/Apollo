@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { chapterAt, type Chapter } from '../lib/chapters'
 import { formatTimecode } from '../lib/format'
 import type { trickplaySprite } from '../lib/trickplay'
 
@@ -23,7 +24,7 @@ export function Scrubber({
   buffered: number
   onSeek: (seconds: number) => void
   /** Chapters, drawn as divisions and named in the hover preview. */
-  chapters?: { start: number; name: string }[]
+  chapters?: Chapter[]
   /** Skip ranges, shaded so intros and credits are visible before you reach them. */
   ranges?: { start: number; end: number }[]
   /** Returns the sprite covering a moment, when the server has thumbnails. */
@@ -178,20 +179,6 @@ export function Scrubber({
  *
  * Clamped to the track so a preview near either end doesn't hang off-screen.
  */
-/** The chapter covering an instant: the last one to have started. */
-export function chapterAt(
-  chapters: { start: number; name: string }[] | undefined,
-  seconds: number,
-): string | null {
-  if (!chapters?.length) return null
-  let found: string | null = null
-  for (const c of chapters) {
-    if (c.start <= seconds) found = c.name
-    else break
-  }
-  return found
-}
-
 function ScrubPreview({
   seconds,
   x,
