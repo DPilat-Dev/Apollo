@@ -886,6 +886,18 @@ since a remux can select a track and is far cheaper than a transcode. Burned-in
 subtitles disable both, because painting subtitles into the picture means
 re-encoding it.
 
+That is necessary and was not sufficient. Jellyfin only applies
+`AudioStreamIndex` and `SubtitleStreamIndex` when the same request also names a
+`MediaSourceId`; without one it answers with the source's own defaults. Asking
+for the English track on a file whose first track is French came back as a
+`TranscodingUrl` carrying index 1 — the language the viewer was trying to
+leave. Nothing errors and nothing warns; the choice is simply dropped.
+
+The id is only knowable from a reply, so pinning it costs a second
+`PlaybackInfo` call. It is paid solely when a track was actually chosen — a
+deliberate act that already costs seconds of rebuffering — and never on
+ordinary playback.
+
 ### Keyboard
 
 | Key | Action |

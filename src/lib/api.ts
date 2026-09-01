@@ -1159,24 +1159,49 @@ export class JellyfinApi {
     }
     if (opts.mediaSourceId) body.MediaSourceId = opts.mediaSourceId
 
+    // A track choice the server will ignore unless the request pins a source.
+    const needsSourcePin =
+      opts.audioStreamIndex != null || opts.subtitleStreamIndex != null
+
     const post = (payload: Record<string, unknown>) =>
       this.request<PlaybackInfoResponse>(`/Items/${itemId}/PlaybackInfo`, {
         method: 'POST',
         body: JSON.stringify(payload),
       })
 
-    try {
-      return await post(body)
-    } catch (err) {
-      // A rejected device profile shouldn't cost the user playback entirely —
-      // retry bare and let the server pick its own defaults.
-      const { DeviceProfile: _rejected, ...withoutProfile } = body
-      console.warn(
-        '[playback] PlaybackInfo failed with our device profile, retrying without it.',
-        err,
-      )
-      return await post(withoutProfile)
+    const attempt = async (payload: Record<string, unknown>) => {
+      try {
+        return await post(payload)
+      } catch (err) {
+        // A rejected device profile shouldn't cost the user playback entirely —
+        // retry bare and let the server pick its own defaults.
+        const { DeviceProfile: _rejected, ...withoutProfile } = payload
+        console.warn(
+          '[playback] PlaybackInfo failed with our device profile, retrying without it.',
+          err,
+        )
+        return await post(withoutProfile)
+      }
     }
+
+    const first = await attempt(body)
+    if (!needsSourcePin || opts.mediaSourceId) return first
+
+    /*
+      Jellyfin only applies AudioStreamIndex and SubtitleStreamIndex when the
+      request also names a MediaSourceId. Without one it answers with the
+      source's own defaults — so picking a second language came back as a
+      TranscodingUrl carrying the *first* track's index, and the viewer got the
+      language they were trying to leave. Nothing errors; the choice is simply
+      dropped.
+
+      The id is only knowable from a reply, so the pin costs a second call.
+      It is paid solely when a track was actually chosen, which is a deliberate
+      act taking seconds of buffering anyway — never on ordinary playback.
+    */
+    const sourceId = first.MediaSources?.[0]?.Id
+    if (!sourceId) return first
+    return attempt({ ...body, MediaSourceId: sourceId })
   }
 
   reportStart(body: Record<string, unknown>) {
