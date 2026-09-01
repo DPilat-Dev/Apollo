@@ -785,6 +785,25 @@ export class JellyfinApi {
     })
   }
 
+  /**
+   * Forgets where the viewer got to, which is what takes something off
+   * Continue Watching.
+   *
+   * Deliberately not `DELETE /UserPlayedItems/{id}`, the other route out of
+   * the resume list: that runs MarkUnplayed on the server, which zeroes
+   * PlayCount and Played along with the position — abandoning a rewatch would
+   * erase that the film had ever been seen. 10.11's user-data endpoint merges
+   * only the fields present in the body, so sending the position alone leaves
+   * played state, play count and favourite exactly as they were.
+   */
+  clearResumePosition(itemId: string) {
+    return this.request<unknown>(`/UserItems/${itemId}/UserData`, {
+      method: 'POST',
+      query: { userId: this.userId },
+      body: JSON.stringify({ PlaybackPositionTicks: 0 }),
+    })
+  }
+
   // ------------------------------------------------------------ system/admin
 
   currentUser() {
