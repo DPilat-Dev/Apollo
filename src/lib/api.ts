@@ -18,6 +18,8 @@ import type {
   PlaybackInfoResponse,
   PackageInfo,
   PluginInfo,
+  RemoteImageInfo,
+  RemoteSearchResult,
   RepositoryInfo,
   SearchHintResult,
   ServerConfiguration,
@@ -1162,6 +1164,92 @@ export class JellyfinApi {
         replaceAllMetadata: opts.replaceAllMetadata ?? false,
         replaceAllImages: opts.replaceAllImages ?? false,
       },
+    })
+  }
+
+  // ------------------------------------------------- identify and artwork
+
+  /**
+   * Asks the metadata providers what they have matching a query.
+   *
+   * `kind` picks the endpoint rather than being sent as data — the server has
+   * a separate path per item type, and `identifyKind` is what decides which
+   * one an item gets (and which items get none at all).
+   */
+  remoteSearch(kind: string, query: unknown) {
+    return this.requestArray<RemoteSearchResult>(`/Items/RemoteSearch/${kind}`, {
+      method: 'POST',
+      body: JSON.stringify(query),
+    })
+  }
+
+  /**
+   * Re-points an item at a chosen match, and re-scrapes it.
+   *
+   * `replaceAllImages` defaults to false here and to *true* on the server. The
+   * flip is deliberate: the controller pairs it with a hardcoded
+   * RemoveOldMetadata, so the server's default deletes every image on the item
+   * before the providers are asked for replacements. Fixing a wrong match is
+   * not a reason to lose a hand-picked poster, so keeping the artwork is the
+   * quiet path and replacing it is the one that has to be asked for.
+   */
+  applyRemoteSearch(
+    itemId: string,
+    result: RemoteSearchResult,
+    opts: { replaceAllImages?: boolean } = {},
+  ) {
+    return this.request<void>(`/Items/RemoteSearch/Apply/${itemId}`, {
+      method: 'POST',
+      query: { replaceAllImages: opts.replaceAllImages ?? false },
+      body: JSON.stringify(result),
+    })
+  }
+
+  /**
+   * One window of the artwork the providers hold for an item.
+   *
+   * Always a window. A well-known film has hundreds of backdrops, and the
+   * caller has no way to know that before asking.
+   */
+  async remoteImages(
+    itemId: string,
+    opts: {
+      type: string
+      startIndex?: number
+      limit?: number
+      providerName?: string
+      includeAllLanguages?: boolean
+    },
+  ): Promise<{ Images: RemoteImageInfo[]; TotalRecordCount: number; Providers: string[] }> {
+    const res = await this.request<{
+      Images?: RemoteImageInfo[] | null
+      TotalRecordCount?: number
+      Providers?: string[] | null
+    }>(`/Items/${itemId}/RemoteImages`, {
+      query: {
+        type: opts.type,
+        startIndex: opts.startIndex,
+        limit: opts.limit,
+        providerName: opts.providerName,
+        includeAllLanguages: opts.includeAllLanguages ?? false,
+      },
+    })
+    // A server whose image providers all failed answers with a body carrying
+    // no Images at all, and the grid maps over whatever comes back.
+    return {
+      Images: res?.Images ?? [],
+      TotalRecordCount: res?.TotalRecordCount ?? 0,
+      Providers: res?.Providers ?? [],
+    }
+  }
+
+  downloadRemoteImage(itemId: string, type: string, imageUrl: string) {
+    return this.request<void>(`/Items/${itemId}/RemoteImages/Download`, {
+      method: 'POST',
+      // Through the query builder rather than interpolated: provider urls carry
+      // their own query strings, and one folded into ours would arrive as an
+      // extra parameter with the image url cut in half.
+      query: { type, imageUrl },
     })
   }
 
