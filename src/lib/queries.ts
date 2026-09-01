@@ -14,6 +14,7 @@ import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
 import { planResumeRemoval } from './continueWatching'
+import { PLAYED_SORT_BY } from './watchHistory'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -682,7 +683,10 @@ export function useTasteProfile() {
           includeItemTypes: ['Movie', 'Series'],
           recursive: true,
           isPlayed: true,
-          sortBy: ['DatePlayed'],
+          // The same sort the history page asks for, from the same constant:
+          // "most recently watched first" is one fact about the server's enum,
+          // and two spellings of it is one spelling waiting to drift.
+          sortBy: [PLAYED_SORT_BY],
           sortOrder: ['Descending'],
           limit: 150,
           fields: TASTE_FIELDS,

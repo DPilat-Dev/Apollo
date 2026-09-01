@@ -217,6 +217,17 @@ export function TopNav() {
                     <span className="font-medium text-white/80">{session?.userName}</span>
                   </p>
                   <div className="my-1 h-px bg-white/10" />
+                  {/* In the account menu rather than the library bar: history
+                      is a fact about this account, not somewhere to browse,
+                      and the bar already scrolls on a server with many
+                      libraries. */}
+                  <Link
+                    to="/history"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                  >
+                    Watch history
+                  </Link>
                   <Link
                     to="/settings"
                     onClick={() => setMenuOpen(false)}
