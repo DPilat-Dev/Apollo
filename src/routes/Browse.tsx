@@ -1,25 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { MediaCard } from '../components/MediaCard'
+import { FilterBar } from '../components/FilterBar'
 import { useApi } from '../lib/auth'
+import {
+  NO_FILTERS,
+  sortContextFor,
+  filterCacheKey,
+  filtersToParams,
+  isFilterActive,
+  parseFilters,
+  parseSort,
+  toItemsQuery,
+  toSortQuery,
+  type SortKey,
+} from '../lib/libraryFilters'
 
 const PAGE_SIZE = 60
-
-const SORTS = [
-  { label: 'A–Z', sortBy: 'SortName', order: 'Ascending' },
-  { label: 'Rating', sortBy: 'CommunityRating', order: 'Descending' },
-  { label: 'Recently Added', sortBy: 'DateCreated', order: 'Descending' },
-  { label: 'Release Date', sortBy: 'PremiereDate', order: 'Descending' },
-] as const
-
-/**
- * Only offered when browsing inside a container. A collection is a curated
- * thing — "Marvel, in order" — and the server already keeps the order its
- * curator chose, whereas A–Z opens the Lord of the Rings on Return of the King.
- * An empty `sortBy` is dropped from the query, which is what asks for it.
- */
-const CURATED_SORT = { label: 'Collection order', sortBy: '', order: 'Ascending' } as const
 
 /**
  * One grid for "everything by this person / studio / genre", or everything
@@ -28,28 +26,51 @@ const CURATED_SORT = { label: 'Collection order', sortBy: '', order: 'Ascending'
  * Filters arrive as query params so every chip on a detail page is a plain
  * link — shareable, and Back behaves the way people expect. `parentId` is the
  * same idea pointed at a box set, which is why collections need no route of
- * their own.
+ * their own. Library now works this way too, which is what lets both pages
+ * share one filter bar.
+ *
+ * Two things here are deliberately not shared with Library:
+ *
+ * `genre` is the *subject* of this page rather than a filter over it, so no
+ * genre list is handed to the bar and no removable genre chip appears — an ×
+ * on it would delete the page out from under the viewer.
+ *
+ * The curated sort is only offered when there is a container to be in order,
+ * and is the default there, because a collection that opens alphabetically
+ * opens the Lord of the Rings on The Return of the King. Passing the list of
+ * sorts that apply here — rather than adding a sixth to the shared one — is
+ * what keeps `?sort=curated` meaningful in this context and inert everywhere
+ * else, while every sort still round-trips through the URL like the filters do.
  */
 export function Browse() {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const api = useApi()
   const sentinel = useRef<HTMLDivElement>(null)
 
   const personIds = params.get('personIds') ?? undefined
   const studioIds = params.get('studioIds') ?? undefined
   const genreIds = params.get('genreIds') ?? undefined
-  const genre = params.get('genre') ?? undefined
   const parentId = params.get('parentId') ?? undefined
-  const title = params.get('name') ?? genre ?? 'Browse'
+  const filters = useMemo(() => parseFilters(params), [params])
+  const title = params.get('name') || filters.genre || 'Browse'
   const kind = params.get('kind') ?? ''
 
-  const sorts = parentId ? ([CURATED_SORT, ...SORTS] as const) : SORTS
-  const [sortIndex, setSortIndex] = useState(0)
-  const sort = sorts[sortIndex] ?? sorts[0]
-  const filterKey = [personIds, studioIds, genreIds, genre, parentId].join('|')
+  const { sorts, fallback } = sortContextFor(Boolean(parentId))
+  const sort = parseSort(params.get('sort'), fallback, sorts)
+  const filterKey = [personIds, studioIds, genreIds, parentId, filterCacheKey(filters)].join('|')
+
+  const write = (next: URLSearchParams) => setParams(next, { replace: true })
+  const setSort = (key: SortKey) => {
+    const next = new URLSearchParams(params)
+    next.set('sort', key)
+    write(next)
+  }
+
+  const currentYear = new Date().getFullYear()
+  const filterQuery = toItemsQuery(filters, currentYear)
 
   const query = useInfiniteQuery({
-    queryKey: ['browse', api.userId, filterKey, sort.label],
+    queryKey: ['browse', api.userId, filterKey, sort.key],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api.items({
@@ -65,9 +86,8 @@ export function Browse() {
         personIds,
         studioIds,
         genreIds,
-        genres: genre,
-        sortBy: sort.sortBy ? [sort.sortBy] : undefined,
-        sortOrder: sort.sortBy ? [sort.order] : undefined,
+        ...filterQuery,
+        ...toSortQuery(sort),
         startIndex: pageParam,
         limit: PAGE_SIZE,
         fields: ['Genres', 'Studios', 'Tags', 'ProductionYear', 'PrimaryImageAspectRatio'],
@@ -76,7 +96,7 @@ export function Browse() {
       const loaded = all.reduce((n, p) => n + (p.Items?.length ?? 0), 0)
       return loaded < (last.TotalRecordCount ?? 0) ? loaded : undefined
     },
-    enabled: Boolean(personIds || studioIds || genreIds || genre || parentId),
+    enabled: Boolean(personIds || studioIds || genreIds || filters.genre || parentId),
   })
 
   const items = useMemo(
@@ -84,6 +104,10 @@ export function Browse() {
     [query.data],
   )
   const total = query.data?.pages[0]?.TotalRecordCount ?? 0
+
+  // The page's own genre is not one of the filters a viewer can drop, so it is
+  // excluded when deciding whether filters are what emptied the grid.
+  const filtered = isFilterActive({ ...filters, genre: '' })
 
   useEffect(() => {
     const el = sentinel.current
@@ -102,27 +126,26 @@ export function Browse() {
 
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-4">
         <div>
           {kind && (
             <p className="text-xs uppercase tracking-wider text-white/40">{kind}</p>
           )}
           <h1 className="text-2xl font-bold sm:text-4xl">{title}</h1>
           {total > 0 && (
-            <p className="mt-1 text-sm text-white/45">{total.toLocaleString()} titles</p>
+            <p className="mt-1 text-sm text-white/45">
+              {total.toLocaleString()} {filtered ? 'matching titles' : 'titles'}
+            </p>
           )}
         </div>
-        <select
-          value={sortIndex}
-          onChange={(e) => setSortIndex(Number(e.target.value))}
-          className="rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35"
-        >
-          {sorts.map((s, i) => (
-            <option key={s.label} value={i}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+
+        <FilterBar
+          filters={filters}
+          onFilters={(next) => write(filtersToParams(next, params))}
+          sortKey={sort.key}
+          onSort={setSort}
+          sorts={sorts}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
@@ -138,7 +161,21 @@ export function Browse() {
       </div>
 
       {!query.isLoading && items.length === 0 && (
-        <p className="py-24 text-center text-white/40">Nothing matched.</p>
+        <div className="py-24 text-center">
+          <p className="text-white/40">
+            {filtered ? 'Nothing here matches those filters.' : 'Nothing matched.'}
+          </p>
+          {filtered && (
+            <button
+              type="button"
+              // Keeps the genre, which is the page rather than a filter on it.
+              onClick={() => write(filtersToParams({ ...NO_FILTERS, genre: filters.genre }, params))}
+              className="mt-4 rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       )}
 
       <div ref={sentinel} className="h-10" />

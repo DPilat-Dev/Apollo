@@ -1,39 +1,64 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { CardSkeleton, MediaCard } from '../components/MediaCard'
+import { FilterBar } from '../components/FilterBar'
 import { useApi } from '../lib/auth'
 import { useViews } from '../lib/queries'
 import { browsableTypes } from '../lib/collections'
+import {
+  NO_FILTERS,
+  filterCacheKey,
+  filtersToParams,
+  isFilterActive,
+  parseFilters,
+  parseSort,
+  toItemsQuery,
+  type SortKey,
+} from '../lib/libraryFilters'
 
 const PAGE_SIZE = 60
 
-const SORTS = [
-  { label: 'Recently Added', sortBy: 'DateCreated', order: 'Descending' },
-  { label: 'A–Z', sortBy: 'SortName', order: 'Ascending' },
-  { label: 'Rating', sortBy: 'CommunityRating', order: 'Descending' },
-  { label: 'Release Date', sortBy: 'PremiereDate', order: 'Descending' },
-  { label: 'Random', sortBy: 'Random', order: 'Ascending' },
-] as const
-
 export function Library() {
   const { viewId } = useParams<{ viewId: string }>()
+  const [params, setParams] = useSearchParams()
   const api = useApi()
   const { data: views, isPending: viewsPending } = useViews()
-  const [sortIndex, setSortIndex] = useState(0)
-  const [genre, setGenre] = useState<string>('')
   const sentinel = useRef<HTMLDivElement>(null)
 
   const view = views?.find((v) => v.Id === viewId)
   const itemTypes = browsableTypes(view?.CollectionType)
 
-  const sort = SORTS[sortIndex]
+  /*
+    Sort and filters are read from the URL rather than held in state. A library
+    of 27,000 episodes is only usable filtered, and a filtered grid is something
+    people bookmark, share and come back to — all of which a useState filter
+    loses on the first refresh. Browse already worked this way for the same
+    reason; this makes the two pages agree.
+
+    Writing them back replaces the history entry instead of pushing one, so
+    Back still leaves the library rather than walking every select change.
+  */
+  const filters = useMemo(() => parseFilters(params), [params])
+  const sort = parseSort(params.get('sort'), 'added')
+
+  const write = (next: URLSearchParams) => setParams(next, { replace: true })
+  const setSort = (key: SortKey) => {
+    const next = new URLSearchParams(params)
+    next.set('sort', key)
+    write(next)
+  }
+
+  const currentYear = new Date().getFullYear()
+  const filterQuery = toItemsQuery(filters, currentYear)
 
   const query = useInfiniteQuery({
     // itemTypes belongs in the key: it is derived from the view list, which
     // loads separately. Without it the first fetch (made before the collection
-    // type is known) would be cached and never revisited.
-    queryKey: ['library', api.userId, viewId, itemTypes.join(','), sort.label, genre],
+    // type is known) would be cached and never revisited. The filters go in as
+    // the same string the URL carries, so a filter can never reach the request
+    // without also reaching the key and being served another filter's results.
+    queryKey: ['library', api.userId, viewId, itemTypes.join(','), sort.key, filterCacheKey(filters)],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api.items({
@@ -42,10 +67,12 @@ export function Library() {
         recursive: true,
         sortBy: [sort.sortBy],
         sortOrder: [sort.order],
-        genres: genre || undefined,
+        ...filterQuery,
         startIndex: pageParam,
         limit: PAGE_SIZE,
-        fields: ['PrimaryImageAspectRatio', 'ProductionYear'],
+        // Genres is asked for by name because the genre picker is built from
+        // what has loaded; without it every item comes back genre-less.
+        fields: ['PrimaryImageAspectRatio', 'ProductionYear', 'Genres'],
       }),
     getNextPageParam: (last, all) => {
       const loaded = all.reduce((n, p) => n + (p.Items?.length ?? 0), 0)
@@ -86,44 +113,30 @@ export function Library() {
     return [...set].sort().slice(0, 24)
   }, [items])
 
+  const total = query.data?.pages[0]?.TotalRecordCount
+  const filtered = isFilterActive(filters)
+
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold sm:text-4xl">{view?.Name ?? 'Library'}</h1>
-          {query.data?.pages[0]?.TotalRecordCount != null && (
-            <p className="mt-1 text-sm text-white/45">
-              {query.data.pages[0].TotalRecordCount!.toLocaleString()} titles
-            </p>
-          )}
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold sm:text-4xl">{view?.Name ?? 'Library'}</h1>
+            {total != null && (
+              <p className="mt-1 text-sm text-white/45">
+                {total.toLocaleString()} {filtered ? 'matching titles' : 'titles'}
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={genre}
-            onChange={(e) => setGenre(e.target.value)}
-            className="rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35"
-          >
-            <option value="">All genres</option>
-            {genres.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={sortIndex}
-            onChange={(e) => setSortIndex(Number(e.target.value))}
-            className="rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35"
-          >
-            {SORTS.map((s, i) => (
-              <option key={s.label} value={i}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <FilterBar
+          filters={filters}
+          onFilters={(next) => write(filtersToParams(next, params))}
+          sortKey={sort.key}
+          onSort={setSort}
+          genres={genres}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
@@ -141,7 +154,23 @@ export function Library() {
       </div>
 
       {!showSkeleton && items.length === 0 && (
-        <p className="py-24 text-center text-white/40">Nothing here yet.</p>
+        <div className="py-24 text-center">
+          {/* An empty grid reads as a broken library unless it says otherwise.
+              Someone who filtered to unwatched days ago and forgot needs the
+              reason and the way out in the same place. */}
+          <p className="text-white/40">
+            {filtered ? 'Nothing here matches those filters.' : 'Nothing here yet.'}
+          </p>
+          {filtered && (
+            <button
+              type="button"
+              onClick={() => write(filtersToParams(NO_FILTERS, params))}
+              className="mt-4 rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       )}
 
       <div ref={sentinel} className="h-10" />
