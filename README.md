@@ -392,7 +392,7 @@ broken request and an empty library otherwise look identical.
   by `genreIds` or `studioIds`.
 - **Cast & Crew** — portraits from `/Items/{personId}/Images/Primary`, crew
   before cast because a director is usually why someone is looking. Each links
-  to everything that person is in.
+  to that person's own page.
 - **Video & Audio** — what is actually in the file (codec, resolution, HDR,
   bitrate, size) with pickers for version, audio track and subtitle track.
 
@@ -419,6 +419,33 @@ since the series name alone is not enough to know where you are.
 live in the query string so every chip is a plain link — shareable, and Back
 behaves as expected. Results collapse to movies and series, since cast credits
 otherwise list forty episodes of one show.
+
+### People
+
+`/person/:name` is that grid with the person above it — portrait, biography,
+birth date, death date where there is one, birthplace, and IMDb/TMDB links. It
+renders `Browse` and hands it a header, so paging, filters and sorting exist
+once. `/browse?personIds=…&name=…` was the old cast-chip destination and still
+works: it redirects here rather than staying a second page showing the same
+filmography.
+
+The route is keyed by **name**, because `/Persons/{name}` is the only endpoint
+that returns a biography — Jellyfin has no by-id equivalent. Names are the worst
+possible path segment (`Peter O'Toole`, `Renée Zellweger`, `Samuel L. Jackson`,
+and rarely a slash), so every URL carrying one is built in `src/lib/persons.ts`
+and tested against those characters. Nothing interpolates a name into a URL
+anywhere else. Names are also not unique, so the credit's id travels in the
+query and is what filters the grid; the name only fetches the biography.
+
+Portraits go through `imageUrl` like every other image — a person is a library
+item, so `/Items/{id}/Images/Primary` serves the same picture as
+`/Persons/{name}/Images/Primary` and keeps the bucketing described under
+[Artwork precedence](#artwork-precedence). No second, name-keyed image helper.
+
+Most cast have no photo and no biography, and the header degrades in two steps:
+no portrait means no portrait column rather than a grey circle, and nothing at
+all known means no header — just the name, one line saying the library has no
+biography, and the filmography, which is what `/browse?personIds=` always was.
 
 ## Jellyseerr requests
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
@@ -16,6 +16,7 @@ import {
   toSortQuery,
   type SortKey,
 } from '../lib/libraryFilters'
+import { personRedirect } from '../lib/persons'
 
 const PAGE_SIZE = 60
 
@@ -41,13 +42,35 @@ const PAGE_SIZE = 60
  * sorts that apply here — rather than adding a sixth to the shared one — is
  * what keeps `?sort=curated` meaningful in this context and inert everywhere
  * else, while every sort still round-trips through the URL like the filters do.
+ *
+ * The person case is the one that is not merely a grid — an actor has a face, a
+ * biography and dates — so `/person/:name` renders this component with its own
+ * header in place of the title. That keeps one grid rather than two: paging,
+ * filters and sorting are written once, here. `/browse?personIds=` is what the
+ * cast chips used to link to, so it redirects into that page rather than
+ * remaining a second way to see the same filmography.
  */
-export function Browse() {
+export interface BrowseProps {
+  /** Stands in for the plain title block. The person page puts its header here. */
+  heading?: ReactNode
+  /**
+   * Used only when the URL carries no `personIds` — a hand-typed or shared
+   * `/person/{name}` has a name but no id until the person themselves loads.
+   */
+  fallbackPersonId?: string
+}
+
+export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const [params, setParams] = useSearchParams()
   const api = useApi()
   const sentinel = useRef<HTMLDivElement>(null)
 
-  const personIds = params.get('personIds') ?? undefined
+  // Unconditional, because `personRedirect` is what knows not to fire: the
+  // person page renders this same component, and the rule that a person URL
+  // never redirects to itself belongs next to the one that builds it.
+  const handOff = personRedirect(params)
+
+  const personIds = params.get('personIds') ?? fallbackPersonId ?? undefined
   const studioIds = params.get('studioIds') ?? undefined
   const genreIds = params.get('genreIds') ?? undefined
   const parentId = params.get('parentId') ?? undefined
@@ -96,7 +119,9 @@ export function Browse() {
       const loaded = all.reduce((n, p) => n + (p.Items?.length ?? 0), 0)
       return loaded < (last.TotalRecordCount ?? 0) ? loaded : undefined
     },
-    enabled: Boolean(personIds || studioIds || genreIds || filters.genre || parentId),
+    // Nothing is worth fetching for a page about to be navigated away from.
+    enabled:
+      !handOff && Boolean(personIds || studioIds || genreIds || filters.genre || parentId),
   })
 
   const items = useMemo(
@@ -124,14 +149,20 @@ export function Browse() {
     return () => io.disconnect()
   }, [query])
 
+  if (handOff) return <Navigate to={handOff} replace />
+
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
       <div className="mb-6 flex flex-col gap-4">
         <div>
-          {kind && (
-            <p className="text-xs uppercase tracking-wider text-white/40">{kind}</p>
+          {heading ?? (
+            <>
+              {kind && (
+                <p className="text-xs uppercase tracking-wider text-white/40">{kind}</p>
+              )}
+              <h1 className="text-2xl font-bold sm:text-4xl">{title}</h1>
+            </>
           )}
-          <h1 className="text-2xl font-bold sm:text-4xl">{title}</h1>
           {total > 0 && (
             <p className="mt-1 text-sm text-white/45">
               {total.toLocaleString()} {filtered ? 'matching titles' : 'titles'}

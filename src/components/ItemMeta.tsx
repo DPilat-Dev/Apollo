@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
+import { personHref } from '../lib/persons'
 
 /**
  * Rotten Tomatoes' own threshold: 60% and above is Fresh, below is Rotten.
@@ -183,12 +184,12 @@ export function CastAndCrew({ item }: { item: BaseItemDto }) {
                   { width: 140 },
                 )
               : null
-          return (
-            <Link
-              key={`${person.Id}-${person.Type}-${person.Role ?? ''}`}
-              to={`/browse?personIds=${person.Id}&name=${encodeURIComponent(person.Name ?? '')}&kind=${person.Type ?? 'Person'}`}
-              className="group w-24 shrink-0 text-center sm:w-28"
-            >
+          // Both the name and the punctuation in it are the person page's
+          // key, so the link is built where that encoding is tested.
+          const href = personHref(person)
+          const key = `${person.Id}-${person.Type}-${person.Role ?? ''}`
+          const card = (
+            <>
               <div className="aspect-square overflow-hidden rounded-full bg-ink-card ring-2 ring-transparent transition group-hover:ring-accent">
                 {portrait ? (
                   <img
@@ -207,7 +208,19 @@ export function CastAndCrew({ item }: { item: BaseItemDto }) {
               <p className="line-clamp-1 text-[11px] text-white/40">
                 {person.Role || person.Type}
               </p>
+            </>
+          )
+
+          // A credit carrying neither a name nor an id leads nowhere, and a
+          // link to nowhere is worse than a card that simply does not move.
+          return href ? (
+            <Link key={key} to={href} className="group w-24 shrink-0 text-center sm:w-28">
+              {card}
             </Link>
+          ) : (
+            <div key={key} className="w-24 shrink-0 text-center sm:w-28">
+              {card}
+            </div>
           )
         })}
       </div>

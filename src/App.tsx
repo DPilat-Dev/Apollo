@@ -13,6 +13,7 @@ import { Library } from './routes/Library'
 import { Login } from './routes/Login'
 import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
+import { Person } from './routes/Person'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
 import { Collections } from './routes/Collections'
@@ -154,6 +155,10 @@ export default function App() {
           <Route path="/item/:itemId" element={<ItemDetail />} />
           <Route path="/search" element={<Search />} />
           <Route path="/browse" element={<Browse />} />
+          {/* Keyed by name: /Persons/{name} is the only way to a biography,
+              and Jellyfin has no by-id equivalent. The credit's id travels in
+              the query, since names are not unique. */}
+          <Route path="/person/:name" element={<Person />} />
           <Route path="/playlists" element={<Playlists />} />
           {/* A single collection has no route: it is /browse with a parentId,
               which already does grids of items with paging and sorting. */}

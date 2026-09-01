@@ -1,3 +1,4 @@
+import { personRequestPath } from './persons'
 import type { MediaSegment } from './segments'
 import type {
   ActivityLogEntry,
@@ -735,6 +736,23 @@ export class JellyfinApi {
         fields: ['Overview'],
       },
     })
+  }
+
+  /**
+   * One person's own record — biography, dates, birthplace, portrait.
+   *
+   * Keyed by name, which is Jellyfin's design rather than a choice here; the
+   * encoding of that name lives in `personRequestPath` so it can be tested
+   * against the apostrophes and accents real names carry.
+   */
+  person(name: string) {
+    const path = personRequestPath(name)
+    if (!path) {
+      // Without this, a blank name asks for `/Persons` — the entire person
+      // index — and the page would render whoever happened to be first.
+      return Promise.reject(new ApiError('A person lookup needs a name', 400))
+    }
+    return this.request<BaseItemDto>(path, { query: { userId: this.userId } })
   }
 
   seasons(seriesId: string) {
