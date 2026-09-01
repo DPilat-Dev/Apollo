@@ -15,6 +15,7 @@ import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
+import { History } from './routes/History'
 import { Collections } from './routes/Collections'
 import { PlaylistDetail } from './routes/PlaylistDetail'
 
@@ -159,6 +160,7 @@ export default function App() {
               which already does grids of items with paging and sorting. */}
           <Route path="/collections" element={<Collections />} />
           <Route path="/playlist/:playlistId" element={<PlaylistDetail />} />
+          <Route path="/history" element={<History />} />
           <Route path="/settings" element={<Settings />} />
           {/* Admin gates on the user's policy internally, not on the route. */}
           <Route path="/admin" element={<Admin />} />

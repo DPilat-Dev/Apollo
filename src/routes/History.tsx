@@ -1,0 +1,170 @@
+import { useEffect, useMemo, useRef } from 'react'
+import { Link } from 'react-router-dom'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { useApi } from '../lib/auth'
+import { displayTitle, itemSubtitle } from '../lib/format'
+import {
+  formatPlayedTime,
+  groupWatchHistory,
+  historyItemsQuery,
+  nextHistoryPage,
+  type HistoryEntry,
+} from '../lib/watchHistory'
+
+/**
+ * What this account has watched, newest first.
+ *
+ * The server has always known — the admin dashboard's Activity tab reads it,
+ * and the home page's recommendations are built from it — but the person it
+ * describes had nowhere to see it. Everything that decides what this page says
+ * lives in `watchHistory.ts`, because a page about dates is exactly the kind
+ * that looks right in the afternoon and is wrong all evening.
+ */
+export function History() {
+  const api = useApi()
+  const sentinel = useRef<HTMLDivElement>(null)
+
+  const query = useInfiniteQuery({
+    queryKey: ['watchHistory', api.userId],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.items(historyItemsQuery(pageParam)),
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((n, p) => n + (p.Items?.length ?? 0), 0)
+      return nextHistoryPage(loaded, last.TotalRecordCount ?? 0)
+    },
+  })
+
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.Items ?? []) ?? [], [query.data])
+  const total = query.data?.pages[0]?.TotalRecordCount ?? 0
+  // No timezone or locale passed: the defaults are the ones this browser is
+  // set to, which is the whole point — the headings have to match the clock
+  // the viewer was watching by.
+  const days = useMemo(() => groupWatchHistory(items), [items])
+
+  useEffect(() => {
+    const el = sentinel.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && query.hasNextPage && !query.isFetchingNextPage) {
+          void query.fetchNextPage()
+        }
+      },
+      { rootMargin: '800px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [query])
+
+  const capped = !query.hasNextPage && items.length > 0 && items.length < total
+
+  return (
+    <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold sm:text-4xl">Watch history</h1>
+        {total > 0 && (
+          <p className="mt-1 text-sm text-white/45">
+            {total.toLocaleString()} {total === 1 ? 'thing watched' : 'things watched'}
+          </p>
+        )}
+      </div>
+
+      {query.isError && items.length === 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
+          <p className="text-sm text-white/55">
+            {query.error instanceof Error ? query.error.message : "Your history couldn't load."}
+          </p>
+          <button
+            onClick={() => void query.refetch()}
+            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {query.isLoading && (
+        <div className="space-y-3">
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className="skeleton h-20 rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {!query.isLoading && !query.isError && items.length === 0 && (
+        <p className="text-sm text-white/45">
+          Nothing yet. Once you finish something it shows up here, with the day you watched it.
+        </p>
+      )}
+
+      {days.map((day) => (
+        <section key={day.key} className="mb-8">
+          {/* Sticky under the nav: on a long page the heading is the only thing
+              saying which evening the rows below belong to. */}
+          <h2 className="sticky top-14 z-10 -mx-4 bg-ink/95 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white/40 backdrop-blur sm:top-16 sm:-mx-14 sm:px-14">
+            {day.label}
+          </h2>
+          <ul className="mt-2 divide-y divide-white/5">
+            {day.entries.map((entry) => (
+              <HistoryRow key={entry.key} entry={entry} />
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      {capped && (
+        <p className="pb-8 text-center text-xs text-white/35">
+          Showing your {items.length.toLocaleString()} most recent. Older viewing is still on the
+          server.
+        </p>
+      )}
+
+      <div ref={sentinel} className="h-10" />
+    </div>
+  )
+}
+
+function HistoryRow({ entry }: { entry: HistoryEntry }) {
+  const api = useApi()
+  const { item } = entry
+  // `coverUrl`, not `posterUrl`: an episode's own Primary image is a still from
+  // the scene, and a page whose job is "what did I watch" has to show which
+  // show it was.
+  const img = api.coverUrl(item, 200)
+  const time = formatPlayedTime(entry.playedAt)
+  const subtitle = entry.episodeCount > 1 ? entry.episodeLabel : itemSubtitle(item)
+
+  const body = (
+    <>
+      <div className="w-12 shrink-0 overflow-hidden rounded bg-white/5 sm:w-14">
+        {img ? (
+          <img src={img} alt="" loading="lazy" className="aspect-2/3 w-full object-cover" />
+        ) : (
+          <div className="aspect-2/3 w-full" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-white sm:text-base">
+          {displayTitle(item)}
+        </p>
+        {subtitle && <p className="truncate text-xs text-white/45 sm:text-sm">{subtitle}</p>}
+      </div>
+      {time && <span className="shrink-0 text-xs tabular-nums text-white/40">{time}</span>}
+    </>
+  )
+
+  return (
+    <li>
+      {entry.href ? (
+        <Link
+          to={entry.href}
+          className="flex items-center gap-3 py-2.5 transition hover:bg-white/5 sm:gap-4"
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className="flex items-center gap-3 py-2.5 sm:gap-4">{body}</div>
+      )}
+    </li>
+  )
+}
