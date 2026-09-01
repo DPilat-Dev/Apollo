@@ -503,16 +503,23 @@ function FolderBrowser({
 export function Modal({
   title,
   onClose,
+  wide,
   children,
 }: {
   title: string
   onClose: () => void
+  /** For grids of pictures. A column of form fields reads better narrow. */
+  wide?: boolean
   children: React.ReactNode
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/10 bg-ink-soft shadow-2xl">
+      <div
+        className={`relative max-h-[85vh] w-full overflow-y-auto rounded-xl border border-white/10 bg-ink-soft shadow-2xl ${
+          wide ? 'max-w-4xl' : 'max-w-lg'
+        }`}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-ink-soft/95 px-5 py-4 backdrop-blur">
           <p className="font-semibold">{title}</p>
           <button onClick={onClose} aria-label="Close" className="p-1 text-white/50 hover:text-white">

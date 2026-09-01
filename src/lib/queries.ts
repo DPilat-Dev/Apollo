@@ -3,6 +3,7 @@ import type {
   BaseItemDto,
   LibraryOptions,
   NetworkConfiguration,
+  RemoteSearchResult,
   RepositoryInfo,
   UserDto,
   UserPolicy,
@@ -14,6 +15,8 @@ import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
 import { planResumeRemoval } from './continueWatching'
+import { itemViewKeys, type RemoteSearchQuery } from './identify'
+import { artworkPageRequest } from './artwork'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -641,13 +644,19 @@ export function useUpdateItem() {
   return useMutation({
     mutationFn: ({ itemId, item }: { itemId: string; item: BaseItemDto }) =>
       api.updateItem(itemId, item),
-    onSuccess: (_d, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ['item', api.userId, itemId] })
-      qc.invalidateQueries({ queryKey: ['seasons'] })
-      qc.invalidateQueries({ queryKey: ['episodes'] })
-      qc.invalidateQueries({ queryKey: ['itemsRow'] })
-    },
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
   })
+}
+
+/** Everything drawn from an item's own metadata or artwork. See itemViewKeys. */
+function invalidateItemViews(
+  qc: ReturnType<typeof useQueryClient>,
+  userId: string | undefined,
+  itemId: string,
+) {
+  for (const queryKey of itemViewKeys(userId, itemId)) {
+    qc.invalidateQueries({ queryKey })
+  }
 }
 
 export function useRefreshItem() {
@@ -661,6 +670,94 @@ export function useRefreshItem() {
       replaceAllMetadata?: boolean
       replaceAllImages?: boolean
     }) => api.refreshItem(itemId, opts),
+  })
+}
+
+// ------------------------------------------------- identify and artwork
+
+/**
+ * A lookup against the metadata providers.
+ *
+ * A mutation rather than a query even though it reads nothing: it is a POST
+ * the admin fires deliberately, and caching "what did the providers say about
+ * this name" would hand back stale matches to someone who has just corrected
+ * their spelling.
+ */
+export function useRemoteSearch() {
+  const api = useApi()
+  return useMutation({
+    mutationFn: ({ kind, query }: { kind: string; query: RemoteSearchQuery }) =>
+      api.remoteSearch(kind, query),
+  })
+}
+
+/**
+ * Applies a chosen match. See `applyWarnings` for what the server does with
+ * it — this is the destructive half of the feature.
+ */
+export function useApplyRemoteSearch() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      result,
+      replaceAllImages,
+    }: {
+      itemId: string
+      result: RemoteSearchResult
+      replaceAllImages?: boolean
+    }) => api.applyRemoteSearch(itemId, result, { replaceAllImages }),
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
+  })
+}
+
+/**
+ * One page of candidate artwork.
+ *
+ * `placeholderData` keeps the page you are looking at on screen while the next
+ * one loads. Without it the grid empties and the dialog jumps to the height of
+ * a spinner, which on a slow provider is most of the time spent paging.
+ */
+export function useRemoteImages(
+  itemId: string | undefined,
+  opts: { type: string; page: number; providerName?: string; includeAllLanguages?: boolean },
+  enabled = true,
+) {
+  const api = useApi()
+  const window = artworkPageRequest(opts.page)
+  return useQuery({
+    queryKey: [
+      'remoteImages',
+      itemId,
+      opts.type,
+      window.startIndex,
+      opts.providerName ?? '',
+      Boolean(opts.includeAllLanguages),
+    ],
+    queryFn: () =>
+      api.remoteImages(itemId!, {
+        type: opts.type,
+        ...window,
+        providerName: opts.providerName,
+        includeAllLanguages: opts.includeAllLanguages,
+      }),
+    enabled: Boolean(itemId) && enabled,
+    placeholderData: (previous) => previous,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useDownloadRemoteImage() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ itemId, type, imageUrl }: { itemId: string; type: string; imageUrl: string }) =>
+      api.downloadRemoteImage(itemId, type, imageUrl),
+    // The item's ImageTags change, and every poster url on screen is built
+    // from a tag — so this is what actually swaps the picture, not just the
+    // record behind it.
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
   })
 }
 
