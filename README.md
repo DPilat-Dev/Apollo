@@ -363,6 +363,7 @@ not whatever was easiest to assert:
 | `jellyseerr` | A Jellyseerr cookie belongs to the browser, so one person's session could file requests under another's account |
 | `runtime` | `http://` prefixed onto `file:///etc/passwd` produced `http://file`, laundering a rejected scheme into a valid target |
 | `format` | Ticks, timecodes, resume thresholds |
+| `chapters` | Chapter markers arrive unordered, unnamed, doubled up on one instant, and sometimes past the end of the runtime |
 
 Writing them was worthwhile beyond regressions: two assertions I wrote were
 wrong about the code's actual contract, and arguing it out is what produced the
@@ -937,6 +938,7 @@ ordinary playback.
 | `↑` / `↓` | Volume |
 | `N` / `P` | Next / previous episode |
 | `C` | Toggle subtitles |
+| `Shift` + `C` | Chapters, where a title has them |
 | `I` | Playback info |
 | `F` | Fullscreen |
 | `M` | Mute |

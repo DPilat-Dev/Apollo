@@ -131,6 +131,16 @@ export const SubtitlesIcon = ({ className = base }: P) => (
   </svg>
 )
 
+/* A list with a marker beside it — a chapter list, not a playlist queue. */
+export const ChaptersIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden>
+    <path d="M9 6h11M9 12h11M9 18h11" strokeLinecap="round" />
+    <circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none" />
+    <circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+    <circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none" />
+  </svg>
+)
+
 export const BackIcon = ({ className = base }: P) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden>
     <path d="M20 12H4m0 0 6-6m-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />

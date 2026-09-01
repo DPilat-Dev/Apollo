@@ -40,7 +40,9 @@ import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
 import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
-import { chapterAt, Scrubber } from '../components/Scrubber'
+import { Scrubber } from '../components/Scrubber'
+import { ChapterList } from '../components/ChapterList'
+import { chapterIndexAt, normalizeChapters } from '../lib/chapters'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
 import { clearQueue, nextInQueue, previousInQueue, queueFor, queuePosition } from '../lib/queue'
 import { QueuePanel } from '../components/QueuePanel'
@@ -53,6 +55,7 @@ import { displayTitle, episodeCode, formatTimecode, ticksToSeconds } from '../li
 import {
   BackIcon,
   CastIcon,
+  ChaptersIcon,
   ExitFullscreenIcon,
   FullscreenIcon,
   GearIcon,
@@ -132,7 +135,9 @@ export function Player() {
   const [fullscreen, setFullscreen] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [textTrackIndex, setTextTrackIndex] = useState<number | null>(null)
-  const [menu, setMenu] = useState<'none' | 'settings' | 'subtitles' | 'queue'>('none')
+  const [menu, setMenu] = useState<'none' | 'settings' | 'subtitles' | 'queue' | 'chapters'>(
+    'none',
+  )
   const [speed, setSpeed] = useState(1)
   const [aspect, setAspect] = useState<AspectMode>('fit')
   const [repeat, setRepeat] = useState<RepeatMode>('off')
@@ -235,6 +240,9 @@ export function Player() {
   const [dismissedUpNext, setDismissedUpNext] = useState<string | null>(null)
   const [dismissedSkip, setDismissedSkip] = useState<string | null>(null)
   const skipTargetRef = useRef<ReturnType<typeof segmentAt>>(null)
+  /* Read by the key handler, which is bound once — a dependency on the list
+     itself would tear the listener down and re-add it on every item load. */
+  const hasChaptersRef = useRef(false)
 
   // Absolute media position — transcoded streams restart their clock at zero.
   const offset = plan?.startOffsetSeconds ?? 0
@@ -774,6 +782,11 @@ export function Player() {
         case 'c':
           setTextTrackIndex((i) => (i === null ? (plan?.subtitles.find((s) => s.url)?.index ?? null) : null))
           break
+        // Shift, because a bare `c` already toggles subtitles. Silent where
+        // the item has no chapters, rather than opening an empty menu.
+        case 'C':
+          if (hasChaptersRef.current) setMenu((m) => (m === 'chapters' ? 'none' : 'chapters'))
+          break
         case 'n':
           goToId(nextId)
           break
@@ -924,18 +937,14 @@ export function Player() {
   const upNextVisible = upNextVisibleBase
 
   /*
-    Marker data for the scrubber. Chapters come with the item; skip ranges come
-    from the same segments the skip button uses, so the two always agree.
+    Marker data for the scrubber, and the same list the chapter menu jumps
+    from. Chapters come with the item and are cleaned up on the way through;
+    skip ranges come from the same segments the skip button uses, so the two
+    always agree.
   */
   const chapterStarts = useMemo(
-    () =>
-      (item?.Chapters ?? [])
-        .map((c, i) => ({
-          start: ticksToSeconds(c.StartPositionTicks ?? 0),
-          name: c.Name?.trim() || `Chapter ${i + 1}`,
-        }))
-        .sort((a, b) => a.start - b.start),
-    [item?.Chapters],
+    () => normalizeChapters(item?.Chapters, item?.RunTimeTicks),
+    [item?.Chapters, item?.RunTimeTicks],
   )
   const segmentRanges = useMemo(
     () =>
@@ -947,6 +956,13 @@ export function Player() {
   )
 
   skipTargetRef.current = skipTarget
+  /*
+    A lone marker — invariably one at zero — is what a file carrying no real
+    chapters looks like, and a list whose only offer is "back to the start" is
+    not worth a control in the row.
+  */
+  const hasChapters = chapterStarts.length > 1
+  hasChaptersRef.current = hasChapters
 
   /*
     Auto-skip, when the viewer asked for it. Keyed on the segment so it fires
@@ -1361,6 +1377,46 @@ export function Player() {
                 </div>
               )}
 
+              {/* Only where there are chapters: plenty of libraries carry
+                  none, and a button that opens onto an empty list is worse
+                  than no button at all. */}
+              {hasChapters && (
+                <div className="relative">
+                  <IconButton
+                    onClick={() => setMenu(menu === 'chapters' ? 'none' : 'chapters')}
+                    label="Chapters"
+                  >
+                    <ChaptersIcon className="size-6" />
+                  </IconButton>
+                  {menu === 'chapters' && (
+                    <Popover onClose={() => setMenu('none')} wide>
+                      <MenuGroup title="Chapters">
+                        <ChapterList
+                          chapters={chapterStarts}
+                          activeIndex={chapterIndexAt(chapterStarts, absoluteTime)}
+                          preview={
+                            item?.Id && trickplay
+                              ? (seconds) =>
+                                  trickplaySprite(
+                                    api,
+                                    item.Id!,
+                                    trickplay,
+                                    seconds,
+                                    plan?.mediaSource.Id ?? undefined,
+                                  )
+                              : undefined
+                          }
+                          onSelect={(seconds) => {
+                            seekAbsolute(seconds)
+                            setMenu('none')
+                          }}
+                        />
+                      </MenuGroup>
+                    </Popover>
+                  )}
+                </div>
+              )}
+
               <div className="relative">
                 <IconButton
                   onClick={() => setMenu(menu === 'subtitles' ? 'none' : 'subtitles')}
@@ -1490,30 +1546,6 @@ export function Player() {
                         ))}
                       </div>
                     </MenuGroup>
-
-                    {chapterStarts.length > 1 && (
-                      <MenuGroup title="Chapters">
-                        <div className="max-h-56 overflow-y-auto">
-                          {chapterStarts.map((c) => (
-                            <MenuItem
-                              key={c.start}
-                              active={chapterAt(chapterStarts, absoluteTime) === c.name}
-                              onClick={() => {
-                                seekAbsolute(c.start)
-                                setMenu('none')
-                              }}
-                            >
-                              <span className="flex w-full items-center justify-between gap-3">
-                                <span className="truncate">{c.name}</span>
-                                <span className="shrink-0 text-[11px] tabular-nums text-white/40">
-                                  {formatTimecode(c.start)}
-                                </span>
-                              </span>
-                            </MenuItem>
-                          ))}
-                        </div>
-                      </MenuGroup>
-                    )}
 
                     <MenuGroup title="Quality">
                       <MenuItem
@@ -1654,11 +1686,24 @@ function IconButton({
   )
 }
 
-function Popover({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+function Popover({
+  onClose,
+  wide,
+  children,
+}: {
+  onClose: () => void
+  /** For rows carrying a thumbnail, which 16rem of menu cannot hold. */
+  wide?: boolean
+  children: React.ReactNode
+}) {
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
-      <div className="absolute bottom-full right-0 z-20 mb-3 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-white/10 bg-black/95 py-1.5 backdrop-blur">
+      <div
+        className={`absolute bottom-full right-0 z-20 mb-3 max-h-[60vh] overflow-y-auto rounded-lg border border-white/10 bg-black/95 py-1.5 backdrop-blur ${
+          wide ? 'w-72' : 'w-64'
+        }`}
+      >
         {children}
       </div>
     </>
