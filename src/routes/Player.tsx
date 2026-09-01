@@ -1375,6 +1375,8 @@ export function Player() {
                     />
                   )}
                 </div>
+              )}
+
               {/* Only where there are chapters: plenty of libraries carry
                   none, and a button that opens onto an empty list is worse
                   than no button at all. */}
