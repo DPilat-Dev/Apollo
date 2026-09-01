@@ -10,7 +10,7 @@ import {
   useSettings,
   type Settings as SettingsShape,
 } from '../lib/settings'
-import { deviceId } from '../lib/api'
+import { CLIENT_NAME, CLIENT_VERSION, deviceId } from '../lib/api'
 import { JellyseerrSection } from '../components/JellyseerrSection'
 
 const SUBTITLE_COLORS = [
@@ -207,7 +207,9 @@ export function Settings() {
       </Section>
 
       <Section title="About">
-        <Field label="Client" value="Apollo 1.0.0" />
+        {/* The same identity the server is told, so a bug report quoting this
+            line matches the session the server has on record. */}
+        <Field label="Client" value={`${CLIENT_NAME} ${CLIENT_VERSION}`} />
         {me?.Policy?.IsAdministrator != null && (
           <Field label="Role" value={me.Policy.IsAdministrator ? 'Administrator' : 'User'} />
         )}

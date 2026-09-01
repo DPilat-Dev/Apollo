@@ -29,7 +29,17 @@ import type {
 } from '@jellyfin/sdk/lib/generated-client/models'
 
 export const CLIENT_NAME = 'Apollo'
-export const CLIENT_VERSION = '1.0.0'
+/**
+ * Sent on every request and recorded by the server against the session, so a
+ * wrong value here is what the admin dashboard and the Devices list show.
+ *
+ * The fallback is deliberately not a version number. A plausible one is how
+ * this went unnoticed for four releases: 1.0.0 looked like an answer, so
+ * nobody asked. `0.0.0-unknown` is visibly broken, and a build that lost the
+ * define gets chased instead of believed.
+ */
+export const CLIENT_VERSION =
+  typeof __APOLLO_VERSION__ === 'string' ? __APOLLO_VERSION__ : '0.0.0-unknown'
 
 /** A SyncPlay group as the server lists it. */
 export interface GroupInfoDto {

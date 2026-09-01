@@ -6,6 +6,9 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    // Lets the version test read package.json as the app's build does, so the
+    // two cannot drift the way the hardcoded client version did.
+    "resolveJsonModule": true,
     "skipLibCheck": true,
 
     /* Bundler mode */
