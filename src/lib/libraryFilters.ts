@@ -43,6 +43,23 @@ export const CURATED_SORT = {
 /** What a grid inside a container offers: the curated order, then the rest. */
 export const CONTAINER_SORTS = [CURATED_SORT, ...SORTS] as const
 
+/**
+ * Which sorts a page offers and which one it opens on.
+ *
+ * A one-line decision, pulled out of the component because the component is
+ * the one place this repo cannot test. Left inline, a collection quietly
+ * opening in alphabetical order passed the whole suite — and a trilogy opening
+ * on its third film is the exact failure the curated order exists to prevent.
+ */
+export function sortContextFor(hasContainer: boolean): {
+  sorts: readonly Sort[]
+  fallback: SortKey
+} {
+  return hasContainer
+    ? { sorts: CONTAINER_SORTS, fallback: 'curated' }
+    : { sorts: SORTS, fallback: 'name' }
+}
+
 export type Sort = (typeof CONTAINER_SORTS)[number]
 export type SortKey = Sort['key']
 

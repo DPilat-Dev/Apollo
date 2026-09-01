@@ -7,6 +7,7 @@ import {
   CONTAINER_SORTS,
   CURATED_SORT,
   SORTS,
+  sortContextFor,
   filterCacheKey,
   filtersToParams,
   genreOptions,
@@ -384,5 +385,32 @@ describe('decadeOptions', () => {
     const [from, to] = preset.value.split('-').map(Number)
     const opts = decadeOptions(2026, { ...NO_FILTERS, yearFrom: from, yearTo: to })
     expect(opts.length).toBe(decadeOptions(2026, NO_FILTERS).length)
+  })
+})
+
+/*
+  The wiring this repo cannot otherwise test. Inlined in the component, a
+  collection opening in alphabetical order passed all 478 tests — and a trilogy
+  that opens on its third film is the whole reason the curated order exists.
+*/
+describe('sortContextFor', () => {
+  it('opens a collection in the order its curator chose', () => {
+    expect(sortContextFor(true).fallback).toBe('curated')
+  })
+
+  it('opens a plain library alphabetically, never on a curated order it has none of', () => {
+    expect(sortContextFor(false).fallback).toBe('name')
+  })
+
+  it('offers the curated order only inside a container, and first', () => {
+    expect(sortContextFor(true).sorts[0]?.key).toBe('curated')
+    expect(sortContextFor(false).sorts.map((s) => String(s.key))).not.toContain('curated')
+  })
+
+  it("agrees with parseSort, so the page's default is one it actually offers", () => {
+    for (const hasContainer of [true, false]) {
+      const { sorts, fallback } = sortContextFor(hasContainer)
+      expect(parseSort(null, fallback, sorts).key).toBe(fallback)
+    }
   })
 })

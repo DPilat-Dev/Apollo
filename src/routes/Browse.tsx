@@ -5,9 +5,8 @@ import { MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
 import { useApi } from '../lib/auth'
 import {
-  CONTAINER_SORTS,
   NO_FILTERS,
-  SORTS,
+  sortContextFor,
   filterCacheKey,
   filtersToParams,
   isFilterActive,
@@ -56,8 +55,8 @@ export function Browse() {
   const title = params.get('name') || filters.genre || 'Browse'
   const kind = params.get('kind') ?? ''
 
-  const sorts = parentId ? CONTAINER_SORTS : SORTS
-  const sort = parseSort(params.get('sort'), parentId ? 'curated' : 'name', sorts)
+  const { sorts, fallback } = sortContextFor(Boolean(parentId))
+  const sort = parseSort(params.get('sort'), fallback, sorts)
   const filterKey = [personIds, studioIds, genreIds, parentId, filterCacheKey(filters)].join('|')
 
   const write = (next: URLSearchParams) => setParams(next, { replace: true })
