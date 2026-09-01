@@ -250,3 +250,17 @@ export const PlaylistIcon = ({ className = '' }: { className?: string }) => (
     <path d="M18 13v7M14.5 16.5h7" />
   </svg>
 )
+
+export const QueueIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden>
+    <path d="M3 6h12M3 11h12M3 16h7" strokeLinecap="round" />
+    <path d="m15 14 5 3-5 3Z" fill="currentColor" strokeLinejoin="round" />
+  </svg>
+)
+
+export const TrashIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden>
+    <path d="M4 7h16M10 4h4M10 11v6M14 11v6" strokeLinecap="round" />
+    <path d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)

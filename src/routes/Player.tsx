@@ -42,7 +42,8 @@ import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { chapterAt, Scrubber } from '../components/Scrubber'
 import { selectTrickplay, trickplaySprite } from '../lib/trickplay'
-import { clearQueue, nextInQueue, previousInQueue, queuePosition } from '../lib/queue'
+import { clearQueue, nextInQueue, previousInQueue, queueFor, queuePosition } from '../lib/queue'
+import { QueuePanel } from '../components/QueuePanel'
 import { UpNext, upNextLeadSeconds } from '../components/UpNext'
 import { SleepPrompt } from '../components/SleepPrompt'
 import { SLEEP_DURATIONS_MINUTES } from '../lib/sleepTimer'
@@ -60,6 +61,7 @@ import {
   PauseIcon,
   PipIcon,
   PlayIcon,
+  QueueIcon,
   RepeatIcon,
   Skip10Icon,
   SubtitlesIcon,
@@ -130,7 +132,7 @@ export function Player() {
   const [fullscreen, setFullscreen] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [textTrackIndex, setTextTrackIndex] = useState<number | null>(null)
-  const [menu, setMenu] = useState<'none' | 'settings' | 'subtitles'>('none')
+  const [menu, setMenu] = useState<'none' | 'settings' | 'subtitles' | 'queue'>('none')
   const [speed, setSpeed] = useState(1)
   const [aspect, setAspect] = useState<AspectMode>('fit')
   const [repeat, setRepeat] = useState<RepeatMode>('off')
@@ -210,11 +212,12 @@ export function Player() {
     A shuffle queue, when one is running, decides what comes next — otherwise
     "next" would walk the series in order and quietly undo the shuffle.
 
-    The queue lives in sessionStorage, so clearing it needs a render to be
-    observed; `shuffleCleared` exists only to force that.
+    The queue lives in sessionStorage, so clearing or reordering it needs a
+    render to be observed; `queueRevision` exists only to force that.
   */
-  const [shuffleCleared, setShuffleCleared] = useState(0)
-  void shuffleCleared
+  const [queueRevision, setQueueRevision] = useState(0)
+  void queueRevision
+  const queue = queueFor(item?.Id ?? undefined)
   const shuffle = queuePosition(item?.Id ?? undefined)
   const nextId = shuffle ? nextInQueue(item?.Id ?? undefined) : siblings.data?.next?.Id
   const previousId = shuffle
@@ -1202,7 +1205,7 @@ export function Player() {
               <button
                 onClick={() => {
                   clearQueue()
-                  setShuffleCleared((n) => n + 1)
+                  setQueueRevision((n) => n + 1)
                 }}
                 title="Stop shuffling and return to episode order"
                 className="ml-auto shrink-0 rounded-full border border-accent/50 px-3 py-1.5 text-[11px] font-medium text-accent transition hover:bg-accent/10"
@@ -1334,6 +1337,29 @@ export function Player() {
               )}
 
               <SyncPlayMenu />
+
+              {/* Only worth a button when there is a queue to argue with —
+                  in episode order the "queue" is just the season. */}
+              {queue && (
+                <div className="relative">
+                  <IconButton
+                    onClick={() => setMenu(menu === 'queue' ? 'none' : 'queue')}
+                    label="Queue"
+                    active={menu === 'queue'}
+                  >
+                    <QueueIcon className="size-6" />
+                  </IconButton>
+                  {menu === 'queue' && (
+                    <QueuePanel
+                      queue={queue}
+                      currentId={item?.Id ?? undefined}
+                      onEdited={() => setQueueRevision((n) => n + 1)}
+                      onPlay={goToId}
+                      onClose={() => setMenu('none')}
+                    />
+                  )}
+                </div>
+              )}
 
               <div className="relative">
                 <IconButton
