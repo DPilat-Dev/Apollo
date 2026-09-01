@@ -1,7 +1,12 @@
 import { useNavigate } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
-import { useTogglePlayed } from '../lib/queries'
+import { useBulkPlayed } from '../lib/queries'
+import {
+  bulkPlayedMessage,
+  bulkPlayedNeedsAttention,
+  bulkPlayedProgressLabel,
+} from '../lib/bulkPlayed'
 import { WatchedIcon } from './icons'
 
 /**
@@ -12,13 +17,20 @@ import { WatchedIcon } from './icons'
 export function SeasonCard({ season, series }: { season: BaseItemDto; series: BaseItemDto }) {
   const api = useApi()
   const navigate = useNavigate()
-  const played = useTogglePlayed()
+  const played = useBulkPlayed()
 
   const poster = api.posterUrl(season, 400) ?? api.posterUrl(series, 400)
   const unplayed = season.UserData?.UnplayedItemCount ?? 0
   const watched = Boolean(season.UserData?.Played) || (season.ChildCount != null && unplayed === 0)
 
   const open = () => season.Id && navigate(`/item/${season.Id}`)
+
+  // The subtitle doubles as the status line: a season poster has nowhere else
+  // to put "12 of 24", and a run over a dozen episodes is long enough that a
+  // button which only dims looks like nothing is happening.
+  const status =
+    bulkPlayedProgressLabel(played.progress, played.variables?.played ?? true) ??
+    (played.data && bulkPlayedNeedsAttention(played.data) ? bulkPlayedMessage(played.data) : null)
 
   return (
     <div className="group/season relative">
@@ -53,14 +65,23 @@ export function SeasonCard({ season, series }: { season: BaseItemDto; series: Ba
         </div>
 
         <p className="mt-2 line-clamp-1 text-sm font-medium text-white/85">{season.Name}</p>
-        <p className="text-xs text-white/45">
-          {season.ChildCount ? `${season.ChildCount} episodes` : 'Episodes'}
-          {unplayed > 0 ? ` · ${unplayed} unwatched` : ''}
-        </p>
+        {status ? (
+          <p
+            aria-live="polite"
+            className={`text-xs tabular-nums ${played.progress ? 'text-white/70' : 'text-amber-400'}`}
+          >
+            {status}
+          </p>
+        ) : (
+          <p className="text-xs text-white/45">
+            {season.ChildCount ? `${season.ChildCount} episodes` : 'Episodes'}
+            {unplayed > 0 ? ` · ${unplayed} unwatched` : ''}
+          </p>
+        )}
       </button>
 
       <button
-        onClick={() => season.Id && played.mutate({ itemId: season.Id, played: !watched })}
+        onClick={() => played.mutate({ item: season, played: !watched })}
         disabled={played.isPending}
         aria-label={watched ? `Mark ${season.Name} unwatched` : `Mark ${season.Name} watched`}
         title={watched ? 'Mark season unwatched' : 'Mark season watched'}

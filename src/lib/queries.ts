@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import type {
   BaseItemDto,
@@ -14,6 +15,8 @@ import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
 import { planResumeRemoval } from './continueWatching'
+import { PLAYED_QUERY_KEYS, runBulkPlayed, shouldInvalidateAfter } from './bulkPlayed'
+import type { BulkPlayedProgress } from './bulkPlayed'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -831,22 +834,53 @@ export function useTogglePlayed() {
     mutationFn: ({ itemId, played }: { itemId: string; played: boolean }) =>
       api.setPlayed(itemId, played),
     onSuccess: () => {
-      for (const key of [
-        'item',
-        'itemsRow',
-        'episodes',
-        'seasons',
-        'resume',
-        'nextUp',
-        'latest',
-        'library',
-        'browse',
-        'searchByLibrary',
-      ]) {
+      for (const key of PLAYED_QUERY_KEYS) {
         qc.invalidateQueries({ queryKey: [key] })
       }
     },
   })
+}
+
+/**
+ * Marking every episode of a season or a series in one press.
+ *
+ * There is no bulk playstate route, so this is a fan-out: fetch the episode
+ * list, work out which of them actually need writing, then send them a few at
+ * a time. All of the decisions — what to skip, how to batch, whether to ask
+ * first, what to say afterwards — live in `bulkPlayed.ts` where they are
+ * tested; nothing here chooses anything.
+ *
+ * The mutation resolves to an outcome rather than throwing on failure, because
+ * "40 of 62 worked" is a result the viewer has to see, not an error to swallow.
+ * The caches are refetched on a partial run for the same reason: the badges
+ * must show the half-marked truth rather than an optimistic guess.
+ */
+export function useBulkPlayed() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [progress, setProgress] = useState<BulkPlayedProgress | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: ({ item, played }: { item: BaseItemDto; played: boolean }) =>
+      runBulkPlayed({
+        item,
+        played,
+        listEpisodes: async (seriesId, seasonId) =>
+          (await api.episodes(seriesId, seasonId)).Items ?? [],
+        mark: (id, next) => api.setPlayed(id, next),
+        confirm: (message) => globalThis.confirm(message),
+        onProgress: setProgress,
+      }),
+    onSettled: (outcome) => {
+      setProgress(null)
+      if (!shouldInvalidateAfter(outcome)) return
+      for (const key of PLAYED_QUERY_KEYS) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+
+  return { ...mutation, progress }
 }
 
 /**

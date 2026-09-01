@@ -17,6 +17,7 @@ import {
   playedFraction,
 } from '../lib/format'
 import {
+  useBulkPlayed,
   useEpisodes,
   useIsAdmin,
   useItem,
@@ -25,6 +26,12 @@ import {
   useToggleFavorite,
   useTogglePlayed,
 } from '../lib/queries'
+import {
+  bulkPlayedMessage,
+  bulkPlayedNeedsAttention,
+  bulkPlayedProgressLabel,
+  bulkPlayedTarget,
+} from '../lib/bulkPlayed'
 import { MetadataEditor } from '../components/admin/MetadataEditor'
 import { MatchBadge } from '../components/MatchBadge'
 import { CastAndCrew, FilterChips, Ratings } from '../components/ItemMeta'
@@ -41,6 +48,7 @@ export function ItemDetail() {
   const similar = useSimilar(itemId)
   const favorite = useToggleFavorite()
   const played = useTogglePlayed()
+  const bulkPlayed = useBulkPlayed()
   const isAdmin = useIsAdmin()
   // Holds whichever item the metadata editor is open for — the series itself,
   // a season, or a single episode.
@@ -84,6 +92,13 @@ export function ItemDetail() {
 
   const resumable = Boolean(playTarget && isResumable(playTarget))
   const loadingTarget = (isSeries && seriesEpisodes.isLoading) || (isSeason && episodes.isLoading)
+
+  // A series or a season marks every episode inside it; anything else is the
+  // one-item toggle it always was.
+  const marksEverything = bulkPlayedTarget(item)
+  const bulkStatus =
+    bulkPlayedProgressLabel(bulkPlayed.progress, bulkPlayed.variables?.played ?? true) ??
+    (bulkPlayed.data ? bulkPlayedMessage(bulkPlayed.data) : null)
 
   return (
     <div className="pb-24">
@@ -242,19 +257,24 @@ export function ItemDetail() {
               </button>
 
               <button
-                onClick={() =>
-                  item.Id && played.mutate({ itemId: item.Id, played: !isWatched })
-                }
-                disabled={played.isPending}
+                onClick={() => {
+                  if (marksEverything) bulkPlayed.mutate({ item, played: !isWatched })
+                  else if (item.Id) played.mutate({ itemId: item.Id, played: !isWatched })
+                }}
+                disabled={played.isPending || bulkPlayed.isPending}
                 aria-label={isWatched ? 'Mark as unwatched' : 'Mark as watched'}
                 title={
                   isSeries
                     ? isWatched
-                      ? 'Mark whole series unwatched'
-                      : 'Mark whole series watched'
-                    : isWatched
-                      ? 'Mark as unwatched'
-                      : 'Mark as watched'
+                      ? 'Mark every episode of this show unwatched'
+                      : 'Mark every episode of this show watched'
+                    : isSeason
+                      ? isWatched
+                        ? 'Mark every episode of this season unwatched'
+                        : 'Mark every episode of this season watched'
+                      : isWatched
+                        ? 'Mark as unwatched'
+                        : 'Mark as watched'
                 }
                 className={`flex size-11 items-center justify-center rounded-full border-2 bg-black/40 transition disabled:opacity-50 ${
                   isWatched
@@ -274,6 +294,22 @@ export function ItemDetail() {
                 </button>
               )}
             </div>
+
+            {/*
+              Several seconds of writes, reported as they land. A run that only
+              half-finished says so here rather than quietly leaving the counts
+              wrong — pressing the button again retries just what failed.
+            */}
+            {bulkStatus && (
+              <p
+                aria-live="polite"
+                className={`mt-3 text-sm tabular-nums ${
+                  bulkPlayedNeedsAttention(bulkPlayed.data) ? 'text-amber-300' : 'text-white/70'
+                }`}
+              >
+                {bulkStatus}
+              </p>
+            )}
 
             {resumable && playTarget && (
               <div className="mt-4 max-w-md">

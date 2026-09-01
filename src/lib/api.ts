@@ -775,9 +775,17 @@ export class JellyfinApi {
   }
 
   /**
-   * Marks an item watched or unwatched. Pointed at a series or season the
-   * server cascades to the episodes inside, which is what makes "mark season
-   * watched" a single call.
+   * Marks one item watched or unwatched.
+   *
+   * One item is all it is. Pointed at a season it returns 200 having reported
+   * nothing about the episodes underneath — how many there were, how many
+   * changed, whether any of it failed — so "mark this season watched" cannot be
+   * built on it. `bulkPlayed.ts` fans this out over the real episode ids
+   * instead, and knows what it wrote.
+   *
+   * Marking played also resets the playback position server-side (MarkPlayed
+   * takes the item off the resume list as a side effect), which is why nothing
+   * calls `clearResumePosition` alongside it.
    */
   setPlayed(itemId: string, played: boolean) {
     return this.request<unknown>(`/UserPlayedItems/${itemId}`, {
