@@ -224,6 +224,15 @@ export const Skip10Icon = ({ className = base, back = false }: P & { back?: bool
   </svg>
 )
 
+/** The three-dot overflow button, drawn vertically as every client draws it. */
+export const MoreIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <circle cx="12" cy="5" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="12" cy="19" r="2" />
+  </svg>
+)
+
 export const MenuIcon = ({ className = '' }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
        strokeLinecap="round" className={className} aria-hidden="true">

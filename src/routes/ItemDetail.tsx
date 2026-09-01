@@ -19,8 +19,8 @@ import {
 import {
   useBulkPlayed,
   useEpisodes,
-  useIsAdmin,
   useItem,
+  useRefreshItem,
   useSeasons,
   useSimilar,
   useToggleFavorite,
@@ -32,7 +32,9 @@ import {
   bulkPlayedProgressLabel,
   bulkPlayedTarget,
 } from '../lib/bulkPlayed'
-import { MetadataEditor } from '../components/admin/MetadataEditor'
+import { MetadataEditor, type MetadataTool } from '../components/admin/MetadataEditor'
+import { ItemActionsMenu } from '../components/admin/ItemActionsMenu'
+import type { ItemActionId } from '../lib/itemActions'
 import { MatchBadge } from '../components/MatchBadge'
 import { CastAndCrew, FilterChips, Ratings } from '../components/ItemMeta'
 import { MediaTracks, trackParams, useTrackSelection } from '../components/MediaTracks'
@@ -49,10 +51,26 @@ export function ItemDetail() {
   const favorite = useToggleFavorite()
   const played = useTogglePlayed()
   const bulkPlayed = useBulkPlayed()
-  const isAdmin = useIsAdmin()
   // Holds whichever item the metadata editor is open for — the series itself,
   // a season, or a single episode.
   const [editingItem, setEditingItem] = useState<BaseItemDto | null>(null)
+  /** Which view the editor should open on, when the menu named one. */
+  const [editingTool, setEditingTool] = useState<MetadataTool | undefined>(undefined)
+  const refreshItem = useRefreshItem()
+
+  /*
+    One handler for every surface that shows the menu — the hero, a season
+    card, an episode row — so a new action is wired once rather than three
+    times and cannot end up doing different things in different places.
+  */
+  const runItemAction = (target: BaseItemDto, action: ItemActionId) => {
+    if (action === 'refresh') {
+      if (target.Id) refreshItem.mutate({ itemId: target.Id })
+      return
+    }
+    setEditingTool(action === 'edit' ? undefined : action)
+    setEditingItem(target)
+  }
   const [trailerOpen, setTrailerOpen] = useState(false)
   const [playlistOpen, setPlaylistOpen] = useState(false)
   const [tracks, setTracks] = useTrackSelection()
@@ -285,14 +303,7 @@ export function ItemDetail() {
                 <WatchedIcon className="size-5" filled={isWatched} />
               </button>
 
-              {isAdmin && (
-                <button
-                  onClick={() => setEditingItem(item)}
-                  className="rounded-full border-2 border-white/40 bg-black/40 px-5 py-2.5 text-sm font-semibold transition hover:border-white"
-                >
-                  Edit
-                </button>
-              )}
+              <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
             </div>
 
             {/*
@@ -379,14 +390,7 @@ export function ItemDetail() {
           <div className="mb-4 flex items-center gap-4">
             <h2 className="text-xl font-semibold">Episodes</h2>
             <span className="text-sm text-white/40">{episodes.data?.length ?? 0}</span>
-            {isAdmin && (
-              <button
-                onClick={() => setEditingItem(item)}
-                className="rounded border border-white/20 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/50 hover:text-white"
-              >
-                Edit season
-              </button>
-            )}
+            <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
           </div>
 
           <div className="max-w-5xl divide-y divide-white/8 border-t border-white/8">
@@ -398,7 +402,7 @@ export function ItemDetail() {
               <EpisodeRow
                 key={ep.Id}
                 episode={ep}
-                onEdit={isAdmin ? () => setEditingItem(ep) : undefined}
+                onAction={(a) => runItemAction(ep, a)}
                 onTogglePlayed={() =>
                   ep.Id && played.mutate({ itemId: ep.Id, played: !ep.UserData?.Played })
                 }
@@ -418,7 +422,14 @@ export function ItemDetail() {
       {playlistOpen && <AddToPlaylist item={item} onClose={() => setPlaylistOpen(false)} />}
 
       {editingItem && (
-        <MetadataEditor item={editingItem} onClose={() => setEditingItem(null)} />
+        <MetadataEditor
+          item={editingItem}
+          tool={editingTool}
+          onClose={() => {
+            setEditingItem(null)
+            setEditingTool(undefined)
+          }}
+        />
       )}
     </div>
   )
@@ -433,11 +444,11 @@ export function ItemDetail() {
  */
 function EpisodeRow({
   episode,
-  onEdit,
+  onAction,
   onTogglePlayed,
 }: {
   episode: BaseItemDto
-  onEdit?: () => void
+  onAction?: (action: ItemActionId) => void
   onTogglePlayed?: () => void
 }) {
   const api = useApi()
@@ -504,13 +515,18 @@ function EpisodeRow({
         <span className="text-xs tabular-nums text-white/40">
           {formatRuntime(episode.RunTimeTicks)}
         </span>
-        {onEdit && (
-          <button
-            onClick={onEdit}
-            className="rounded border border-white/20 px-2 py-1 text-[11px] text-white/70 opacity-0 transition hover:border-white/50 hover:text-white group-hover:opacity-100 touch:opacity-100"
-          >
-            Edit
-          </button>
+        {/*
+          Kept revealed on hover as the Edit button was, and pinned open where
+          there is no hover to reveal it with.
+        */}
+        {onAction && (
+          <ItemActionsMenu
+            item={episode}
+            onSelect={onAction}
+            compact
+            align="right"
+            className="opacity-0 transition group-hover:opacity-100 touch:opacity-100"
+          />
         )}
         {onTogglePlayed && (
           <button

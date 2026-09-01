@@ -35,10 +35,26 @@ const parseList = (v: string) =>
 const toDateInput = (iso?: string | null) => (iso ? iso.slice(0, 10) : '')
 const fromDateInput = (v: string) => (v ? new Date(`${v}T00:00:00Z`).toISOString() : null)
 
-export function MetadataEditor({ item, onClose }: { item: BaseItemDto; onClose: () => void }) {
+export type MetadataTool = 'identify' | 'artwork'
+
+export function MetadataEditor({
+  item,
+  onClose,
+  tool,
+}: {
+  item: BaseItemDto
+  onClose: () => void
+  /*
+    Which view to open on. The three-dot menu names one of these directly, so
+    Identify no longer costs a trip through a form nobody asked for. Closing a
+    tool that was opened this way should leave, not fall back into the editor
+    behind it — the caller was never asking for the editor.
+  */
+  tool?: MetadataTool
+}) {
   const [draft, setDraft] = useState<BaseItemDto>(() => structuredClone(item))
   const [notice, setNotice] = useState<string | null>(null)
-  const [openTool, setOpenTool] = useState<'identify' | 'artwork' | null>(null)
+  const [openTool, setOpenTool] = useState<MetadataTool | null>(tool ?? null)
   const update = useUpdateItem()
   const refresh = useRefreshItem()
   const isAdmin = useIsAdmin()
@@ -68,17 +84,14 @@ export function MetadataEditor({ item, onClose }: { item: BaseItemDto; onClose: 
   // Both of them rewrite the record this form is holding a draft of, and a
   // stale draft sitting behind a dialog is one Save away from putting the old
   // match back.
+  // A tool reached straight from the menu closes the whole thing; one opened
+  // from inside the form returns to the form.
+  const leaveTool = () => (tool ? onClose() : setOpenTool(null))
   if (openTool === 'identify') {
-    return (
-      <IdentifyDialog
-        item={item}
-        onClose={() => setOpenTool(null)}
-        onApplied={onClose}
-      />
-    )
+    return <IdentifyDialog item={item} onClose={leaveTool} onApplied={onClose} />
   }
   if (openTool === 'artwork') {
-    return <ArtworkPicker item={item} onClose={() => setOpenTool(null)} />
+    return <ArtworkPicker item={item} onClose={leaveTool} />
   }
 
   return (
