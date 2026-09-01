@@ -12,7 +12,7 @@ import { useSettings } from '../lib/settings'
 import { blurhashBackground } from '../lib/blurhash'
 import { useTogglePlayed } from '../lib/queries'
 import { MatchBadge } from './MatchBadge'
-import { PlayIcon, ChevronDown, WatchedIcon } from './icons'
+import { PlayIcon, ChevronDown, CloseIcon, WatchedIcon } from './icons'
 
 export type CardShape = 'poster' | 'landscape'
 
@@ -21,6 +21,8 @@ interface Props {
   shape?: CardShape
   /** Landscape cards on the Continue Watching row show a progress bar. */
   showProgress?: boolean
+  /** Given, the card gets a dismiss control. Only Continue Watching passes one. */
+  onRemove?: () => void
 }
 
 /**
@@ -28,7 +30,7 @@ interface Props {
  * expands cards in place — implemented with scale + z-index so it doesn't
  * reflow the row.
  */
-export function MediaCard({ item, shape = 'poster', showProgress = false }: Props) {
+export function MediaCard({ item, shape = 'poster', showProgress = false, onRemove }: Props) {
   const api = useApi()
   const navigate = useNavigate()
   const { reduceMotion } = useSettings()
@@ -131,6 +133,34 @@ export function MediaCard({ item, shape = 'poster', showProgress = false }: Prop
               <WatchedIcon className="size-4" />
             </span>
           ) : null}
+
+          {/*
+            Top *left*: the right corner already carries the unwatched count or
+            the watched tick. Sits above the resume overlay, which covers the
+            whole tile, so a click here dismisses rather than resuming.
+
+            Revealed by hover for a mouse and always on show under `touch:`
+            (`hover: none`), the same bargain the resume overlay strikes — a
+            touchscreen has no hover state to reveal it, and a control nobody
+            can reach is worse than a slightly busier tile.
+          */}
+          {onRemove && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+              // The tile behind is a role="button" that opens the item on Enter
+              // and Space, and the event bubbles — dismissing with the keyboard
+              // would otherwise navigate to what was just dismissed.
+              onKeyDown={(e) => e.stopPropagation()}
+              aria-label={`Remove ${displayTitle(item)} from Continue Watching`}
+              title="Remove from Continue Watching"
+              className="absolute left-2 top-2 z-10 flex size-7 items-center justify-center rounded-full bg-black/65 text-white/75 opacity-0 backdrop-blur-sm transition hover:bg-black/85 hover:text-white focus-visible:opacity-100 group-hover/card:opacity-100 touch:opacity-100"
+            >
+              <CloseIcon className="size-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Hover tray — absolutely positioned so it never affects row height. */}

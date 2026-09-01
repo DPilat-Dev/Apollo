@@ -2,12 +2,20 @@ import { useMemo, useRef } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Billboard } from '../components/Billboard'
 import { Row } from '../components/Row'
-import { useItemsRow, useLatest, useNextUp, useResume, useViews } from '../lib/queries'
+import {
+  useItemsRow,
+  useLatest,
+  useNextUp,
+  useRemoveFromResume,
+  useResume,
+  useViews,
+} from '../lib/queries'
 
 export function Home() {
   const { data: views } = useViews()
   const resume = useResume()
   const nextUp = useNextUp()
+  const removeFromResume = useRemoveFromResume()
 
   const movieView = views?.find((v) => v.CollectionType === 'movies')
   const libraries = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
@@ -103,6 +111,16 @@ export function Home() {
         past it puts the first row on top of the Play / More Info buttons.
       */}
       <div className="relative z-10 -mt-8 sm:-mt-16">
+        {/*
+          Dismissal belongs to this row alone. What the × does is clear the
+          saved position, and a position is the only reason anything is in this
+          row — every other row is a query over the library (newest, favourite,
+          highest rated), where the card is not a piece of state the viewer put
+          there and there is nothing to remove but the film itself. Next Up is
+          the near miss: it looks dismissable, but it is derived from played
+          state, so an × there would have to mark an episode watched to make it
+          go, which is a claim about the viewer rather than a tidy-up.
+        */}
         <Row
           title="Continue Watching"
           items={resume.data}
@@ -111,6 +129,9 @@ export function Home() {
           onRetry={() => void resume.refetch()}
           shape="landscape"
           showProgress
+          onRemove={(item) => {
+            if (item.Id) removeFromResume.mutate(item.Id)
+          }}
         />
         <Row
           title="Next Up"

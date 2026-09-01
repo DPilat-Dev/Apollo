@@ -12,6 +12,8 @@ interface Props {
   onRetry?: () => void
   shape?: CardShape
   showProgress?: boolean
+  /** Given, every card in this row gets a dismiss control. */
+  onRemove?: (item: BaseItemDto) => void
 }
 
 /**
@@ -26,6 +28,7 @@ export function Row({
   onRetry,
   shape = 'poster',
   showProgress,
+  onRemove,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const [canLeft, setCanLeft] = useState(false)
@@ -118,6 +121,7 @@ export function Row({
                   item={item}
                   shape={shape}
                   showProgress={showProgress}
+                  onRemove={onRemove && (() => onRemove(item))}
                 />
               ))}
         </div>

@@ -13,6 +13,7 @@ import { buildTasteProfile } from './taste'
 import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
+import { planResumeRemoval } from './continueWatching'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -816,6 +817,45 @@ export function useTogglePlayed() {
       ]) {
         qc.invalidateQueries({ queryKey: [key] })
       }
+    },
+  })
+}
+
+/**
+ * Taking something off Continue Watching.
+ *
+ * Optimistic because the row is the whole point of the button: a round trip
+ * plus a refetch is long enough that the card is still there when the pointer
+ * leaves, and the only reading of that is that nothing happened. The snapshot
+ * taken before the write is what puts the card back — in its old position —
+ * if the server refuses.
+ *
+ * Invalidation is deliberately narrow. Only the resume position changed, so
+ * Next Up (a different query, answering "what episode is next" from played
+ * state) must not be disturbed, and nor must anything that shows watched
+ * badges. `useTogglePlayed` invalidates broadly for the opposite reason: it
+ * really does change counts everywhere.
+ */
+export function useRemoveFromResume() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const key = ['resume', api.userId]
+
+  return useMutation({
+    mutationFn: (itemId: string) => api.clearResumePosition(itemId),
+    onMutate: async (itemId: string) => {
+      // A resume fetch already in flight would land after the optimistic write
+      // and put the dismissed card straight back.
+      await qc.cancelQueries({ queryKey: key })
+      const plan = planResumeRemoval(qc.getQueryData<BaseItemDto[]>(key), itemId)
+      if (plan.changed) qc.setQueryData(key, plan.next)
+      return plan
+    },
+    onError: (_err, _itemId, plan) => {
+      if (plan?.changed) qc.setQueryData(key, plan.rollback)
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: key })
     },
   })
 }

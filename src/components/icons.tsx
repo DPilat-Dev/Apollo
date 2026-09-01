@@ -73,6 +73,12 @@ export const ChevronDown = ({ className = base }: P) => (
   </svg>
 )
 
+export const CloseIcon = ({ className = base }: P) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className={className} aria-hidden>
+    <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
+  </svg>
+)
+
 export const SearchIcon = ({ className = base }: P) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden>
     <circle cx="11" cy="11" r="7" />
