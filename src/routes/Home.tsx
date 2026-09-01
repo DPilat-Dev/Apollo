@@ -3,6 +3,7 @@ import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Billboard } from '../components/Billboard'
 import { Row } from '../components/Row'
 import {
+  useBoxSets,
   useItemsRow,
   useLatest,
   useNextUp,
@@ -10,12 +11,17 @@ import {
   useResume,
   useViews,
 } from '../lib/queries'
+import { shouldShowCollections } from '../lib/boxSets'
+
+/** Enough to fill the shelf without building a hundred cards nobody scrolls to. */
+const COLLECTIONS_IN_ROW = 24
 
 export function Home() {
   const { data: views } = useViews()
   const resume = useResume()
   const nextUp = useNextUp()
   const removeFromResume = useRemoveFromResume()
+  const boxSets = useBoxSets()
 
   const movieView = views?.find((v) => v.CollectionType === 'movies')
   const libraries = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
@@ -162,6 +168,14 @@ export function Home() {
         {libraries.map((view) => (
           <LatestInLibrary key={view.Id} view={view} />
         ))}
+
+        {/* Gated on the query rather than left to Row's own empty check: Row
+            still draws its heading and skeletons while loading, which on a
+            server with no collections is a shelf that appears and then leaves.
+            Somebody who has curated none should never see the word at all. */}
+        {shouldShowCollections(boxSets) && (
+          <Row title="Collections" items={boxSets.data?.slice(0, COLLECTIONS_IN_ROW)} />
+        )}
         <Row
           title="My List"
           items={favorites.data}

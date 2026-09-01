@@ -10,6 +10,7 @@ import {
 } from '../lib/format'
 import { useSettings } from '../lib/settings'
 import { blurhashBackground } from '../lib/blurhash'
+import { boxSetHref } from '../lib/boxSets'
 import { useTogglePlayed } from '../lib/queries'
 import { MatchBadge } from './MatchBadge'
 import { PlayIcon, ChevronDown, CloseIcon, WatchedIcon } from './icons'
@@ -45,7 +46,13 @@ export function MediaCard({ item, shape = 'poster', showProgress = false, onRemo
   const watched = Boolean(item.UserData?.Played)
   const detailId = item.Type === 'Episode' ? (item.SeriesId ?? item.Id) : item.Id
 
-  const open = () => navigate(`/item/${detailId}`)
+  // A collection has nothing to show on a detail page and nothing to play:
+  // opening one means seeing what is in it. Everything else is unaffected,
+  // because this is null for everything else.
+  const collection = boxSetHref(item)
+  const isCollection = collection !== null
+
+  const open = () => navigate(collection ?? `/item/${detailId}`)
   const play = (e: React.MouseEvent) => {
     e.stopPropagation()
     navigate(`/watch/${item.Id}`)
@@ -166,19 +173,22 @@ export function MediaCard({ item, shape = 'poster', showProgress = false, onRemo
         {/* Hover tray — absolutely positioned so it never affects row height. */}
         <div className="pointer-events-none absolute inset-x-0 top-full z-30 origin-top rounded-b-lg bg-ink-card/95 px-3 pb-3 pt-2 opacity-0 shadow-2xl shadow-black/70 backdrop-blur-sm transition-opacity duration-200 group-hover/card:pointer-events-auto group-hover/card:opacity-100">
           <div className="flex items-center gap-2">
-            <button
-              onClick={play}
-              aria-label={`Play ${displayTitle(item)}`}
-              className="flex size-8 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85"
-            >
-              <PlayIcon className="ml-0.5 size-4" />
-            </button>
+            {/* There is no stream behind a collection, so it gets no Play. */}
+            {!isCollection && (
+              <button
+                onClick={play}
+                aria-label={`Play ${displayTitle(item)}`}
+                className="flex size-8 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85"
+              >
+                <PlayIcon className="ml-0.5 size-4" />
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 open()
               }}
-              aria-label="More info"
+              aria-label={isCollection ? 'See what is in this collection' : 'More info'}
               className="flex size-8 items-center justify-center rounded-full border border-white/40 text-white/90 transition hover:border-white"
             >
               <ChevronDown className="size-4" />

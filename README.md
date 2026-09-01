@@ -273,7 +273,8 @@ Detail pages also show *why*: "90% match · Sci-Fi, Paramount".
 
 Continue Watching, Next Up, Recently Added, Top Rated, then one **Recently Added
 in {Library}** row per library (`/Items/Latest`, grouped so a TV library shows
-series rather than 40 loose episodes), then My List and an unwatched shelf.
+series rather than 40 loose episodes), a **Collections** shelf on servers that
+have any, then My List and an unwatched shelf.
 
 The hero is drawn from **what this person actually watches**: titles they are
 part-way through, plus a random pick of ones they have finished. It labels
@@ -287,6 +288,34 @@ every render would reorder the hero mid-view.
 Backdrop art is a hard requirement, since a hero without it looks broken;
 episodes inherit their series' art, which counts. An account with nothing watched
 falls back to top-rated and recently-added so a new user still gets a hero.
+
+## Collections
+
+Jellyfin's `BoxSet` — the Lord of the Rings trilogy, Marvel in release order —
+gets a home-page shelf, a nav entry and a `/collections` grid, all reading one
+query (`useBoxSets`).
+
+**Every one of those appears only on a server that actually has collections.**
+The rule is stricter than "hide an empty row", because the interesting state is
+the one in between: while the query is in flight we do not yet know, and
+rendering optimistically means the word "Collections" arrives in the nav and
+then leaves again. `src/lib/boxSets.ts` names the four outcomes — `pending`,
+`failed`, `absent`, `present` — and only `present` puts anything on screen.
+`absent` and `failed` are kept apart on purpose: they both hide the entry, but
+the `/collections` page itself can be reached from a bookmark, and there it has
+to say "this server has none" rather than pretending a failed request was an
+empty one.
+
+A single collection has no route of its own. `/browse?parentId=…` already
+renders "every item matching this filter" with paging and sorting, and a box
+set's members are exactly that — one more filter alongside the person and genre
+ones. Two details differ inside a container: the query is **not** recursive, so
+a collection holding a series lists the series and not its 62 episodes, and the
+sort defaults to the server's own order, since alphabetical opens Lord of the
+Rings on *The Return of the King*.
+
+Collections use their own Primary image through `posterUrl`, the same 2:3 tile
+as everything else in a row. The landscape precedence order above is untouched.
 
 ## Sign-in
 
@@ -329,6 +358,7 @@ not whatever was easiest to assert:
 | Test | The bug it guards |
 | --- | --- |
 | `collections` | A library with no collection type fell through to `undefined`, and a recursive query then returned every season and episode |
+| `boxSets` | "Has this server got collections?" has four answers, not two — treating "still loading" as "no" made the nav entry appear and then vanish |
 | `playback` | A series' Play button was dead because nothing resolved which episode to start |
 | `jellyseerr` | A Jellyseerr cookie belongs to the browser, so one person's session could file requests under another's account |
 | `runtime` | `http://` prefixed onto `file:///etc/passwd` produced `http://file`, laundering a rejected scheme into a valid target |

@@ -15,6 +15,7 @@ import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
+import { Collections } from './routes/Collections'
 import { PlaylistDetail } from './routes/PlaylistDetail'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
@@ -154,6 +155,9 @@ export default function App() {
           <Route path="/search" element={<Search />} />
           <Route path="/browse" element={<Browse />} />
           <Route path="/playlists" element={<Playlists />} />
+          {/* A single collection has no route: it is /browse with a parentId,
+              which already does grids of items with paging and sorting. */}
+          <Route path="/collections" element={<Collections />} />
           <Route path="/playlist/:playlistId" element={<PlaylistDetail />} />
           <Route path="/settings" element={<Settings />} />
           {/* Admin gates on the user's policy internally, not on the route. */}
