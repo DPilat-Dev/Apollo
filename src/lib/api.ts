@@ -175,7 +175,8 @@ export class ApiError extends Error {
   }
 }
 
-type Query = Record<string, string | number | boolean | string[] | undefined | null>
+// number[] is here for /Items' `years`, which takes a list rather than a range.
+type Query = Record<string, string | number | boolean | string[] | number[] | undefined | null>
 
 export function buildUrl(server: string, path: string, query: Query = {}): string {
   const url = new URL(path.replace(/^\//, ''), `${server}/`)
