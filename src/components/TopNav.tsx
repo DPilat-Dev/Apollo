@@ -11,7 +11,7 @@ import { RemoteControl } from './RemoteControl'
  * app nav treatment.
  */
 export function TopNav() {
-  const { session, signOut } = useAuth()
+  const { session, signOut, switchUser } = useAuth()
   const { data: views } = useViews()
   const isAdmin = useIsAdmin()
   const navigate = useNavigate()
@@ -234,6 +234,14 @@ export function TopNav() {
                     </Link>
                   )}
                   <div className="my-1 h-px bg-white/10" />
+                  {/* Above Sign out, because on a shared device it is the one
+                      people reach for, and the two are one slip apart. */}
+                  <button
+                    onClick={switchUser}
+                    className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                  >
+                    Switch user
+                  </button>
                   <button
                     onClick={signOut}
                     className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { authenticate, buildUrl, normalizeServer, publicUsers, serverInfo } from '../lib/api'
+import { accountsToOffer, lastUsedServer, loadAccounts, type Profile } from '../lib/accounts'
 import { useAuth } from '../lib/auth'
 import { useQueryClient } from '@tanstack/react-query'
 import { connectJellyseerr } from '../lib/jellyseerrConnect'
@@ -10,7 +11,7 @@ import { DemoNotice } from '../components/DemoNotice'
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
 /**
- * picker — choose a profile (only when the server publishes its user list)
+ * picker — choose a profile (the server's users, plus whoever has signed in here)
  * person — one profile chosen; password only
  * manual — type both a username and a password
  */
@@ -19,7 +20,20 @@ type Mode = 'picker' | 'person' | 'manual'
 export function Login() {
   const { signIn } = useAuth()
   const queryClient = useQueryClient()
-  const [server, setServer] = useState(DEFAULT_SERVER)
+  /*
+    Read once. Re-reading on render would fight the write that `signIn` makes
+    on the way out, and the list only changes as a result of leaving this
+    screen anyway.
+  */
+  const [remembered] = useState(loadAccounts)
+  /*
+    A deployment without VITE_JELLYFIN_SERVER used to open on an empty address
+    field, so switching users on a home server meant retyping the hostname —
+    the exact friction the picker exists to remove. Whoever signed in last
+    already told us where the server is.
+  */
+  const startServer = DEFAULT_SERVER || lastUsedServer(remembered) || ''
+  const [server, setServer] = useState(startServer)
   const [connected, setConnected] = useState<{
     name: string
     version: string
@@ -28,13 +42,13 @@ export function Login() {
   } | null>(null)
   const [users, setUsers] = useState<UserDto[]>([])
   const [mode, setMode] = useState<Mode>('manual')
-  const [selected, setSelected] = useState<UserDto | null>(null)
+  const [selected, setSelected] = useState<Profile | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [editingServer, setEditingServer] = useState(!DEFAULT_SERVER)
+  const [editingServer, setEditingServer] = useState(!startServer)
   const passwordRef = useRef<HTMLInputElement>(null)
   /*
     Keyed on the *verified* address, never the input field. Watching the field
@@ -43,25 +57,46 @@ export function Login() {
   */
   const branding = useBranding(connected?.url)
 
+  /*
+    Two sources, one list. The server says who exists; this device says who
+    actually watches here. Merging them is what makes a shared TV open on four
+    familiar faces instead of on everybody the server has ever had.
+  */
+  const profiles = useMemo(
+    () =>
+      accountsToOffer({
+        stored: remembered,
+        publicUsers: users,
+        server: connected?.url ?? '',
+      }),
+    [remembered, users, connected?.url],
+  )
+
   const connect = async (url: string) => {
     setConnecting(true)
     setError(null)
     try {
       const info = await serverInfo(url)
-      setConnected({ name: info.ServerName, version: info.Version, url: normalizeServer(url) })
+      const verified = normalizeServer(url)
+      setConnected({ name: info.ServerName, version: info.Version, url: verified })
       setEditingServer(false)
+      const offered = (list: UserDto[]) =>
+        accountsToOffer({ stored: remembered, publicUsers: list, server: verified }).length > 0
       try {
         const list = await publicUsers(url)
         setUsers(list)
-        // No published users means there is nothing to pick from.
-        setMode(list.length > 0 ? 'picker' : 'manual')
+        // Nobody to pick from — neither published by the server nor remembered
+        // here — leaves the form as the only thing worth showing.
+        setMode(offered(list) ? 'picker' : 'manual')
       } catch (err) {
         // A server may legitimately hide its user list, so this is not fatal —
         // but swallowing it entirely once hid a client-side crash that made
         // sign-in impossible. Leave a trace.
         console.warn('[apollo] could not list public users', err)
         setUsers([])
-        setMode('manual')
+        // A hidden list is not an empty one: anyone who has signed in on this
+        // device is still worth offering.
+        setMode(offered([]) ? 'picker' : 'manual')
       }
     } catch (err) {
       // serverInfo distinguishes "unreachable" from "reachable but not Jellyfin".
@@ -77,9 +112,9 @@ export function Login() {
     }
   }
 
-  const choose = (user: UserDto) => {
+  const choose = (user: Profile) => {
     setSelected(user)
-    setUsername(user.Name ?? '')
+    setUsername(user.name)
     setPassword('')
     setError(null)
     setMode('person')
@@ -98,17 +133,18 @@ export function Login() {
     if (mode === 'person') passwordRef.current?.focus()
   }, [mode])
 
-  const avatarUrl = (user: UserDto) =>
-    user.PrimaryImageTag && user.Id
+  const avatarUrl = (user: Profile) =>
+    user.avatarTag
       ? buildUrl(connected?.url ?? normalizeServer(server), '/UserImage', {
-          userId: user.Id,
-          tag: user.PrimaryImageTag,
+          userId: user.userId,
+          tag: user.avatarTag,
         })
       : null
 
-  // Auto-connect to the configured default so the common case is one step.
+  // Auto-connect to the configured default — or, failing that, to wherever
+  // this device signed in last — so the common case is one step.
   useEffect(() => {
-    if (DEFAULT_SERVER) void connect(DEFAULT_SERVER)
+    if (startServer) void connect(startServer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -131,7 +167,12 @@ export function Login() {
       */
       void connectJellyseerr(username, password, queryClient)
 
-      signIn(session)
+      /*
+        The avatar tag comes from the profile that was tapped, not from a
+        follow-up request: it is the one thing needed to draw this face in the
+        picker next time, and it arrived with the public user list already.
+      */
+      signIn(session, selected?.avatarTag ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.')
     } finally {
@@ -247,16 +288,16 @@ export function Login() {
 
               {connected && mode === 'picker' && (
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {users.map((u) => (
+                  {profiles.map((u) => (
                     <button
-                      key={u.Id}
+                      key={u.userId}
                       type="button"
                       onClick={() => choose(u)}
                       className="group flex flex-col items-center gap-2 rounded-lg p-2 transition hover:bg-white/6"
                     >
-                      <Avatar user={u} src={avatarUrl(u)} size="md" />
+                      <Avatar name={u.name} src={avatarUrl(u)} size="md" />
                       <span className="w-full truncate text-center text-xs text-white/65 transition group-hover:text-white">
-                        {u.Name}
+                        {u.name}
                       </span>
                     </button>
                   ))}
@@ -265,8 +306,8 @@ export function Login() {
 
               {connected && mode === 'person' && selected && (
                 <div className="flex flex-col items-center pb-1 pt-2">
-                  <Avatar user={selected} src={avatarUrl(selected)} size="lg" />
-                  <p className="mt-3 text-lg font-semibold text-white">{selected.Name}</p>
+                  <Avatar name={selected.name} src={avatarUrl(selected)} size="lg" />
+                  <p className="mt-3 text-lg font-semibold text-white">{selected.name}</p>
                 </div>
               )}
 
@@ -323,7 +364,7 @@ export function Login() {
                 {mode === 'person' && (
                   <TextButton onClick={backToPicker}>Not you? Choose another profile</TextButton>
                 )}
-                {mode === 'manual' && users.length > 0 && (
+                {mode === 'manual' && profiles.length > 0 && (
                   <TextButton onClick={backToPicker}>Back to profiles</TextButton>
                 )}
               </div>
@@ -384,11 +425,11 @@ function ServerStatus({
 }
 
 function Avatar({
-  user,
+  name,
   src,
   size,
 }: {
-  user: UserDto
+  name: string
   src: string | null
   size: 'md' | 'lg'
 }) {
@@ -400,7 +441,7 @@ function Avatar({
       {src ? (
         <img src={src} alt="" fetchPriority="high" decoding="async" className="h-full w-full object-cover" />
       ) : (
-        (user.Name ?? '?').charAt(0).toUpperCase()
+        (name || '?').charAt(0).toUpperCase()
       )}
     </span>
   )

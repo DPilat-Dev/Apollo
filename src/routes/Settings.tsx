@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { accountsToOffer, loadAccounts } from '../lib/accounts'
 import { useAuth } from '../lib/auth'
 import { useCurrentUser, useIsAdmin } from '../lib/queries'
 import {
@@ -22,7 +23,7 @@ const SUBTITLE_COLORS = [
 
 
 export function Settings() {
-  const { session, signOut } = useAuth()
+  const { session, signOut, switchUser } = useAuth()
   const settings = useSettings()
   const { data: me } = useCurrentUser()
   const isAdmin = useIsAdmin()
@@ -45,7 +46,22 @@ export function Settings() {
             </Link>
           </Row>
         )}
-        <Row label="Sign out" hint="Clears the saved session on this device only.">
+        <DeviceProfiles server={session?.server ?? ''} currentUserId={session?.userId} />
+        <Row
+          label="Switch user"
+          hint="Hands the device over. Your profile stays here, so coming back is a tap and a password."
+        >
+          <button
+            onClick={switchUser}
+            className="rounded border border-white/20 px-4 py-2 text-sm transition hover:border-white/50"
+          >
+            Switch user
+          </button>
+        </Row>
+        <Row
+          label="Sign out"
+          hint="Ends the session and takes your profile off this device's picker."
+        >
           <button
             onClick={signOut}
             className="rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
@@ -205,6 +221,44 @@ export function Settings() {
         </Row>
       </Section>
     </div>
+  )
+}
+
+/**
+ * Who this device will offer on the login screen.
+ *
+ * Shown rather than left implicit because a shared device quietly accumulating
+ * a list of names is the sort of thing people should be able to see — and
+ * because the hint is the honest place to say what is and is not kept. No
+ * request is made: `accountsToOffer` with no published users falls back to what
+ * is remembered here, which is exactly the question being answered.
+ */
+function DeviceProfiles({ server, currentUserId }: { server: string; currentUserId?: string }) {
+  const profiles = useMemo(
+    () => accountsToOffer({ stored: loadAccounts(), publicUsers: [], server, currentUserId }),
+    [server, currentUserId],
+  )
+  if (profiles.length === 0) return null
+
+  return (
+    <Row
+      label="Profiles remembered here"
+      hint="Names and pictures only — never a password, and never an access token. Switching asks for a password."
+    >
+      <div className="flex max-w-full flex-wrap justify-end gap-1.5">
+        {profiles.map((p) => (
+          <span
+            key={p.userId}
+            className={`truncate rounded-full border px-2.5 py-1 text-xs ${
+              p.current ? 'border-accent/50 bg-accent/15 text-white' : 'border-white/15 text-white/60'
+            }`}
+          >
+            {p.name}
+            {p.current && ' · you'}
+          </span>
+        ))}
+      </div>
+    </Row>
   )
 }
 
