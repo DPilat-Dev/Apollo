@@ -115,6 +115,34 @@ export function useMediaSegments(itemId?: string) {
   })
 }
 
+/**
+ * Every collection (box set) this user can see, in the order a curator would
+ * expect to find them.
+ *
+ * Deliberately one query with no arguments. The home shelf, the nav entry and
+ * the collections grid all read it, and they have to agree about whether the
+ * server has any at all — a per-caller limit would key them apart and let the
+ * nav decide one thing while the shelf decided another.
+ */
+export function useBoxSets() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['boxSets', api.userId],
+    queryFn: async () =>
+      (
+        await api.items({
+          includeItemTypes: ['BoxSet'],
+          recursive: true,
+          sortBy: ['SortName'],
+          sortOrder: ['Ascending'],
+          limit: 100,
+          fields: ['ChildCount', 'PrimaryImageAspectRatio'],
+        })
+      ).Items ?? [],
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function usePlaylists() {
   const api = useApi()
   return useQuery({

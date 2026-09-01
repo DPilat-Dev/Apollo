@@ -14,42 +14,60 @@ const SORTS = [
 ] as const
 
 /**
- * One grid for "everything by this person / studio / genre".
+ * Only offered when browsing inside a container. A collection is a curated
+ * thing — "Marvel, in order" — and the server already keeps the order its
+ * curator chose, whereas A–Z opens the Lord of the Rings on Return of the King.
+ * An empty `sortBy` is dropped from the query, which is what asks for it.
+ */
+const CURATED_SORT = { label: 'Collection order', sortBy: '', order: 'Ascending' } as const
+
+/**
+ * One grid for "everything by this person / studio / genre", or everything
+ * inside one container.
  *
  * Filters arrive as query params so every chip on a detail page is a plain
- * link — shareable, and Back behaves the way people expect.
+ * link — shareable, and Back behaves the way people expect. `parentId` is the
+ * same idea pointed at a box set, which is why collections need no route of
+ * their own.
  */
 export function Browse() {
   const [params] = useSearchParams()
   const api = useApi()
-  const [sortIndex, setSortIndex] = useState(0)
   const sentinel = useRef<HTMLDivElement>(null)
 
   const personIds = params.get('personIds') ?? undefined
   const studioIds = params.get('studioIds') ?? undefined
   const genreIds = params.get('genreIds') ?? undefined
   const genre = params.get('genre') ?? undefined
+  const parentId = params.get('parentId') ?? undefined
   const title = params.get('name') ?? genre ?? 'Browse'
   const kind = params.get('kind') ?? ''
 
-  const sort = SORTS[sortIndex]
-  const filterKey = [personIds, studioIds, genreIds, genre].join('|')
+  const sorts = parentId ? ([CURATED_SORT, ...SORTS] as const) : SORTS
+  const [sortIndex, setSortIndex] = useState(0)
+  const sort = sorts[sortIndex] ?? sorts[0]
+  const filterKey = [personIds, studioIds, genreIds, genre, parentId].join('|')
 
   const query = useInfiniteQuery({
     queryKey: ['browse', api.userId, filterKey, sort.label],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api.items({
-        recursive: true,
+        // Inside a container, its own children and nothing deeper: a box set
+        // holding a series must list the series, not its 62 episodes. Every
+        // other filter is a search of the whole tree.
+        parentId,
+        recursive: !parentId,
         // Cast credits include episodes; collapsing to series keeps the grid
-        // readable rather than listing forty episodes of one show.
-        includeItemTypes: ['Movie', 'Series'],
+        // readable rather than listing forty episodes of one show. A
+        // collection can hold anything, so it constrains nothing.
+        includeItemTypes: parentId ? undefined : ['Movie', 'Series'],
         personIds,
         studioIds,
         genreIds,
         genres: genre,
-        sortBy: [sort.sortBy],
-        sortOrder: [sort.order],
+        sortBy: sort.sortBy ? [sort.sortBy] : undefined,
+        sortOrder: sort.sortBy ? [sort.order] : undefined,
         startIndex: pageParam,
         limit: PAGE_SIZE,
         fields: ['Genres', 'Studios', 'Tags', 'ProductionYear', 'PrimaryImageAspectRatio'],
@@ -58,7 +76,7 @@ export function Browse() {
       const loaded = all.reduce((n, p) => n + (p.Items?.length ?? 0), 0)
       return loaded < (last.TotalRecordCount ?? 0) ? loaded : undefined
     },
-    enabled: Boolean(personIds || studioIds || genreIds || genre),
+    enabled: Boolean(personIds || studioIds || genreIds || genre || parentId),
   })
 
   const items = useMemo(
@@ -99,7 +117,7 @@ export function Browse() {
           onChange={(e) => setSortIndex(Number(e.target.value))}
           className="rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35"
         >
-          {SORTS.map((s, i) => (
+          {sorts.map((s, i) => (
             <option key={s.label} value={i}>
               {s.label}
             </option>

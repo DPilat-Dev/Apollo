@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { useIsAdmin, useViews } from '../lib/queries'
+import { useBoxSets, useIsAdmin, useViews } from '../lib/queries'
+import { shouldShowCollections } from '../lib/boxSets'
 import { MenuIcon, SearchIcon } from './icons'
 import { RemoteControl } from './RemoteControl'
 
@@ -68,6 +69,12 @@ export function TopNav() {
   // thing held back; mixed and custom libraries browse fine through /Items.
   const browsable = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
 
+  // Collections are not a library, so nothing here lists them — but a server
+  // that has none must show no entry at all, not an empty one, and not one
+  // that appears a beat after the rest of the bar has settled.
+  const boxSets = useBoxSets()
+  const showCollections = shouldShowCollections(boxSets)
+
   const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
     `block px-3 py-2.5 text-sm transition-colors ${
       isActive ? 'bg-white/10 font-semibold text-white' : 'text-white/80 hover:bg-white/5'
@@ -116,6 +123,15 @@ export function TopNav() {
                 >
                   Playlists
                 </NavLink>
+                {showCollections && (
+                  <NavLink
+                    to="/collections"
+                    onClick={() => setNavOpen(false)}
+                    className={mobileLinkClass}
+                  >
+                    Collections
+                  </NavLink>
+                )}
                 {browsable.map((v) => (
                   <NavLink
                     key={v.Id}
@@ -146,6 +162,11 @@ export function TopNav() {
               {v.Name}
             </NavLink>
           ))}
+          {showCollections && (
+            <NavLink to="/collections" className={linkClass}>
+              Collections
+            </NavLink>
+          )}
           <NavLink to="/playlists" className={linkClass}>
             Playlists
           </NavLink>
