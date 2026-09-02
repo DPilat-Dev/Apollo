@@ -10,11 +10,13 @@ const ids = (isAdmin: boolean, over: Partial<BaseItemDto> = {}) =>
 
 describe('itemActions', () => {
   it('offers a series the full set', () => {
-    expect(ids(true)).toEqual(['edit', 'identify', 'artwork', 'refresh'])
+    expect(ids(true)).toEqual(['playlist', 'remote', 'edit', 'identify', 'artwork', 'refresh'])
   })
 
   it('offers a movie the full set', () => {
-    expect(ids(true, { Type: 'Movie' })).toEqual(['edit', 'identify', 'artwork', 'refresh'])
+    expect(ids(true, { Type: 'Movie' })).toEqual([
+      'playlist', 'remote', 'edit', 'identify', 'artwork', 'refresh',
+    ])
   })
 
   it('drops Identify for an episode, which the server cannot identify', () => {
@@ -29,21 +31,28 @@ describe('itemActions', () => {
     expect(ids(true, { Type: 'Season' })).not.toContain('identify')
   })
 
-  it('gives a non-admin nothing at all', () => {
-    // The detail page is open to every viewer. This list must never name an
-    // elevated action for one, whoever chose to render the menu.
-    expect(ids(false)).toEqual([])
-    expect(hasItemActions({ isAdmin: false, item: item() })).toBe(false)
+  it('gives a non-admin the everyday actions and not one elevated one', () => {
+    // The detail page is open to every viewer. Adding to a playlist is theirs;
+    // editing metadata is not, whoever chose to render the menu.
+    expect(ids(false)).toEqual(['playlist', 'remote'])
+    for (const elevated of ['edit', 'identify', 'artwork', 'refresh']) {
+      expect(ids(false)).not.toContain(elevated)
+    }
+    expect(hasItemActions({ isAdmin: false, item: item() })).toBe(true)
   })
 
   it('gives nothing for an item that has not loaded', () => {
     expect(itemActions({ isAdmin: true, item: undefined })).toEqual([])
     expect(itemActions({ isAdmin: true, item: item({ Id: undefined }) })).toEqual([])
+    expect(itemActions({ isAdmin: false, item: undefined })).toEqual([])
   })
 
-  it('puts Edit metadata first, because it is the one that always applies', () => {
+  it('leads with the actions everyone has, whatever the type', () => {
     for (const type of ['Series', 'Movie', 'Season', 'Episode']) {
-      expect(ids(true, { Type: type as BaseItemDto['Type'] })[0]).toBe('edit')
+      expect(ids(true, { Type: type as BaseItemDto['Type'] }).slice(0, 2)).toEqual([
+        'playlist',
+        'remote',
+      ])
     }
   })
 

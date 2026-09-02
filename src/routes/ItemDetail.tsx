@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
-import { CheckIcon, PlayIcon, PlusIcon, PlaylistIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
+import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
 import { TrailerModal } from '../components/TrailerModal'
 import { AddToPlaylist } from '../components/AddToPlaylist'
 import { RemoteControl } from '../components/RemoteControl'
@@ -56,6 +56,8 @@ export function ItemDetail() {
   const [editingItem, setEditingItem] = useState<BaseItemDto | null>(null)
   /** Which view the editor should open on, when the menu named one. */
   const [editingTool, setEditingTool] = useState<MetadataTool | undefined>(undefined)
+  /** The item whose device picker is open, if any. */
+  const [remoteFor, setRemoteFor] = useState<BaseItemDto | null>(null)
   const refreshItem = useRefreshItem()
 
   /*
@@ -64,6 +66,8 @@ export function ItemDetail() {
     times and cannot end up doing different things in different places.
   */
   const runItemAction = (target: BaseItemDto, action: ItemActionId) => {
+    if (action === 'playlist') return setPlaylistOpen(true)
+    if (action === 'remote') return setRemoteFor(target)
     if (action === 'refresh') {
       if (target.Id) refreshItem.mutate({ itemId: target.Id })
       return
@@ -249,19 +253,6 @@ export function ItemDetail() {
                 </button>
               )}
 
-              <div className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40">
-                <RemoteControl item={item} />
-              </div>
-
-              <button
-                onClick={() => setPlaylistOpen(true)}
-                aria-label="Add to playlist"
-                title="Add to playlist"
-                className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40 transition hover:border-white"
-              >
-                <PlaylistIcon className="size-5" />
-              </button>
-
               {showTrailer && (
                 <button
                   onClick={() => setTrailerOpen(true)}
@@ -310,7 +301,14 @@ export function ItemDetail() {
                 <WatchedIcon className="size-5" filled={isWatched} />
               </button>
 
-              <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
+              <div className="relative">
+                <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
+                {/* Hangs off the menu that opened it, so the panel appears
+                    where the press landed rather than across the page. */}
+                {remoteFor?.Id === item.Id && (
+                  <RemoteControl item={item} openedFromMenu onClose={() => setRemoteFor(null)} />
+                )}
+              </div>
             </div>
 
             {/*

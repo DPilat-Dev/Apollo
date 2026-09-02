@@ -16,7 +16,7 @@ import { canEditArtwork } from './artwork'
  * entries apply depends on the item's type and on who is asking, and a menu
  * that offers a dead entry is worse than one that is shorter.
  */
-export type ItemActionId = 'edit' | 'identify' | 'artwork' | 'refresh'
+export type ItemActionId = 'playlist' | 'remote' | 'edit' | 'identify' | 'artwork' | 'refresh'
 
 export interface ItemAction {
   id: ItemActionId
@@ -30,12 +30,30 @@ export function itemActions(input: {
   item: BaseItemDto | undefined
 }): ItemAction[] {
   const { isAdmin, item } = input
-  // Every entry here is an elevated endpoint. The menu is only rendered for an
-  // admin, but the list refuses to name them regardless of who rendered it —
-  // a gate that depends on its caller is a gate waiting to be moved.
-  if (!isAdmin || !item?.Id) return []
+  if (!item?.Id) return []
 
-  const actions: ItemAction[] = [{ id: 'edit', label: 'Edit metadata' }]
+  /*
+    Everyone's actions first. These moved off the hero row because that row is
+    for the things you came to the page to do — play it, shuffle it, mark it —
+    and a row that keeps growing stops reading as a row of choices.
+  */
+  const actions: ItemAction[] = [
+    { id: 'playlist', label: 'Add to playlist' },
+    {
+      id: 'remote',
+      label: 'Play on another device',
+      hint: 'Send this to a TV or phone that is signed in',
+    },
+  ]
+
+  /*
+    Everything below is an elevated endpoint. The admin entries are gated here
+    rather than by whoever renders the menu — a gate that depends on its caller
+    is a gate waiting to be moved.
+  */
+  if (!isAdmin) return actions
+
+  actions.push({ id: 'edit', label: 'Edit metadata' })
 
   if (canIdentify({ isAdmin, item })) {
     actions.push({

@@ -263,3 +263,144 @@ export function groupWatchHistory(
 
   return days
 }
+
+/**
+ * A year of viewing as one grid of squares, the way a contribution graph does.
+ *
+ * The list below it answers "what did I watch on the 7th"; nothing on the page
+ * answered "what does a year of this look like". The data is already loaded —
+ * these are the same day keys the grouping made — so the picture costs a pass
+ * over a map rather than a request.
+ */
+export interface HeatCell {
+  /** `YYYY-MM-DD`, or null for a leading pad square before the first week. */
+  key: string | null
+  count: number
+  /** 0–4, where 0 is a day with nothing on it. */
+  level: number
+}
+
+export interface Heatmap {
+  /** Columns of seven, Sunday at the top, oldest week first. */
+  weeks: HeatCell[][]
+  /** Month labels aligned to the column each month starts in. */
+  months: { label: string; column: number }[]
+  busiest: number
+  totalDays: number
+}
+
+const DAY_MS = 86_400_000
+
+/** Columns a month label needs to itself before the next one is drawn. */
+const MONTH_LABEL_GAP = 3
+const shiftDay = (key: string, days: number) =>
+  new Date(Date.parse(`${key}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10)
+
+/*
+  Buckets rather than a gradient. Four steps is enough to read a shape at a
+  glance, and scaling smoothly to the busiest day makes every ordinary day look
+  identical whenever one binge sits at the top of the range.
+*/
+function levelFor(count: number, busiest: number): number {
+  if (count <= 0) return 0
+  if (busiest <= 1) return 1
+  const share = count / busiest
+  if (share > 0.66) return 4
+  if (share > 0.33) return 3
+  if (share > 0.1) return 2
+  return 1
+}
+
+export function buildHeatmap(
+  days: ReadonlyMap<string, number>,
+  opts: { today: string; weeks?: number; locale?: string } = { today: '' },
+): Heatmap {
+  const weekCount = opts.weeks ?? 53
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.today)) {
+    return { weeks: [], months: [], busiest: 0, totalDays: 0 }
+  }
+
+  // End on the Saturday of this week, so the final column is a whole one and
+  // today never sits in a half-drawn week at the edge.
+  const todayDow = new Date(`${opts.today}T12:00:00Z`).getUTCDay()
+  const end = shiftDay(opts.today, 6 - todayDow)
+  const start = shiftDay(end, -(weekCount * 7 - 1))
+
+  let busiest = 0
+  for (const [key, count] of days) {
+    if (key >= start && key <= end && count > busiest) busiest = count
+  }
+
+  const weeks: HeatCell[][] = []
+  const months: { label: string; column: number }[] = []
+  const monthName = (key: string) =>
+    new Intl.DateTimeFormat(opts.locale, { month: 'short', timeZone: 'UTC' }).format(
+      new Date(`${key}T12:00:00Z`),
+    )
+
+  let seenMonth = ''
+  let totalDays = 0
+  for (let w = 0; w < weekCount; w++) {
+    const column: HeatCell[] = []
+    for (let d = 0; d < 7; d++) {
+      const key = shiftDay(start, w * 7 + d)
+      const count = days.get(key) ?? 0
+      if (count > 0) totalDays += 1
+      column.push({ key, count, level: levelFor(count, busiest) })
+      /*
+        Labelled from the first row only, so a month is named once — and only
+        when there is room for the name. A window of this length can start one
+        column before the next month begins, and the two labels then print on
+        top of each other ("AuSep").
+      */
+      if (d === 0) {
+        const month = key.slice(0, 7)
+        if (month !== seenMonth) {
+          seenMonth = month
+          const previous = months[months.length - 1]
+          if (!previous || w - previous.column >= MONTH_LABEL_GAP) {
+            months.push({ label: monthName(key), column: w })
+          }
+        }
+      }
+    }
+    weeks.push(column)
+  }
+
+  return { weeks, months, busiest, totalDays }
+}
+
+/** What a day amounted to: "4 episodes across 2 shows", and roughly how long. */
+export function summariseDay(day: HistoryDay): string {
+  const episodes = day.entries.reduce((n, e) => n + (e.episodeLabel ? e.episodeCount : 0), 0)
+  const films = day.entries.filter((e) => !e.episodeLabel).length
+  const shows = new Set(day.entries.filter((e) => e.episodeLabel).map((e) => e.key.split(':')[0]))
+
+  const parts: string[] = []
+  if (episodes > 0) {
+    parts.push(`${episodes} episode${episodes === 1 ? '' : 's'}`)
+    // Only worth saying when it was more than one; "across 1 show" is noise.
+    if (shows.size > 1) parts.push(`across ${shows.size} shows`)
+  }
+  if (films > 0) parts.push(`${films} film${films === 1 ? '' : 's'}`)
+  return parts.join(' · ')
+}
+
+export type HistoryFilter = 'all' | 'shows' | 'films'
+
+/**
+ * Narrow the days to one kind of thing.
+ *
+ * Days that empty out are dropped rather than left as a heading with nothing
+ * under it — an empty date reads as a bug, not as "no films that day".
+ */
+export function filterHistory(days: readonly HistoryDay[], filter: HistoryFilter): HistoryDay[] {
+  if (filter === 'all') return [...days]
+  const wantEpisodes = filter === 'shows'
+  return days
+    .map((day) => ({
+      ...day,
+      entries: day.entries.filter((e) => Boolean(e.episodeLabel) === wantEpisodes),
+    }))
+    .filter((day) => day.entries.length > 0)
+}

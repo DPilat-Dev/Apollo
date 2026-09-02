@@ -7,6 +7,11 @@ import {
   groupWatchHistory,
   historyItemsQuery,
   nextHistoryPage,
+  buildHeatmap,
+  filterHistory,
+  summariseDay,
+  type HistoryDay,
+  type HistoryEntry,
 } from '../watchHistory'
 
 const movie = (id: string, playedAt: string | null, name = id): BaseItemDto => ({
@@ -323,5 +328,128 @@ describe('formatPlayedTime', () => {
     expect(formatPlayedTime(null, { timeZone: 'UTC', locale: 'en-GB' })).toBeNull()
     expect(formatPlayedTime(undefined, { timeZone: 'UTC', locale: 'en-GB' })).toBeNull()
     expect(formatPlayedTime('nonsense', { timeZone: 'UTC', locale: 'en-GB' })).toBeNull()
+  })
+})
+
+describe('buildHeatmap', () => {
+  const days = (...e: [string, number][]) => new Map(e)
+  // 2026-09-01 is a Tuesday.
+  const map = buildHeatmap(days(['2026-08-31', 3]), { today: '2026-09-01', weeks: 4 })
+
+  it('lays out whole weeks of seven', () => {
+    expect(map.weeks).toHaveLength(4)
+    for (const week of map.weeks) expect(week).toHaveLength(7)
+  })
+
+  it('ends on the Saturday of this week, so today is never in a half week', () => {
+    // Tuesday the 1st → the grid runs to Saturday the 5th.
+    expect(map.weeks.at(-1)?.at(-1)?.key).toBe('2026-09-05')
+  })
+
+  it('counts only the days inside the window', () => {
+    expect(map.totalDays).toBe(1)
+    expect(map.busiest).toBe(3)
+    const cell = map.weeks.flat().find((c) => c.key === '2026-08-31')
+    expect(cell?.count).toBe(3)
+  })
+
+  it('leaves a day with nothing on it at level zero', () => {
+    expect(map.weeks.flat().find((c) => c.key === '2026-08-30')?.level).toBe(0)
+  })
+
+  it('buckets rather than scaling smoothly', () => {
+    // One binge at the top of the range must not flatten every ordinary day
+    // into the same shade.
+    const busy = buildHeatmap(days(['2026-08-25', 40], ['2026-08-26', 4], ['2026-08-27', 1]), {
+      today: '2026-09-01',
+      weeks: 4,
+    })
+    const level = (k: string) => busy.weeks.flat().find((c) => c.key === k)?.level
+    expect(level('2026-08-25')).toBe(4)
+    expect(level('2026-08-26')).toBeGreaterThan(0)
+    expect(level('2026-08-26')).toBeLessThan(4)
+    expect(level('2026-08-27')).toBeGreaterThan(0)
+  })
+
+  it('names a month once per run, at the column it starts in', () => {
+    // 53 weeks is a little over a year, so the starting month legitimately
+    // comes round again at the far end — the invariant is that no two
+    // *adjacent* labels repeat, not that the whole list is unique.
+    const year = buildHeatmap(days(), { today: '2026-09-01', weeks: 53, locale: 'en-US' })
+    const labels = year.months.map((m) => m.label)
+    expect(labels.every((l, i) => i === 0 || l !== labels[i - 1])).toBe(true)
+    expect(year.months.every((m, i) => i === 0 || m.column > year.months[i - 1].column)).toBe(true)
+    expect(labels.length).toBeGreaterThanOrEqual(12)
+  })
+
+  it('returns an empty grid rather than throwing on a junk date', () => {
+    expect(buildHeatmap(days(['2026-01-01', 1]), { today: 'nonsense' }).weeks).toEqual([])
+  })
+})
+
+describe('summariseDay', () => {
+  const entry = (over: Partial<HistoryEntry>): HistoryEntry =>
+    ({ key: 's1:1', item: {}, playedAt: null, episodeCount: 1, episodeLabel: 'S1:E1', href: null, ...over }) as HistoryEntry
+  const day = (entries: HistoryEntry[]): HistoryDay => ({ key: '2026-01-01', label: 'x', entries })
+
+  it('adds the folded episodes up rather than counting rows', () => {
+    expect(summariseDay(day([entry({ episodeCount: 4, episodeLabel: '4 episodes' })]))).toBe(
+      '4 episodes',
+    )
+  })
+
+  it('mentions how many shows only when there was more than one', () => {
+    const one = day([entry({ key: 's1:1' }), entry({ key: 's1:2' })])
+    expect(summariseDay(one)).toBe('2 episodes')
+    const two = day([entry({ key: 's1:1' }), entry({ key: 's2:1' })])
+    expect(summariseDay(two)).toBe('2 episodes · across 2 shows')
+  })
+
+  it('counts films separately from episodes', () => {
+    const mixed = day([entry({}), entry({ key: 'm1', episodeLabel: null })])
+    expect(summariseDay(mixed)).toBe('1 episode · 1 film')
+  })
+
+  it('says nothing about a day with nothing in it', () => {
+    expect(summariseDay(day([]))).toBe('')
+  })
+})
+
+describe('filterHistory', () => {
+  const ep = { key: 's1:1', item: {}, playedAt: null, episodeCount: 1, episodeLabel: 'S1:E1', href: null } as HistoryEntry
+  const film = { key: 'm1', item: {}, playedAt: null, episodeCount: 1, episodeLabel: null, href: null } as HistoryEntry
+  const days: HistoryDay[] = [
+    { key: 'a', label: 'A', entries: [ep, film] },
+    { key: 'b', label: 'B', entries: [ep] },
+  ]
+
+  it('leaves everything alone on "all"', () => {
+    expect(filterHistory(days, 'all')).toEqual(days)
+  })
+
+  it('keeps only what was asked for', () => {
+    expect(filterHistory(days, 'films').flatMap((d) => d.entries)).toEqual([film])
+    expect(filterHistory(days, 'shows').flatMap((d) => d.entries)).toHaveLength(2)
+  })
+
+  it('drops a day that empties out rather than leaving a bare heading', () => {
+    // A date with nothing under it reads as a bug, not as "no films that day".
+    expect(filterHistory(days, 'films').map((d) => d.key)).toEqual(['a'])
+  })
+})
+
+describe('buildHeatmap month labels do not collide', () => {
+  it('drops a label with no room before the next month', () => {
+    // A 53-week window routinely starts a few days before a month boundary.
+    // Two labels one column apart print on top of each other.
+    for (const today of ['2026-09-01', '2026-03-02', '2026-12-31', '2027-01-01']) {
+      const map = buildHeatmap(new Map(), { today, weeks: 53, locale: 'en-US' })
+      for (let i = 1; i < map.months.length; i++) {
+        expect(
+          map.months[i].column - map.months[i - 1].column,
+          `labels collide on ${today}`,
+        ).toBeGreaterThanOrEqual(3)
+      }
+    }
   })
 })
