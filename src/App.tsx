@@ -19,6 +19,7 @@ import { Playlists } from './routes/Playlists'
 import { History } from './routes/History'
 import { Collections } from './routes/Collections'
 import { YearRecap } from './routes/YearRecap'
+import { RecapStory } from './routes/RecapStory'
 import { PlaylistDetail } from './routes/PlaylistDetail'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
@@ -142,6 +143,21 @@ export default function App() {
                 <Player />
               </ErrorBoundary>
             </Suspense>
+          }
+        />
+
+        {/*
+          Chrome-free like the player. A story that runs under the nav bar has
+          its own controls covered by the app's — the Skip button ended up
+          behind the account avatar — and a full-screen run with a header on it
+          is not full screen.
+        */}
+        <Route
+          path="/recap/story"
+          element={
+            <ErrorBoundary resetKey="recap-story">
+              <RecapStory />
+            </ErrorBoundary>
           }
         />
 

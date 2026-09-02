@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import {
   ESTIMATE_CAVEAT,
-  RECAP_HREF,
+  RECAP_STORY_HREF,
   RECAP_MAX_ITEMS,
   TOP_N,
   formatEstimatedTime,
+  habitsFromDays,
   hasRecap,
   nextRecapPage,
+  previewSeason,
   recapButton,
   recapItemsQuery,
   recapProbe,
@@ -105,7 +107,8 @@ describe('recapSeason, via recapButton', () => {
   it('points at the recap and says which year it covers', () => {
     const shown = button('2026-12-05T12:00:00Z')
 
-    expect(shown?.href).toBe(RECAP_HREF)
+    // The button opens the run, not the page it ends on.
+    expect(shown?.href).toBe(RECAP_STORY_HREF)
     expect(shown?.label).toContain('2026')
   })
 })
@@ -196,10 +199,14 @@ describe('recapItemsQuery', () => {
     expect(recapItemsQuery(0).fields).toContain('Genres')
   })
 
-  /* Ten pages of two hundred is the widest walk the app makes, and the recap
-     renders no artwork at all. */
-  it('leaves the images behind', () => {
-    expect(recapItemsQuery(0).enableImages).toBe(false)
+  /*
+    Posters are the point of the top-shows panel, so images are asked for — but
+    ten pages of two hundred is the widest walk the app makes, and without a
+    type limit every item carries every backdrop tag the server holds.
+  */
+  it('asks for artwork, and for only one tag of each kind', () => {
+    expect(recapItemsQuery(0).enableImages).toBe(true)
+    expect(recapItemsQuery(0).imageTypeLimit).toBe(1)
   })
 
   it('pages from the given offset', () => {
@@ -537,5 +544,136 @@ describe('the estimate caveat', () => {
   */
   it('says out loud that the hours are an estimate', () => {
     expect(ESTIMATE_CAVEAT.toLowerCase()).toContain('estimate')
+  })
+})
+
+/*
+  The escape hatch that makes a ten-months-invisible page checkable by hand.
+  It must never be reachable outside a dev build, and must not accept junk —
+  a page rendering "NaN in review" is worse than one nobody can open.
+*/
+describe('previewSeason', () => {
+  it('opens a named year while developing', () => {
+    expect(previewSeason('2026')).toEqual({ year: 2026, label: '2026 in review' })
+  })
+
+  it('ignores an absent parameter', () => {
+    expect(previewSeason(null)).toBeNull()
+    expect(previewSeason('')).toBeNull()
+  })
+
+  it('refuses junk rather than rendering a year of NaN', () => {
+    for (const junk of ['abc', '20x6', '1.5', '', ' ', '99999', '1200', 'Infinity']) {
+      expect(previewSeason(junk)).toBeNull()
+    }
+  })
+})
+
+describe('habitsFromDays', () => {
+  const days = (...entries: [string, number][]) => new Map(entries)
+
+  it('counts the days something was finished on', () => {
+    expect(habitsFromDays(days(['2026-03-01', 3], ['2026-03-02', 1])).activeDays).toBe(2)
+  })
+
+  it('finds the longest unbroken run', () => {
+    const h = habitsFromDays(
+      days(['2026-01-01', 1], ['2026-01-02', 1], ['2026-01-03', 1], ['2026-02-10', 9]),
+    )
+    expect(h.longestStreak).toBe(3)
+    expect([h.streakStart, h.streakEnd]).toEqual(['2026-01-01', '2026-01-03'])
+  })
+
+  it('does not let a busy single day pretend to be a streak', () => {
+    // Twelve episodes in one sitting is one day, however good the sitting was.
+    expect(habitsFromDays(days(['2026-05-05', 12])).longestStreak).toBe(1)
+  })
+
+  it('carries a streak across a month and a year boundary', () => {
+    expect(habitsFromDays(days(['2026-01-31', 1], ['2026-02-01', 1])).longestStreak).toBe(2)
+    expect(habitsFromDays(days(['2025-12-31', 1], ['2026-01-01', 1])).longestStreak).toBe(2)
+  })
+
+  it('keeps the longest run, not the last one', () => {
+    const h = habitsFromDays(
+      days(['2026-06-01', 1], ['2026-06-02', 1], ['2026-06-03', 1], ['2026-09-01', 1], ['2026-09-02', 1]),
+    )
+    expect(h.longestStreak).toBe(3)
+    expect(h.streakEnd).toBe('2026-06-03')
+  })
+
+  it('reads a weekday from the calendar date, not from midnight', () => {
+    // 2026-03-01 is a Sunday. Parsed at midnight in a negative offset it would
+    // roll back to Saturday and file every Sunday under the wrong day.
+    expect(habitsFromDays(days(['2026-03-01', 5])).favouriteWeekday).toBe(0)
+    expect(habitsFromDays(days(['2026-03-02', 5])).favouriteWeekday).toBe(1)
+  })
+
+  it('names no favourite weekday when two are tied', () => {
+    // Announcing one at random is how a viewer stops believing the whole page.
+    expect(habitsFromDays(days(['2026-03-01', 2], ['2026-03-02', 2])).favouriteWeekday).toBeNull()
+  })
+
+  it('names the busiest month, and none when tied', () => {
+    expect(habitsFromDays(days(['2026-04-02', 7], ['2026-08-02', 1])).busiestMonth).toBe(3)
+    expect(habitsFromDays(days(['2026-04-02', 3], ['2026-08-02', 3])).busiestMonth).toBeNull()
+  })
+
+  it('says nothing at all about an empty year', () => {
+    const h = habitsFromDays(days())
+    expect(h).toEqual({
+      activeDays: 0,
+      longestStreak: 0,
+      streakStart: null,
+      streakEnd: null,
+      favouriteWeekday: null,
+      busiestMonth: null,
+    })
+  })
+
+  it('ignores a malformed key rather than counting it as a day', () => {
+    const h = habitsFromDays(days(['not-a-date', 4], ['2026-07-07', 1]))
+    expect(h.activeDays).toBe(1)
+    expect(h.busiestMonth).toBe(6)
+  })
+})
+
+describe('summariseYear — posters', () => {
+  const episode = (over: Partial<BaseItemDto> = {}): BaseItemDto =>
+    ({
+      Id: 'e1',
+      Type: 'Episode',
+      SeriesId: 's1',
+      SeriesName: 'A Show',
+      SeriesPrimaryImageTag: 'tag1',
+      UserData: { LastPlayedDate: '2026-05-05T12:00:00Z' },
+      ...over,
+    }) as BaseItemDto
+
+  const shows = (items: BaseItemDto[]) =>
+    summariseYear(items, 2026, { timeZone: 'UTC' }).topShows
+
+  it('carries a poster reference for a show', () => {
+    const [top] = shows([episode()])
+    expect(top.poster).toMatchObject({ SeriesId: 's1', SeriesPrimaryImageTag: 'tag1' })
+  })
+
+  it('leaves it absent when the episodes carry no artwork at all', () => {
+    // A show with no poster must render as a title, not as a broken image.
+    const [top] = shows([episode({ SeriesPrimaryImageTag: undefined, ImageTags: undefined })])
+    expect(top.poster).toBeUndefined()
+  })
+
+  it('takes a later episode’s art when the first had none', () => {
+    const [top] = shows([
+      episode({ Id: 'e1', SeriesPrimaryImageTag: undefined, ImageTags: undefined }),
+      episode({ Id: 'e2' }),
+    ])
+    expect(top.poster?.SeriesPrimaryImageTag).toBe('tag1')
+  })
+
+  it('never invents one for a genre, which is a word and not a thing', () => {
+    const stats = summariseYear([episode({ Genres: ['Comedy'] })], 2026, { timeZone: 'UTC' })
+    expect(stats.topGenres[0].poster).toBeUndefined()
   })
 })

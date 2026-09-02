@@ -28,6 +28,13 @@ import { historyItemsQuery, localDayKey } from './watchHistory'
 /** Where the recap lives. Exported so the button and the route cannot disagree. */
 export const RECAP_HREF = '/recap'
 
+/*
+  Where the seasonal button leads. The story is the way in and `/recap` is
+  where it lands, so the button offers the run rather than the summary — anyone
+  who wants the page immediately gets there from the Skip on the first card.
+*/
+export const RECAP_STORY_HREF = '/recap/story'
+
 /** How many entries a "top" list holds. Every one of them degrades below this. */
 export const TOP_N = 5
 
@@ -68,10 +75,18 @@ export function recapItemsQuery(startIndex: number) {
     // panel is empty on every server rather than only on the ones with no
     // genre metadata, and the two look identical from the outside.
     fields: [...base.fields, 'Genres'],
-    // Nothing on the recap is a picture, and this walk is the widest request
-    // the app makes — up to ten pages of two hundred. Image tags on all of that
-    // is payload for a page that renders none of it.
-    enableImages: false,
+    /*
+      Posters are the point of the top-shows panel — a list of titles is a
+      spreadsheet, and this is meant to be a look back. Episodes carry their
+      series' poster tag, so one representative episode per show is enough and
+      nothing extra is fetched to resolve them.
+
+      `imageTypeLimit: 1` keeps this from being the widest request the app makes
+      by an order of magnitude: without it every item on ten pages of two
+      hundred carries every backdrop tag the server holds.
+    */
+    enableImages: true,
+    imageTypeLimit: 1,
   }
 }
 
@@ -106,6 +121,21 @@ export interface RecapSeason {
  * thirtieth of November in Los Angeles, and the button appearing a day early
  * for half the world is the bug this prevents.
  */
+/**
+ * A way to look at the recap in July.
+ *
+ * The whole feature is invisible for ten months of the year, which makes it
+ * the hardest thing in the app to check by hand — and a seasonal page nobody
+ * can open until December is a page that gets its bugs found by users. Gated
+ * on the dev build, so it cannot be reached from anything served to anyone.
+ */
+export function previewSeason(yearParam: string | null): RecapSeason | null {
+  if (!import.meta.env.DEV || !yearParam) return null
+  const year = Number(yearParam)
+  if (!Number.isInteger(year) || year < 1900 || year > 2200) return null
+  return { year, label: `${year} in review` }
+}
+
 export function recapSeason(now: Date, timeZone?: string): RecapSeason | null {
   const key = localDayKey(now, timeZone)
   const year = Number(key.slice(0, 4))
@@ -176,7 +206,7 @@ export function recapButton(opts: {
   if (!opts.probeItems) return null
   if (recapProbe(opts.probeItems, season.year, opts.timeZone) === 'none') return null
 
-  return { year: season.year, label: season.label, href: RECAP_HREF }
+  return { year: season.year, label: season.label, href: RECAP_STORY_HREF }
 }
 
 /**
@@ -202,11 +232,23 @@ export function nextRecapPage(
   return crossed ? undefined : loaded
 }
 
+/** Enough of an item for `coverUrl` to find its poster, and nothing more. */
+export type PosterRef = Pick<
+  BaseItemDto,
+  'Id' | 'Type' | 'SeriesId' | 'SeriesPrimaryImageTag' | 'ImageTags'
+>
+
 export interface RecapCount {
   /** Stable identity for a React key — a series id, or the genre itself. */
   key: string
   label: string
   count: number
+  /*
+    One item this entry was counted from, kept only so the page can find a
+    poster. Absent for genres, which are a word rather than a thing with art,
+    and absent for a show whose episodes carry no series poster tag.
+  */
+  poster?: PosterRef
 }
 
 export interface RecapDay {
@@ -235,6 +277,8 @@ export interface RecapStats {
   busiestDay: RecapDay | null
   /** Twelve counts, January first, for the shape of the year. */
   months: number[]
+  /** Streaks, favourite weekday and the like. */
+  habits: RecapHabits
   /** The walk hit its ceiling, so every number above is a floor. */
   truncated: boolean
 }
@@ -242,17 +286,44 @@ export interface RecapStats {
 const TICKS_PER_MINUTE = TICKS_PER_SECOND * 60
 
 /** Highest first, ties broken by name so the order is stable between renders. */
-function rank(counts: Map<string, { label: string; count: number }>): RecapCount[] {
+function rank(
+  counts: Map<string, { label: string; count: number; poster?: PosterRef }>,
+): RecapCount[] {
   return [...counts.entries()]
     .map(([key, value]) => ({ key, ...value }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     .slice(0, TOP_N)
 }
 
-function bump(counts: Map<string, { label: string; count: number }>, key: string, label: string) {
+function bump(
+  counts: Map<string, { label: string; count: number; poster?: PosterRef }>,
+  key: string,
+  label: string,
+  poster?: PosterRef,
+) {
   const existing = counts.get(key)
-  if (existing) existing.count += 1
-  else counts.set(key, { label, count: 1 })
+  if (existing) {
+    existing.count += 1
+    // The first episode of a show may predate its artwork being fetched, so a
+    // later one is allowed to supply what an earlier one could not.
+    existing.poster ??= poster
+  } else {
+    counts.set(key, { label, count: 1, poster })
+  }
+}
+
+/** A poster reference, or nothing when the item cannot resolve one. */
+function posterRefFor(item: BaseItemDto): PosterRef | undefined {
+  const hasSeriesArt = Boolean(item.SeriesId && item.SeriesPrimaryImageTag)
+  const hasOwnArt = Boolean((item.ImageTags as Record<string, string> | undefined)?.Primary)
+  if (!hasSeriesArt && !hasOwnArt) return undefined
+  return {
+    Id: item.Id,
+    Type: item.Type,
+    SeriesId: item.SeriesId,
+    SeriesPrimaryImageTag: item.SeriesPrimaryImageTag,
+    ImageTags: item.ImageTags,
+  }
 }
 
 /** "Saturday, 14 March" — the day itself, with no second timezone shift. */
@@ -288,8 +359,8 @@ export function summariseYear(
 ): RecapStats {
   const { timeZone, locale } = opts
 
-  const shows = new Map<string, { label: string; count: number }>()
-  const genres = new Map<string, { label: string; count: number }>()
+  const shows = new Map<string, { label: string; count: number; poster?: PosterRef }>()
+  const genres = new Map<string, { label: string; count: number; poster?: PosterRef }>()
   const days = new Map<string, number>()
   const series = new Set<string>()
   const months = Array.from({ length: 12 }, () => 0)
@@ -323,7 +394,7 @@ export function summariseYear(
       const key = item.SeriesId ?? item.SeriesName
       if (key) {
         series.add(key)
-        bump(shows, key, item.SeriesName ?? 'Unknown show')
+        bump(shows, key, item.SeriesName ?? 'Unknown show', posterRefFor(item))
       }
     } else {
       movieCount += 1
@@ -352,6 +423,7 @@ export function summariseYear(
       ? { key: busiest[0], label: labelForDay(busiest[0], locale), count: busiest[1] }
       : null,
     months,
+    habits: habitsFromDays(days),
     truncated: items.length >= RECAP_MAX_ITEMS,
   }
 }
@@ -375,4 +447,113 @@ export function formatEstimatedTime(minutes: number): string {
   const rest = minutes % 60
   if (hours >= 24) return `${hours.toLocaleString()} hours`
   return rest ? `${hours} hr ${rest} min` : `${hours} hr`
+}
+
+/**
+ * The numbers that make a recap feel like it was about *you*.
+ *
+ * All of these fall out of the day keys already collected for the month chart,
+ * so they cost another pass over a map rather than another request. They are
+ * deliberately the ones a viewer can check against their own memory — "I did
+ * binge that in March" — because a statistic nobody can verify is decoration.
+ */
+export interface RecapHabits {
+  /** Days in the year with anything finished on them. */
+  activeDays: number
+  /** The longest run of consecutive days without a gap. */
+  longestStreak: number
+  /** Where that run started and ended, for a label. */
+  streakStart: string | null
+  streakEnd: string | null
+  /** 0 = Sunday. The weekday with the most finished on it, if there is a clear one. */
+  favouriteWeekday: number | null
+  /** 0-based month with the most, if there is a clear one. */
+  busiestMonth: number | null
+}
+
+/** Days apart, on the calendar rather than in hours — DST days are still one day. */
+function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000)
+}
+
+/*
+  A weekday from a `yyyy-mm-dd` key, read at UTC noon.
+
+  The key was already resolved in the viewer's zone by `localDayKey`, so it is
+  a plain calendar date by this point. Parsing it back at midnight would let a
+  negative zone offset roll it to the previous day and file every Sunday under
+  Saturday; noon is far enough from either edge that no real offset reaches it.
+*/
+function weekdayOf(dayKey: string): number {
+  return new Date(`${dayKey}T12:00:00Z`).getUTCDay()
+}
+
+export function habitsFromDays(days: ReadonlyMap<string, number>): RecapHabits {
+  const keys = [...days.keys()].filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort()
+  if (keys.length === 0) {
+    return {
+      activeDays: 0,
+      longestStreak: 0,
+      streakStart: null,
+      streakEnd: null,
+      favouriteWeekday: null,
+      busiestMonth: null,
+    }
+  }
+
+  let best = 1
+  let bestStart = keys[0]
+  let bestEnd = keys[0]
+  let runStart = keys[0]
+  for (let i = 1; i < keys.length; i++) {
+    // Only an exact one-day step continues a run. Two things on the same day
+    // cannot extend it, which is why this walks distinct keys rather than items.
+    const consecutive = daysBetween(keys[i - 1], keys[i]) === 1
+    if (!consecutive) runStart = keys[i]
+    const run = daysBetween(runStart, keys[i]) + 1
+    if (run > best) {
+      best = run
+      bestStart = runStart
+      bestEnd = keys[i]
+    }
+  }
+
+  const weekdays = Array.from({ length: 7 }, () => 0)
+  const months = Array.from({ length: 12 }, () => 0)
+  for (const [key, count] of days) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue
+    weekdays[weekdayOf(key)] += count
+    months[Number(key.slice(5, 7)) - 1] += count
+  }
+
+  return {
+    activeDays: keys.length,
+    longestStreak: best,
+    streakStart: bestStart,
+    streakEnd: bestEnd,
+    favouriteWeekday: clearWinner(weekdays),
+    busiestMonth: clearWinner(months),
+  }
+}
+
+/*
+  The index of the highest count, or null when nothing stands out.
+
+  A tie means there is no favourite, and announcing one at random is the kind
+  of detail that makes a viewer stop believing the rest of the page.
+*/
+function clearWinner(counts: readonly number[]): number | null {
+  let top = -1
+  let at: number | null = null
+  let tied = false
+  counts.forEach((n, i) => {
+    if (n > top) {
+      top = n
+      at = i
+      tied = false
+    } else if (n === top && n > 0) {
+      tied = true
+    }
+  })
+  return top > 0 && !tied ? at : null
 }

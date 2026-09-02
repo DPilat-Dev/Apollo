@@ -201,7 +201,14 @@ export function ItemDetail() {
               <Ratings item={item} />
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            {/*
+              Wider than the text column it sits under. `max-w-2xl` is right for
+              a title and an overview and wrong for this row — at 672px the
+              transport buttons wrapped, and the watched toggle and the overflow
+              menu ended up orphaned on a line of their own below everything
+              they belong with.
+            */}
+            <div className="flex w-[calc(100vw-2rem)] flex-wrap items-center gap-3 sm:w-[calc(100vw-7rem)]">
               <button
                 onClick={() =>
                   playTarget?.Id && navigate(`/watch/${playTarget.Id}${trackParams(tracks)}`)
