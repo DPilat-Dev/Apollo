@@ -11,9 +11,12 @@ import {
   type HistoryEntry,
   buildHeatmap,
   filterHistory,
+  heatCellLabel,
+  heatmapItemsQuery,
+  heatmapWindowStart,
+  nextHeatmapPage,
   localDayKey,
   summariseDay,
-  type HistoryDay,
   type HistoryFilter,
 } from '../lib/watchHistory'
 
@@ -96,7 +99,7 @@ export function History() {
 
       {!query.isLoading && !query.isError && items.length > 0 && (
         <>
-          <ActivityHeatmap days={days} />
+          <ActivityHeatmap />
           <div className="mb-6 flex flex-wrap gap-2">
             {FILTERS.map((f) => (
               <button
@@ -230,34 +233,86 @@ const FILTERS: { id: HistoryFilter; label: string }[] = [
  * a year of this look like", which is the question a history page is actually
  * opened to ask. Built from the same day keys the grouping already made.
  */
-function ActivityHeatmap({ days }: { days: HistoryDay[] }) {
+function ActivityHeatmap() {
+  const api = useApi()
+  const today = useMemo(() => localDayKey(new Date(), undefined), [])
+  const windowStart = useMemo(() => heatmapWindowStart(today), [today])
+
+  /*
+    Its own walk, not the list's. The list pages in as you scroll, which left
+    the graph drawn from the fifty most recent items — nearly empty on arrival
+    and filling in underneath the reader as they scrolled past it.
+  */
+  const query = useInfiniteQuery({
+    queryKey: ['historyHeatmap', api.userId, windowStart],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.items(heatmapItemsQuery(pageParam)),
+    getNextPageParam: (last, all) =>
+      nextHeatmapPage(all.flatMap((page) => page.Items ?? []), {
+        windowStart,
+        total: last.TotalRecordCount ?? 0,
+      }),
+  })
+
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+  useEffect(() => {
+    // Runs itself to the edge: a year is wrong until the last page is in, and
+    // there is nothing to scroll towards up here.
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
   const counts = useMemo(() => {
     const map = new Map<string, number>()
-    for (const day of days) {
-      if (day.key === 'unknown') continue
-      map.set(day.key, day.entries.reduce((n, e) => n + e.episodeCount, 0))
+    for (const item of query.data?.pages.flatMap((page) => page.Items ?? []) ?? []) {
+      const value = item.UserData?.LastPlayedDate
+      if (!value) continue
+      const at = new Date(value)
+      if (Number.isNaN(at.getTime())) continue
+      const key = localDayKey(at, undefined)
+      map.set(key, (map.get(key) ?? 0) + 1)
     }
     return map
-  }, [days])
+  }, [query.data])
 
-  const today = useMemo(() => localDayKey(new Date(), undefined), [])
+  const settling = query.isLoading || hasNextPage || isFetchingNextPage
   const map = useMemo(() => buildHeatmap(counts, { today }), [counts, today])
   if (map.weeks.length === 0) return null
 
   const shade = ['bg-white/6', 'bg-accent/25', 'bg-accent/45', 'bg-accent/70', 'bg-accent']
+
+  /*
+    One tooltip, moved, rather than one per square. There are 371 of them and
+    a hidden element behind every one is a lot of DOM for something only ever
+    seen one at a time.
+
+    Held as a rect rather than a key so the panel can be placed without asking
+    the browser for the cell's box again on every render.
+  */
+  const [hovered, setHovered] = useState<{ label: string; x: number; y: number } | null>(null)
+  const grid = useRef<HTMLDivElement>(null)
 
   return (
     <section className="mb-6">
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold text-white/70">The last year</h2>
         <p className="text-xs text-white/35">
-          {map.totalDays} {map.totalDays === 1 ? 'day' : 'days'} with something on
+          {settling
+            ? 'Counting…'
+            : `${map.totalDays} ${map.totalDays === 1 ? 'day' : 'days'} with something on`}
         </p>
       </div>
 
       {/* Scrolls on a narrow screen rather than squeezing 53 columns into it. */}
       <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="min-w-max">
+        <div ref={grid} className="relative min-w-max" onPointerLeave={() => setHovered(null)}>
+          {hovered && (
+            <div
+              className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-white/10 bg-black/95 px-2 py-1 text-[11px] text-white shadow-xl backdrop-blur"
+              style={{ left: hovered.x, top: hovered.y - 6 }}
+            >
+              {hovered.label}
+            </div>
+          )}
           <div className="relative mb-1 h-3">
             {map.months.map((m) => (
               <span
@@ -275,12 +330,20 @@ function ActivityHeatmap({ days }: { days: HistoryDay[] }) {
                 {week.map((cell, d) => (
                   <div
                     key={cell.key ?? d}
-                    title={
-                      cell.key
-                        ? `${cell.key}: ${cell.count || 'nothing'}${cell.count ? ` watched` : ''}`
-                        : undefined
-                    }
-                    className={`size-[11px] rounded-[2px] ${shade[cell.level]}`}
+                    onPointerEnter={(e) => {
+                      const label = heatCellLabel(cell)
+                      const box = grid.current?.getBoundingClientRect()
+                      if (!label || !box) return
+                      const cellBox = e.currentTarget.getBoundingClientRect()
+                      // Placed relative to the grid, so the panel travels with
+                      // it when the strip is scrolled sideways.
+                      setHovered({
+                        label,
+                        x: cellBox.left - box.left + cellBox.width / 2,
+                        y: cellBox.top - box.top,
+                      })
+                    }}
+                    className={`size-[11px] rounded-[2px] transition-[outline-color] outline outline-1 outline-offset-1 outline-transparent hover:outline-white/40 ${shade[cell.level]}`}
                   />
                 ))}
               </div>

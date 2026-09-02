@@ -8,6 +8,11 @@ import {
   historyItemsQuery,
   nextHistoryPage,
   buildHeatmap,
+  heatCellLabel,
+  heatmapItemsQuery,
+  heatmapWindowStart,
+  nextHeatmapPage,
+  HEATMAP_MAX_ITEMS,
   filterHistory,
   summariseDay,
   type HistoryDay,
@@ -451,5 +456,95 @@ describe('buildHeatmap month labels do not collide', () => {
         ).toBeGreaterThanOrEqual(3)
       }
     }
+  })
+})
+
+describe('heatCellLabel', () => {
+  const at = (key: string | null, count: number) =>
+    heatCellLabel({ key, count }, { locale: 'en-GB' })
+
+  /*
+    Asserted by part rather than as one string. The exact punctuation is the
+    platform's — en-GB emits "Fri, 7 Aug 2026" — and pinning it would make this
+    a test of Intl's comma rather than of what the square says.
+  */
+  it('reads as a date rather than as the key the grid is built from', () => {
+    const label = at('2026-08-07', 19)!
+    expect(label).not.toContain('2026-08-07')
+    for (const part of ['Fri', '7', 'Aug', '2026', '19 episodes']) {
+      expect(label).toContain(part)
+    }
+  })
+
+  it('says so plainly when nothing happened', () => {
+    expect(at('2026-08-06', 0)).toContain('nothing')
+    expect(at('2026-08-06', 0)).not.toContain('episode')
+  })
+
+  it('gets the singular right', () => {
+    expect(at('2026-08-05', 1)).toContain('1 episode')
+    expect(at('2026-08-05', 1)).not.toContain('episodes')
+  })
+
+  it('reads the day off the calendar date, not off midnight', () => {
+    // Parsed at midnight, a negative offset rolls this to the 31st and the
+    // square would name the wrong day in half the world.
+    expect(at('2026-08-01', 0)).toContain('1 Aug')
+    expect(at('2026-01-01', 0)).toContain('1 Jan 2026')
+  })
+
+  it('has nothing to say about a pad square', () => {
+    expect(at(null, 0)).toBeNull()
+  })
+})
+
+describe('the heatmap walks its own year', () => {
+  const played = (day: string): BaseItemDto =>
+    ({ Id: day, UserData: { LastPlayedDate: `${day}T12:00:00Z` } }) as BaseItemDto
+  const many = (n: number, day: string) => Array.from({ length: n }, () => played(day))
+
+  it('starts a year and a bit before today, on a whole week', () => {
+    // 2026-09-01 is a Tuesday, so the grid ends Saturday the 5th.
+    expect(heatmapWindowStart('2026-09-01', 53)).toBe('2025-08-31')
+  })
+
+  it('keeps asking while everything loaded is still inside the window', () => {
+    const opts = { windowStart: '2025-08-31', total: 5000, timeZone: 'UTC' }
+    expect(nextHeatmapPage(many(200, '2026-05-01'), opts)).toBe(200)
+  })
+
+  it('stops on the first thing played before the window', () => {
+    // There is no server-side filter on played date, so the walk has to
+    // recognise its own edge.
+    const opts = { windowStart: '2025-08-31', total: 5000, timeZone: 'UTC' }
+    expect(nextHeatmapPage([...many(199, '2026-05-01'), played('2025-08-30')], opts)).toBeUndefined()
+  })
+
+  it('does not stop on the day the window opens', () => {
+    const opts = { windowStart: '2025-08-31', total: 5000, timeZone: 'UTC' }
+    expect(nextHeatmapPage([...many(199, '2026-05-01'), played('2025-08-31')], opts)).toBe(200)
+  })
+
+  it('stops at the cap however much history there is', () => {
+    const opts = { windowStart: '2000-01-01', total: 100000, timeZone: 'UTC' }
+    expect(nextHeatmapPage(many(HEATMAP_MAX_ITEMS, '2026-05-01'), opts)).toBeUndefined()
+  })
+
+  it('stops when the server has no more to give', () => {
+    const opts = { windowStart: '2025-08-31', total: 50, timeZone: 'UTC' }
+    expect(nextHeatmapPage(many(50, '2026-05-01'), opts)).toBeUndefined()
+  })
+
+  it('keeps going past an unreadable date rather than stopping early', () => {
+    // A missing date cannot prove the edge was reached; the cap is what stops
+    // the walk in that case, not a guess.
+    const opts = { windowStart: '2025-08-31', total: 5000, timeZone: 'UTC' }
+    const undated = { Id: 'x', UserData: {} } as BaseItemDto
+    expect(nextHeatmapPage([...many(199, '2026-05-01'), undated], opts)).toBe(200)
+  })
+
+  it('asks for no artwork, since the grid is squares', () => {
+    expect(heatmapItemsQuery(0).enableImages).toBe(false)
+    expect(heatmapItemsQuery(400).startIndex).toBe(400)
   })
 })

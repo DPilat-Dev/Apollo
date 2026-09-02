@@ -404,3 +404,84 @@ export function filterHistory(days: readonly HistoryDay[], filter: HistoryFilter
     }))
     .filter((day) => day.entries.length > 0)
 }
+
+/**
+ * What the heatmap says about one square.
+ *
+ * The native `title` attribute was doing this job and doing it badly: it waits
+ * about a second, renders in the OS's own style, and printed the raw
+ * `2026-08-07` because that is the key the grid is built from. A date you have
+ * to decode is not a date.
+ */
+export function heatCellLabel(
+  cell: Pick<HeatCell, 'key' | 'count'>,
+  opts: { locale?: string } = {},
+): string | null {
+  if (!cell.key) return null
+  const date = new Intl.DateTimeFormat(opts.locale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${cell.key}T12:00:00Z`))
+
+  if (cell.count <= 0) return `${date} · nothing`
+  return `${date} · ${cell.count} ${cell.count === 1 ? 'episode' : 'episodes'}`
+}
+
+/**
+ * The walk behind the heatmap, which is not the walk behind the list.
+ *
+ * The list pages in as you scroll, which is right for a list and wrong for a
+ * picture of a year: the graph was drawn from whatever happened to be loaded,
+ * so it arrived nearly empty and filled in underneath the reader as they
+ * scrolled past it. This walk runs itself to a year ago instead, and asks for
+ * far less per item — no images, no genres, just when a thing was played.
+ */
+export const HEATMAP_PAGE_SIZE = 200
+
+/** A year of daily viewing, with room for a heavy watcher, and a stop. */
+export const HEATMAP_MAX_ITEMS = HEATMAP_PAGE_SIZE * 8
+
+export function heatmapItemsQuery(startIndex: number) {
+  return {
+    ...historyItemsQuery(startIndex),
+    limit: HEATMAP_PAGE_SIZE,
+    startIndex,
+    // The grid is squares. Nothing here is drawn from an image or a genre.
+    enableImages: false,
+  }
+}
+
+/**
+ * Whether to ask for another page, given the oldest thing loaded so far.
+ *
+ * Stops on the first item played before the window rather than on a count:
+ * there is no server-side filter on played date, so the walk has to recognise
+ * its own edge. Returns the next offset, or undefined to stop.
+ */
+export function nextHeatmapPage(
+  loaded: readonly BaseItemDto[],
+  opts: { windowStart: string; total: number; timeZone?: string },
+): number | undefined {
+  if (loaded.length === 0) return undefined
+  if (loaded.length >= HEATMAP_MAX_ITEMS) return undefined
+  if (loaded.length >= opts.total) return undefined
+
+  const oldest = loaded[loaded.length - 1]
+  const played = parseDate(oldest?.UserData?.LastPlayedDate)
+  // An unreadable date cannot prove the edge has been reached, so the walk
+  // carries on — the cap above is what stops it in that case.
+  if (played && localDayKey(played, opts.timeZone) < opts.windowStart) return undefined
+
+  return loaded.length
+}
+
+/** The first day the grid draws, given the day it ends on. */
+export function heatmapWindowStart(today: string, weeks = 53): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) return today
+  const todayDow = new Date(`${today}T12:00:00Z`).getUTCDay()
+  const end = shiftDay(today, 6 - todayDow)
+  return shiftDay(end, -(weeks * 7 - 1))
+}
