@@ -16,7 +16,8 @@ import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
 import { planResumeRemoval } from './continueWatching'
-import { PLAYED_SORT_BY } from './watchHistory'
+import { PLAYED_SORT_BY, historyItemsQuery } from './watchHistory'
+import { recapButton, recapSeason, type RecapLink } from './yearRecap'
 import { PLAYED_QUERY_KEYS, runBulkPlayed, shouldInvalidateAfter } from './bulkPlayed'
 import type { BulkPlayedProgress } from './bulkPlayed'
 import { itemViewKeys, type RemoteSearchQuery } from './identify'
@@ -805,6 +806,36 @@ export function useTasteProfile() {
     },
     staleTime: 15 * 60 * 1000,
   })
+}
+
+/**
+ * The year-in-review link, or nothing at all for the ten months it does not
+ * exist.
+ *
+ * The clock is read once, here, and handed to `recapButton` — which owns every
+ * part of the answer: whether it is the season, which year that means, and
+ * whether the account has anything in it worth a recap. Callers render what
+ * comes back or render nothing, so there is no second opinion about December
+ * anywhere in the tree.
+ *
+ * The probe is one page of played items and only runs in season, so eleven
+ * months of the year this hook costs a request nobody makes.
+ */
+export function useRecapLink(): RecapLink | null {
+  const api = useApi()
+  // Fixed at mount. A `new Date()` evaluated on every render would make this
+  // hook a new answer each time and, once a year, change it mid-session.
+  const [now] = useState(() => new Date())
+  const season = recapSeason(now)
+
+  const probe = useQuery({
+    queryKey: ['recapProbe', api.userId],
+    queryFn: async () => (await api.items(historyItemsQuery(0))).Items ?? [],
+    enabled: season !== null,
+    staleTime: 60 * 60 * 1000,
+  })
+
+  return recapButton({ now, probeItems: probe.data })
 }
 
 // -------------------------------------------------------------- jellyseerr

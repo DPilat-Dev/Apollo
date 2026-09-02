@@ -106,7 +106,7 @@ function parseDate(value: string | null | undefined): Date | null {
  * under the following day. en-CA is used only because it formats as
  * `YYYY-MM-DD`, which sorts as a string.
  */
-function dayKeyOf(date: Date, timeZone: string | undefined): string {
+export function localDayKey(date: Date, timeZone: string | undefined): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -224,7 +224,7 @@ export function groupWatchHistory(
   opts: GroupOptions = {},
 ): HistoryDay[] {
   const { timeZone, locale } = opts
-  const todayKey = dayKeyOf(opts.now ?? new Date(), timeZone)
+  const todayKey = localDayKey(opts.now ?? new Date(), timeZone)
 
   const dated = items.map((item, index) => ({
     item,
@@ -246,7 +246,7 @@ export function groupWatchHistory(
   let current: { key: string; runs: BaseItemDto[][] } | null = null
 
   for (const { item, at } of dated) {
-    const key = at ? dayKeyOf(at, timeZone) : UNKNOWN_DAY
+    const key = at ? localDayKey(at, timeZone) : UNKNOWN_DAY
     if (!current || current.key !== key) {
       current = { key, runs: [] }
       days.push({ key, label: labelForDay(key, todayKey, locale), entries: [] })

@@ -18,6 +18,7 @@ import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
 import { History } from './routes/History'
 import { Collections } from './routes/Collections'
+import { YearRecap } from './routes/YearRecap'
 import { PlaylistDetail } from './routes/PlaylistDetail'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
@@ -166,6 +167,9 @@ export default function App() {
           <Route path="/collections" element={<Collections />} />
           <Route path="/playlist/:playlistId" element={<PlaylistDetail />} />
           <Route path="/history" element={<History />} />
+          {/* Always routed, but out of season the page redirects home — the
+              seasonal decision belongs to one function, not to the router. */}
+          <Route path="/recap" element={<YearRecap />} />
           <Route path="/settings" element={<Settings />} />
           {/* Admin gates on the user's policy internally, not on the route. */}
           <Route path="/admin" element={<Admin />} />
