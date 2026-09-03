@@ -1,4 +1,6 @@
 import { personRequestPath } from './persons'
+import { devicesRequest, summariseDevices } from './devices'
+import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import type {
   ActivityLogEntry,
@@ -972,6 +974,30 @@ export class JellyfinApi {
       query: { userId },
       body: JSON.stringify({ ResetPassword: true }),
     })
+  }
+
+  // ---------------------------------------------------------------- devices
+
+  /**
+   * Every device the server has issued a token to, already sorted, grouped and
+   * with the browser in hand flagged.
+   *
+   * The flagging happens here rather than in a component because it depends on
+   * `deviceId()`, and a screen that forgot to pass it would draw a revoke
+   * button that signs the viewer out with no warning. The permission gate is
+   * here for the same reason: a non-admin never gets as far as a request.
+   */
+  async devices(opts: { isAdmin: boolean; scope: DeviceScope }): Promise<DeviceOverview> {
+    const query = devicesRequest({ ...opts, userId: this.userId })
+    const list = query
+      ? await this.requestArray<DeviceInfo>('/Devices', { query })
+      : []
+    return summariseDevices({ devices: list, currentDeviceId: deviceId() })
+  }
+
+  /** Signs a device out for good — the id goes in the query, not the path. */
+  revokeDevice(id: string) {
+    return this.request<void>('/Devices', { method: 'DELETE', query: { id } })
   }
 
   // ------------------------------------------------------------------- logs
