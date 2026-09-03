@@ -276,9 +276,6 @@ function ActivityHeatmap() {
 
   const settling = query.isLoading || hasNextPage || isFetchingNextPage
   const map = useMemo(() => buildHeatmap(counts, { today }), [counts, today])
-  if (map.weeks.length === 0) return null
-
-  const shade = ['bg-white/6', 'bg-accent/25', 'bg-accent/45', 'bg-accent/70', 'bg-accent']
 
   /*
     One tooltip, moved, rather than one per square. There are 371 of them and
@@ -287,9 +284,19 @@ function ActivityHeatmap() {
 
     Held as a rect rather than a key so the panel can be placed without asking
     the browser for the cell's box again on every render.
+
+    Declared above the early return, not below it. Every hook in a component
+    has to run on every render, and this pair sat after a `return null` — it
+    never fired only because the grid is built from dates rather than from
+    data, so there is always a week to draw. A malformed day key would have
+    turned that into "rendered more hooks than during the previous render".
   */
   const [hovered, setHovered] = useState<{ label: string; x: number; y: number } | null>(null)
   const grid = useRef<HTMLDivElement>(null)
+
+  if (map.weeks.length === 0) return null
+
+  const shade = ['bg-white/6', 'bg-accent/25', 'bg-accent/45', 'bg-accent/70', 'bg-accent']
 
   return (
     <section className="mb-6">
