@@ -28,3 +28,8 @@ apollo.runtime.json
 .env.local
 .env.*.local
 !.env.example
+
+# Agent worktrees live here. They are checkouts of this repo, not content of it —
+# committing them adds gitlinks nobody can resolve, and they get swept up by any
+# tool that globs the working tree.
+.claude/worktrees/
