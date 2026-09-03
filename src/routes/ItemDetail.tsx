@@ -5,6 +5,7 @@ import { Row } from '../components/Row'
 import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
 import { TrailerModal } from '../components/TrailerModal'
 import { AddToPlaylist } from '../components/AddToPlaylist'
+import { AddToCollection } from '../components/AddToCollection'
 import { RemoteControl } from '../components/RemoteControl'
 import { hasTrailer } from '../lib/trailers'
 import { useApi } from '../lib/auth'
@@ -67,6 +68,10 @@ export function ItemDetail() {
   */
   const runItemAction = (target: BaseItemDto, action: ItemActionId) => {
     if (action === 'playlist') return setPlaylistOpen(true)
+    // Carries the item the menu was opened on, the way the remote panel does:
+    // the episode rows further down have their own menus, and filing the show
+    // when the viewer asked for one episode is not a mistake they would notice.
+    if (action === 'collection') return setCollectionFor(target)
     if (action === 'remote') return setRemoteFor(target)
     if (action === 'refresh') {
       if (target.Id) refreshItem.mutate({ itemId: target.Id })
@@ -77,6 +82,7 @@ export function ItemDetail() {
   }
   const [trailerOpen, setTrailerOpen] = useState(false)
   const [playlistOpen, setPlaylistOpen] = useState(false)
+  const [collectionFor, setCollectionFor] = useState<BaseItemDto | null>(null)
   const [tracks, setTracks] = useTrackSelection()
 
   const isSeries = item?.Type === 'Series'
@@ -425,6 +431,9 @@ export function ItemDetail() {
 
       {trailerOpen && <TrailerModal item={item} onClose={() => setTrailerOpen(false)} />}
       {playlistOpen && <AddToPlaylist item={item} onClose={() => setPlaylistOpen(false)} />}
+      {collectionFor && (
+        <AddToCollection item={collectionFor} onClose={() => setCollectionFor(null)} />
+      )}
 
       {editingItem && (
         <MetadataEditor

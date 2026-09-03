@@ -6,7 +6,7 @@ const item = (over: Partial<BaseItemDto> = {}): BaseItemDto =>
   ({ Id: 'i1', Name: 'Thing', Type: 'Series', ...over }) as BaseItemDto
 
 const ids = (isAdmin: boolean, over: Partial<BaseItemDto> = {}) =>
-  itemActions({ isAdmin, item: item(over) }).map((a) => a.id)
+  itemActions({ isAdmin, canManageCollections: false, item: item(over) }).map((a) => a.id)
 
 describe('itemActions', () => {
   it('offers a series the full set', () => {
@@ -38,13 +38,14 @@ describe('itemActions', () => {
     for (const elevated of ['edit', 'identify', 'artwork', 'refresh']) {
       expect(ids(false)).not.toContain(elevated)
     }
-    expect(hasItemActions({ isAdmin: false, item: item() })).toBe(true)
+    expect(hasItemActions({ isAdmin: false, canManageCollections: false, item: item() })).toBe(true)
   })
 
   it('gives nothing for an item that has not loaded', () => {
-    expect(itemActions({ isAdmin: true, item: undefined })).toEqual([])
-    expect(itemActions({ isAdmin: true, item: item({ Id: undefined }) })).toEqual([])
-    expect(itemActions({ isAdmin: false, item: undefined })).toEqual([])
+    const none = { canManageCollections: false }
+    expect(itemActions({ ...none, isAdmin: true, item: undefined })).toEqual([])
+    expect(itemActions({ ...none, isAdmin: true, item: item({ Id: undefined }) })).toEqual([])
+    expect(itemActions({ ...none, isAdmin: false, item: undefined })).toEqual([])
   })
 
   it('leads with the actions everyone has, whatever the type', () => {
@@ -62,10 +63,60 @@ describe('itemActions', () => {
     }
   })
 
+  it('offers Add to collection to a viewer allowed to curate, beside Add to playlist', () => {
+    // Filing something into a collection is the same gesture as filing it into
+    // a playlist, so they sit together rather than one of them being marooned
+    // among the admin entries.
+    const entries = itemActions({
+      isAdmin: false,
+      canManageCollections: true,
+      item: item(),
+    }).map((a) => a.id)
+    expect(entries).toEqual(['playlist', 'collection', 'remote'])
+  })
+
+  it('withholds it from a viewer who may not curate, admin or not', () => {
+    // /Collections answers 403 without the CollectionManagement permission,
+    // and being an administrator is not the thing that grants it — a menu
+    // entry that always fails is worse than one that is not there.
+    expect(ids(false)).not.toContain('collection')
+    expect(ids(true)).not.toContain('collection')
+  })
+
+  it('offers it alongside the elevated entries when the curator is also an admin', () => {
+    const entries = itemActions({ isAdmin: true, canManageCollections: true, item: item() }).map(
+      (a) => a.id,
+    )
+    expect(entries).toEqual([
+      'playlist',
+      'collection',
+      'remote',
+      'edit',
+      'identify',
+      'artwork',
+      'refresh',
+    ])
+  })
+
+  it('offers it for an episode too, which a collection can hold like anything else', () => {
+    expect(
+      itemActions({ isAdmin: false, canManageCollections: true, item: item({ Type: 'Episode' }) })
+        .map((a) => a.id),
+    ).toContain('collection')
+  })
+
+  it('gives nothing at all for an item that has not loaded, curator or not', () => {
+    expect(itemActions({ isAdmin: false, canManageCollections: true, item: undefined })).toEqual([])
+  })
+
   it('hasItemActions agrees with the list it summarises', () => {
     for (const isAdmin of [true, false]) {
       for (const type of ['Series', 'Episode']) {
-        const args = { isAdmin, item: item({ Type: type as BaseItemDto['Type'] }) }
+        const args = {
+          isAdmin,
+          canManageCollections: isAdmin,
+          item: item({ Type: type as BaseItemDto['Type'] }),
+        }
         expect(hasItemActions(args)).toBe(itemActions(args).length > 0)
       }
     }

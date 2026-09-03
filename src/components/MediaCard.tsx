@@ -22,8 +22,15 @@ interface Props {
   shape?: CardShape
   /** Landscape cards on the Continue Watching row show a progress bar. */
   showProgress?: boolean
-  /** Given, the card gets a dismiss control. Only Continue Watching passes one. */
+  /** Given, the card gets a dismiss control. */
   onRemove?: () => void
+  /**
+   * What that control says it does. It used to say "Continue Watching"
+   * unconditionally, which was true of the only caller — a collection's grid
+   * takes something out of the collection, and a button that names the wrong
+   * list is a button people are right not to trust.
+   */
+  removeLabel?: string
 }
 
 /**
@@ -31,7 +38,13 @@ interface Props {
  * expands cards in place — implemented with scale + z-index so it doesn't
  * reflow the row.
  */
-export function MediaCard({ item, shape = 'poster', showProgress = false, onRemove }: Props) {
+export function MediaCard({
+  item,
+  shape = 'poster',
+  showProgress = false,
+  onRemove,
+  removeLabel = 'Continue Watching',
+}: Props) {
   const api = useApi()
   const navigate = useNavigate()
   const { reduceMotion } = useSettings()
@@ -161,8 +174,8 @@ export function MediaCard({ item, shape = 'poster', showProgress = false, onRemo
               // and Space, and the event bubbles — dismissing with the keyboard
               // would otherwise navigate to what was just dismissed.
               onKeyDown={(e) => e.stopPropagation()}
-              aria-label={`Remove ${displayTitle(item)} from Continue Watching`}
-              title="Remove from Continue Watching"
+              aria-label={`Remove ${displayTitle(item)} from ${removeLabel}`}
+              title={`Remove from ${removeLabel}`}
               className="absolute left-2 top-2 z-10 flex size-7 items-center justify-center rounded-full bg-black/65 text-white/75 opacity-0 backdrop-blur-sm transition hover:bg-black/85 hover:text-white focus-visible:opacity-100 group-hover/card:opacity-100 touch:opacity-100"
             >
               <CloseIcon className="size-3.5" />
