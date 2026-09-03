@@ -33,3 +33,7 @@ apollo.runtime.json
 # committing them adds gitlinks nobody can resolve, and they get swept up by any
 # tool that globs the working tree.
 .claude/worktrees/
+
+# Scratch screenshots from browser verification runs. They belong in the job
+# scratchpad, not in the repository — a merge swept a batch of them in once.
+/*.png
