@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
+import { atScrollEnd } from '../lib/scrollEnd'
 import type { SessionInfoDto, TaskInfo, UserDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
 import {
@@ -16,6 +17,7 @@ import {
 import { formatTimecode, ticksToSeconds } from '../lib/format'
 import { NewUserDialog, UserEditor } from '../components/admin/UserEditor'
 import { LogsPanel } from '../components/admin/LogsPanel'
+import { DevicesSection } from '../components/DevicesSection'
 import { NetworkPanel } from '../components/admin/NetworkPanel'
 import { ConnectionsPanel } from '../components/admin/ConnectionsPanel'
 import { GeneralPanel } from '../components/admin/GeneralPanel'
@@ -34,6 +36,7 @@ const TABS = [
   'Libraries',
   'Playback',
   'Users',
+  'Devices',
   'Plugins',
   'Branding',
   'Network',
@@ -43,6 +46,8 @@ const TABS = [
   'Logs',
 ] as const
 type Tab = (typeof TABS)[number]
+
+
 
 export function Admin() {
   const me = useCurrentUser()
@@ -63,6 +68,18 @@ export function Admin() {
 
 function Dashboard() {
   const [tab, setTab] = useState<Tab>('Overview')
+  const tabStrip = useRef<HTMLDivElement>(null)
+  const [tabsAtEnd, setTabsAtEnd] = useState(true)
+
+  // Measured after paint and on resize: whether the strip overflows depends on
+  // the viewport, and a fade drawn over a row that fits is a lie about there
+  // being more.
+  useEffect(() => {
+    const measure = () => setTabsAtEnd(atScrollEnd(tabStrip.current))
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   const info = useSystemInfo()
   const counts = useItemCounts()
   const sessions = useSessions()
@@ -103,7 +120,18 @@ function Dashboard() {
         </p>
       )}
 
-      <div className="scrollbar-none mb-6 flex gap-1 overflow-x-auto border-b border-white/10">
+      {/*
+        The row scrolls, and with a hidden scrollbar nothing said so — adding a
+        thirteenth tab pushed Logs 77px past the edge on a 1440px screen with
+        no sign it was there. The fade is the sign, and it goes away at the end
+        so the last tab is never dimmed for no reason.
+      */}
+      <div className="relative">
+        <div
+          ref={tabStrip}
+          onScroll={(e) => setTabsAtEnd(atScrollEnd(e.currentTarget))}
+          className="scrollbar-none mb-6 flex gap-1 overflow-x-auto border-b border-white/10"
+        >
         {TABS.map((t) => (
           <button
             key={t}
@@ -115,13 +143,21 @@ function Dashboard() {
             }`}
           >
             {t}
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
+        {!tabsAtEnd && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 mb-6 w-12 bg-gradient-to-l from-ink to-transparent" />
+        )}
       </div>
 
       {tab === 'General' && <GeneralPanel />}
       {tab === 'Libraries' && <LibrariesPanel />}
       {tab === 'Playback' && <PlaybackPanel />}
+      {/* Alongside Users rather than in personal settings: GET and DELETE
+          /Devices are RequiresElevation on the server, so this was a section
+          no ordinary viewer could ever see sitting in their own preferences. */}
+      {tab === 'Devices' && <DevicesSection />}
       {tab === 'Plugins' && <PluginsPanel />}
       {tab === 'Branding' && <BrandingPanel />}
       {tab === 'API Keys' && <ApiKeysPanel />}

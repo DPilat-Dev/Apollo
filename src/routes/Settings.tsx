@@ -12,7 +12,6 @@ import {
 } from '../lib/settings'
 import { CLIENT_NAME, CLIENT_VERSION, deviceId } from '../lib/api'
 import { JellyseerrSection } from '../components/JellyseerrSection'
-import { DevicesSection } from '../components/DevicesSection'
 
 const SUBTITLE_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -72,7 +71,6 @@ export function Settings() {
         </Row>
       </Section>
 
-      <DevicesSection />
 
       <Section title="Playback">
         <Row
