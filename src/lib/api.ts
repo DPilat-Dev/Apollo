@@ -1,7 +1,7 @@
 import { personRequestPath } from './persons'
 import { devicesRequest, summariseDevices } from './devices'
 import { pluginConfigPath, pluginTogglePath } from './plugins'
-import { canEditUserImage } from './userImages'
+import { blobToBase64, canEditUserImage } from './userImages'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import type {
@@ -998,10 +998,20 @@ export class JellyfinApi {
     contentType: string
   }) {
     this.assertMayEditImage(opts)
+    /*
+      Base64, not the bytes — and the server's own OpenAPI says otherwise.
+
+      `/UserImage` advertises `image/*` with `format: binary`, and posting the
+      blob that describes fails with a FormatException out of
+      ThrowBase64FormatException: the controller reads the body as a base64
+      string whatever the document claims. Sending the raw bytes gets a 500 and
+      leaves a zero-byte image record behind, which then breaks every later
+      upload as well.
+    */
     return this.request<void>('/UserImage', {
       method: 'POST',
       query: { userId: opts.userId },
-      body: opts.blob,
+      body: await blobToBase64(opts.blob),
       headers: { 'Content-Type': opts.contentType },
     })
   }

@@ -278,3 +278,30 @@ export async function prepareAvatarUpload(file: File): Promise<AvatarUpload> {
     bitmap?.close()
   }
 }
+
+/**
+ * A blob as base64.
+ *
+ * `/UserImage` wants this rather than the bytes, whatever its OpenAPI says.
+ *
+ * Built on `arrayBuffer` and `btoa` rather than `FileReader`, which exists
+ * only in a browser — this has to run under the test runner too, and a helper
+ * that cannot be tested is how the wrong wire format shipped in the first
+ * place.
+ */
+export async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+
+  /*
+    Chunked, because `String.fromCharCode(...bytes)` spreads every byte into
+    an argument list and blows the call limit somewhere around a hundred
+    kilobytes — which a photograph comfortably exceeds, and which fails as a
+    RangeError rather than as anything that reads like a size problem.
+  */
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}

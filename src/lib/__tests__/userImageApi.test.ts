@@ -35,7 +35,16 @@ describe('uploadUserImage', () => {
     server accepts happily enough to store — and what comes back out is a
     broken image with no error anywhere to explain it.
   */
-  it('posts the raw bytes under the image’s own content type', async () => {
+  /*
+    Base64, not the bytes — and the server's own OpenAPI says binary.
+
+    Posting the blob gets a 500 out of ThrowBase64FormatException: the
+    controller reads the body as a base64 string whatever the document
+    advertises. Worse, the failed attempt still writes a zero-byte image
+    record, which then breaks every later upload *and* the delete, so getting
+    this wrong is not merely a failure — it strands the account.
+  */
+  it('posts base64 under the image’s own content type', async () => {
     const sent = stubFetch()
     await api.uploadUserImage({ isAdmin: false, userId: 'me', blob: png(), contentType: 'image/png' })
 
@@ -44,7 +53,21 @@ describe('uploadUserImage', () => {
     expect(new URL(sent[0].url).pathname).toBe('/UserImage')
     expect(new URL(sent[0].url).searchParams.get('userId')).toBe('me')
     expect(sent[0].headers['Content-Type']).toBe('image/png')
-    expect(sent[0].body).toBeInstanceOf(Blob)
+
+    expect(typeof sent[0].body).toBe('string')
+    // No data-URL prefix: the server wants the payload alone, and the prefix
+    // is another FormatException.
+    expect(sent[0].body).not.toMatch(/^data:/)
+    expect(sent[0].body).toMatch(/^[A-Za-z0-9+/]+=*$/)
+  })
+
+  it('round-trips the image through base64 without losing a byte', async () => {
+    const sent = stubFetch()
+    const blob = png()
+    await api.uploadUserImage({ isAdmin: false, userId: 'me', blob, contentType: 'image/png' })
+
+    const decoded = Uint8Array.from(atob(String(sent[0].body)), (c) => c.charCodeAt(0))
+    expect([...decoded]).toEqual([...new Uint8Array(await blob.arrayBuffer())])
   })
 
   it('lets an administrator set someone else’s', async () => {

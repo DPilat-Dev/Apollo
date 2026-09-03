@@ -8,6 +8,7 @@ import {
   avatarObjectPosition,
   avatarTargetSize,
   avatarView,
+  blobToBase64,
   canEditUserImage,
   checkAvatarFile,
   prepareAvatarUpload,
@@ -316,5 +317,38 @@ describe('prepareAvatarUpload', () => {
     const upload = await prepareAvatarUpload(file)
     expect(upload.blob).toBe(file)
     expect(upload.contentType).toBe('image/jpeg')
+  })
+})
+
+describe('blobToBase64 survives an actual photograph', () => {
+  /*
+    The size guard nothing was exercising. Every other test here uses a few
+    bytes, so dropping the chunking passed the suite — and a phone photo, which
+    is the only kind of file this feature ever sees, spreads a quarter of a
+    million arguments into String.fromCharCode and dies with a RangeError that
+    reads nothing like a size problem.
+  */
+  const big = () => {
+    const bytes = new Uint8Array(300_000)
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251
+    return new Blob([bytes], { type: 'image/jpeg' })
+  }
+
+  it('encodes a 300 kB image without blowing the argument limit', async () => {
+    const encoded = await blobToBase64(big())
+    expect(encoded.length).toBeGreaterThan(390_000)
+    expect(encoded).toMatch(/^[A-Za-z0-9+/]+=*$/)
+  })
+
+  it('gets every byte back out again', async () => {
+    const blob = big()
+    const decoded = Uint8Array.from(atob(await blobToBase64(blob)), (c) => c.charCodeAt(0))
+    const original = new Uint8Array(await blob.arrayBuffer())
+    expect(decoded.length).toBe(original.length)
+    // Spot-checked across the chunk boundaries rather than compared whole: a
+    // 300k element deep-equal is slow and says no more than this does.
+    for (const at of [0, 0x7fff, 0x8000, 0x8001, 0xffff, 0x10000, original.length - 1]) {
+      expect(decoded[at]).toBe(original[at])
+    }
   })
 })
