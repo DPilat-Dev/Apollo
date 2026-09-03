@@ -33,7 +33,11 @@ export function UserAvatar({ className = '', eager = false, ...input }: Props) {
     inheriting the last one's failure.
   */
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [view.src])
+  useEffect(() => {
+    // A block body, not a concise one: React calls whatever an effect returns,
+    // and `tests/effects.test.ts` holds the whole repo to that.
+    setFailed(false)
+  }, [view.src])
 
   return (
     <span
