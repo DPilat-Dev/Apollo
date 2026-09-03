@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { useBoxSets, useIsAdmin, useRecapLink, useViews } from '../lib/queries'
+import { useBoxSets, useCurrentUser, useIsAdmin, useRecapLink, useViews } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
 import { MenuIcon, SearchIcon } from './icons'
 import { RemoteControl } from './RemoteControl'
+import { UserAvatar } from './UserAvatar'
 
 /**
  * Transparent over the billboard, solid once scrolled — the standard streaming
@@ -13,6 +14,9 @@ import { RemoteControl } from './RemoteControl'
 export function TopNav() {
   const { session, signOut, switchUser } = useAuth()
   const { data: views } = useViews()
+  // Already in the cache — `useIsAdmin` reads the same query. The picture
+  // comes along with it, so the nav costs no extra request to draw a face.
+  const { data: me } = useCurrentUser()
   const isAdmin = useIsAdmin()
   const navigate = useNavigate()
   const location = useLocation()
@@ -205,10 +209,18 @@ export function TopNav() {
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex size-8 items-center justify-center rounded bg-accent text-sm font-bold text-white"
+              className="flex size-8 items-center justify-center rounded"
               aria-label="Account menu"
             >
-              {(session?.userName ?? '?').charAt(0).toUpperCase()}
+              <UserAvatar
+                server={session?.server ?? ''}
+                userId={session?.userId}
+                name={me?.Name ?? session?.userName}
+                tag={me?.PrimaryImageTag}
+                aspectRatio={me?.PrimaryImageAspectRatio}
+                eager
+                className="size-8 rounded bg-accent text-sm font-bold text-white"
+              />
             </button>
             {menuOpen && (
               <>

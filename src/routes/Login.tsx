@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models'
-import { authenticate, buildUrl, normalizeServer, publicUsers, serverInfo } from '../lib/api'
+import { authenticate, normalizeServer, publicUsers, serverInfo } from '../lib/api'
 import { accountsToOffer, lastUsedServer, loadAccounts, type Profile } from '../lib/accounts'
 import { useAuth } from '../lib/auth'
 import { useQueryClient } from '@tanstack/react-query'
 import { connectJellyseerr } from '../lib/jellyseerrConnect'
 import { useBranding } from '../lib/branding'
 import { DemoNotice } from '../components/DemoNotice'
+import { UserAvatar } from '../components/UserAvatar'
 
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
@@ -133,13 +134,9 @@ export function Login() {
     if (mode === 'person') passwordRef.current?.focus()
   }, [mode])
 
-  const avatarUrl = (user: Profile) =>
-    user.avatarTag
-      ? buildUrl(connected?.url ?? normalizeServer(server), '/UserImage', {
-          userId: user.userId,
-          tag: user.avatarTag,
-        })
-      : null
+  // Whatever the connection settled on, falling back to what is in the address
+  // box — /UserImage needs no credentials, so these draw before sign-in.
+  const avatarServer = connected?.url ?? normalizeServer(server)
 
   // Auto-connect to the configured default — or, failing that, to wherever
   // this device signed in last — so the common case is one step.
@@ -295,7 +292,7 @@ export function Login() {
                       onClick={() => choose(u)}
                       className="group flex flex-col items-center gap-2 rounded-lg p-2 transition hover:bg-white/6"
                     >
-                      <Avatar name={u.name} src={avatarUrl(u)} size="md" />
+                      <Avatar server={avatarServer} user={u} size="md" />
                       <span className="w-full truncate text-center text-xs text-white/65 transition group-hover:text-white">
                         {u.name}
                       </span>
@@ -306,7 +303,7 @@ export function Login() {
 
               {connected && mode === 'person' && selected && (
                 <div className="flex flex-col items-center pb-1 pt-2">
-                  <Avatar name={selected.name} src={avatarUrl(selected)} size="lg" />
+                  <Avatar server={avatarServer} user={selected} size="lg" />
                   <p className="mt-3 text-lg font-semibold text-white">{selected.name}</p>
                 </div>
               )}
@@ -425,25 +422,24 @@ function ServerStatus({
 }
 
 function Avatar({
-  name,
-  src,
+  server,
+  user,
   size,
 }: {
-  name: string
-  src: string | null
+  server: string
+  user: Profile
   size: 'md' | 'lg'
 }) {
   const dimension = size === 'lg' ? 'size-20 text-2xl' : 'size-14 text-lg'
   return (
-    <span
-      className={`flex ${dimension} items-center justify-center overflow-hidden rounded-full bg-white/10 font-bold text-white/75 ring-2 ring-transparent transition group-hover:ring-accent`}
-    >
-      {src ? (
-        <img src={src} alt="" fetchPriority="high" decoding="async" className="h-full w-full object-cover" />
-      ) : (
-        (name || '?').charAt(0).toUpperCase()
-      )}
-    </span>
+    <UserAvatar
+      server={server}
+      userId={user.userId}
+      name={user.name}
+      tag={user.avatarTag}
+      eager
+      className={`${dimension} rounded-full bg-white/10 font-bold text-white/75 ring-2 ring-transparent transition group-hover:ring-accent`}
+    />
   )
 }
 

@@ -25,6 +25,7 @@ import type { BulkPlayedProgress } from './bulkPlayed'
 import { itemViewKeys, type RemoteSearchQuery } from './identify'
 import { artworkPageRequest } from './artwork'
 import { canManageCollections, COLLECTION_QUERY_KEYS } from './boxSets'
+import { AVATAR_QUERY_KEYS, prepareAvatarUpload } from './userImages'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -506,6 +507,48 @@ export const useSetUserPassword = () =>
 
 export const useResetUserPassword = () =>
   useUserMutation<{ userId: string }>((api, a) => api.resetUserPassword(a.userId))
+
+/**
+ * Everything a changed profile picture moves.
+ *
+ * The invalidation is the feature, not housekeeping. `/UserImage` is cached
+ * against the `PrimaryImageTag` in the URL, so until the queries carrying that
+ * tag have been asked again, every avatar in the app goes on rendering the URL
+ * it already has — and the browser answers that from cache. The upload looks
+ * like it did nothing, with no error to suggest otherwise.
+ */
+function useAvatarMutation<TArgs extends object>(
+  fn: (api: JellyfinApi, args: TArgs & { isAdmin: boolean }) => Promise<unknown>,
+) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: TArgs) => fn(api, { ...args, isAdmin }),
+    onSuccess: () => {
+      for (const key of AVATAR_QUERY_KEYS) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+}
+
+/**
+ * Sets a profile picture from a file the viewer chose.
+ *
+ * The file is scaled down first: the user-image route does no resizing, so
+ * whatever is stored is what every viewer downloads to draw at 32 pixels.
+ */
+export const useSetUserImage = () =>
+  useAvatarMutation<{ userId: string; file: File }>(async (api, a) => {
+    const upload = await prepareAvatarUpload(a.file)
+    return api.uploadUserImage({ isAdmin: a.isAdmin, userId: a.userId, ...upload })
+  })
+
+export const useRemoveUserImage = () =>
+  useAvatarMutation<{ userId: string }>((api, a) =>
+    api.deleteUserImage({ isAdmin: a.isAdmin, userId: a.userId }),
+  )
 
 // ------------------------------------------------------------ logs, network
 

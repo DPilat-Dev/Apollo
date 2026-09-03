@@ -1,6 +1,7 @@
 import { personRequestPath } from './persons'
 import { devicesRequest, summariseDevices } from './devices'
 import { pluginConfigPath, pluginTogglePath } from './plugins'
+import { canEditUserImage } from './userImages'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import type {
@@ -975,6 +976,59 @@ export class JellyfinApi {
       query: { userId },
       body: JSON.stringify({ ResetPassword: true }),
     })
+  }
+
+  // --------------------------------------------------------- profile picture
+
+  /**
+   * Replaces a user's profile picture with the bytes given.
+   *
+   * `/UserImage` wants the image itself under an `image/*` content type — not
+   * multipart, not a JSON envelope with base64 in it. The header has to be set
+   * explicitly because `request` labels anything carrying a body as
+   * `application/json`, and this is the one call here where that is wrong.
+   *
+   * What arrives is whatever leaves: the route does no resizing, so callers
+   * come through `prepareAvatarUpload` rather than handing over a camera file.
+   */
+  async uploadUserImage(opts: {
+    isAdmin: boolean
+    userId: string
+    blob: Blob
+    contentType: string
+  }) {
+    this.assertMayEditImage(opts)
+    return this.request<void>('/UserImage', {
+      method: 'POST',
+      query: { userId: opts.userId },
+      body: opts.blob,
+      headers: { 'Content-Type': opts.contentType },
+    })
+  }
+
+  /** Takes the picture away, which drops the account back to its initial. */
+  async deleteUserImage(opts: { isAdmin: boolean; userId: string }) {
+    this.assertMayEditImage(opts)
+    return this.request<void>('/UserImage', {
+      method: 'DELETE',
+      query: { userId: opts.userId },
+    })
+  }
+
+  /*
+    Refused before anything is sent, rather than left to the server's 403. A
+    request that should never have been offered is a bug in whatever offered
+    it, and the failing response is a poor place to find that out.
+  */
+  private assertMayEditImage(opts: { isAdmin: boolean; userId: string }) {
+    const allowed = canEditUserImage({
+      isAdmin: opts.isAdmin,
+      targetUserId: opts.userId,
+      currentUserId: this.userId,
+    })
+    if (!allowed) {
+      throw new Error('Only an administrator can change another account’s picture.')
+    }
   }
 
   // ---------------------------------------------------------------- devices

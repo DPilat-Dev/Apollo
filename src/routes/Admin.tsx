@@ -18,6 +18,7 @@ import { formatTimecode, ticksToSeconds } from '../lib/format'
 import { NewUserDialog, UserEditor } from '../components/admin/UserEditor'
 import { LogsPanel } from '../components/admin/LogsPanel'
 import { DevicesSection } from '../components/DevicesSection'
+import { UserAvatar } from '../components/UserAvatar'
 import { NetworkPanel } from '../components/admin/NetworkPanel'
 import { ConnectionsPanel } from '../components/admin/ConnectionsPanel'
 import { GeneralPanel } from '../components/admin/GeneralPanel'
@@ -67,6 +68,7 @@ export function Admin() {
 }
 
 function Dashboard() {
+  const api = useApi()
   const [tab, setTab] = useState<Tab>('Overview')
   const tabStrip = useRef<HTMLDivElement>(null)
   const [tabsAtEnd, setTabsAtEnd] = useState(true)
@@ -168,6 +170,7 @@ function Dashboard() {
 
       {tab === 'Users' && (
         <UsersTab
+          server={api.server}
           users={users.data ?? []}
           loading={users.isLoading}
           onEdit={setEditing}
@@ -214,9 +217,14 @@ function Dashboard() {
           <div className="divide-y divide-white/8">
             {(users.data ?? []).map((u) => (
               <div key={u.Id} className="flex items-center gap-3 py-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                  {(u.Name ?? '?').charAt(0).toUpperCase()}
-                </span>
+                <UserAvatar
+                  server={api.server}
+                  userId={u.Id}
+                  name={u.Name}
+                  tag={u.PrimaryImageTag}
+                  aspectRatio={u.PrimaryImageAspectRatio}
+                  className="size-8 shrink-0 rounded-full bg-white/10 text-xs font-bold"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{u.Name}</p>
                   <p className="text-xs text-white/40">
@@ -299,11 +307,13 @@ function Dashboard() {
 
 /** Full user list with management affordances. */
 function UsersTab({
+  server,
   users,
   loading,
   onEdit,
   onCreate,
 }: {
+  server: string
   users: UserDto[]
   loading: boolean
   onEdit: (id: string) => void
@@ -333,9 +343,14 @@ function UsersTab({
             onClick={() => u.Id && onEdit(u.Id)}
             className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/4"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
-              {(u.Name ?? '?').charAt(0).toUpperCase()}
-            </span>
+            <UserAvatar
+              server={server}
+              userId={u.Id}
+              name={u.Name}
+              tag={u.PrimaryImageTag}
+              aspectRatio={u.PrimaryImageAspectRatio}
+              className="size-9 shrink-0 rounded-full bg-white/10 text-sm font-bold"
+            />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{u.Name}</p>
               <p className="text-xs text-white/40">
