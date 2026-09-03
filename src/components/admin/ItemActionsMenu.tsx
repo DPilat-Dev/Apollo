@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { itemActions, type ItemActionId } from '../../lib/itemActions'
-import { useIsAdmin } from '../../lib/queries'
+import { useCanManageCollections, useIsAdmin } from '../../lib/queries'
 import { MoreIcon } from '../icons'
 
 /**
@@ -35,9 +35,10 @@ export function ItemActionsMenu({
   className?: string
 }) {
   const isAdmin = useIsAdmin()
+  const canManageCollections = useCanManageCollections()
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
-  const actions = itemActions({ isAdmin, item })
+  const actions = itemActions({ isAdmin, canManageCollections, item })
 
   /*
     Close on Escape and on a click elsewhere. `pointerdown` rather than

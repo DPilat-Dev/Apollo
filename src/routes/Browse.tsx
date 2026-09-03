@@ -17,6 +17,8 @@ import {
   type SortKey,
 } from '../lib/libraryFilters'
 import { personRedirect } from '../lib/persons'
+import { collectionInView } from '../lib/boxSets'
+import { useCanManageCollections, useRemoveFromCollection } from '../lib/queries'
 
 const PAGE_SIZE = 60
 
@@ -81,6 +83,16 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const { sorts, fallback } = sortContextFor(Boolean(parentId))
   const sort = parseSort(params.get('sort'), fallback, sorts)
   const filterKey = [personIds, studioIds, genreIds, parentId, filterCacheKey(filters)].join('|')
+
+  /*
+    This same grid is a filmography, a genre and a library shelf, and none of
+    those can have anything taken out of them — so whether a remove control
+    belongs on these cards is `collectionInView`'s decision, made from the
+    parameters and the viewer's permission together.
+  */
+  const canManageCollections = useCanManageCollections()
+  const collection = collectionInView({ params, canManage: canManageCollections })
+  const removeFromCollection = useRemoveFromCollection()
 
   const write = (next: URLSearchParams) => setParams(next, { replace: true })
   const setSort = (key: SortKey) => {
@@ -186,7 +198,19 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
             ))
           : items.map((item) => (
               <div key={item.Id} className="[&>div]:w-full">
-                <MediaCard item={item} />
+                <MediaCard
+                  item={item}
+                  removeLabel={collection?.name}
+                  onRemove={
+                    collection && item.Id
+                      ? () =>
+                          removeFromCollection.mutate({
+                            collectionId: collection.id,
+                            itemIds: [item.Id!],
+                          })
+                      : undefined
+                  }
+                />
               </div>
             ))}
       </div>

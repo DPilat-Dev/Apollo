@@ -22,6 +22,7 @@ import { PLAYED_QUERY_KEYS, runBulkPlayed, shouldInvalidateAfter } from './bulkP
 import type { BulkPlayedProgress } from './bulkPlayed'
 import { itemViewKeys, type RemoteSearchQuery } from './identify'
 import { artworkPageRequest } from './artwork'
+import { canManageCollections, COLLECTION_QUERY_KEYS } from './boxSets'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -208,6 +209,40 @@ export const useMovePlaylistItem = () =>
 export const useDeletePlaylist = () =>
   usePlaylistMutation<{ playlistId: string }>((api, v) => api.deletePlaylist(v.playlistId))
 
+/**
+ * Collection mutations. All three end the same way, and what they invalidate
+ * is spelled out in `COLLECTION_QUERY_KEYS` — the box-set list above all,
+ * because a server with none hides the nav entry and the home shelf entirely
+ * until that query has seen one.
+ */
+function useCollectionMutation<T>(fn: (api: JellyfinApi, vars: T) => Promise<unknown>) {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: T) => fn(api, vars),
+    onSuccess: () => {
+      for (const key of COLLECTION_QUERY_KEYS) {
+        void qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+}
+
+export const useCreateCollection = () =>
+  useCollectionMutation<{ name: string; itemIds?: string[] }>((api, v) =>
+    api.createCollection(v.name, v.itemIds ?? []),
+  )
+
+export const useAddToCollection = () =>
+  useCollectionMutation<{ collectionId: string; itemIds: string[] }>((api, v) =>
+    api.addToCollection(v.collectionId, v.itemIds),
+  )
+
+export const useRemoveFromCollection = () =>
+  useCollectionMutation<{ collectionId: string; itemIds: string[] }>((api, v) =>
+    api.removeFromCollection(v.collectionId, v.itemIds),
+  )
+
 export function useSimilar(itemId?: string) {
   const api = useApi()
   return useQuery({
@@ -313,6 +348,12 @@ export function useCurrentUser() {
 export function useIsAdmin(): boolean {
   const { data } = useCurrentUser()
   return Boolean(data?.Policy?.IsAdministrator)
+}
+
+/** Not the same question as `useIsAdmin` — see `canManageCollections`. */
+export function useCanManageCollections(): boolean {
+  const { data } = useCurrentUser()
+  return canManageCollections(data)
 }
 
 /** Admin panels poll, since sessions and task progress change under us. */

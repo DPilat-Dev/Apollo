@@ -389,6 +389,43 @@ export class JellyfinApi {
     await this.request(`/Items/${playlistId}`, { method: 'DELETE' })
   }
 
+  // ----------------------------------------------------------- collections
+
+  /*
+    Unlike /Playlists directly above, which takes a JSON body, all three
+    collection routes take everything in the query string. Sending a body
+    instead is not an error the server reports — it answers 200 and hands back
+    a brand new collection with nothing in it.
+  */
+
+  /** Makes a box set, optionally with its first members already inside. */
+  async createCollection(name: string, itemIds: string[] = []): Promise<{ Id?: string }> {
+    return this.request('/Collections', {
+      method: 'POST',
+      // Absent rather than empty: `ids=` is read as a list containing one
+      // blank id, which is a 400 rather than a collection with no members.
+      query: { name, ids: itemIds.length ? itemIds : undefined },
+    })
+  }
+
+  async addToCollection(collectionId: string, itemIds: string[]): Promise<void> {
+    // `ids` is required, so an empty list is a round trip that can only fail.
+    if (itemIds.length === 0) return
+    await this.request(`/Collections/${collectionId}/Items`, {
+      method: 'POST',
+      query: { ids: itemIds },
+    })
+  }
+
+  /** Removes by item id — a collection has no per-entry id the way a playlist does. */
+  async removeFromCollection(collectionId: string, itemIds: string[]): Promise<void> {
+    if (itemIds.length === 0) return
+    await this.request(`/Collections/${collectionId}/Items`, {
+      method: 'DELETE',
+      query: { ids: itemIds },
+    })
+  }
+
   // -------------------------------------------------------------- syncplay
 
   /** Server-side timestamps for the four-timestamp clock exchange. */
