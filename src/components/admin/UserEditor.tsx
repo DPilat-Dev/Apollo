@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models'
+import { useApi } from '../../lib/auth'
 import {
   useCreateUser,
   useDeleteUser,
@@ -8,6 +9,8 @@ import {
   useUpdateUser,
   useUpdateUserPolicy,
 } from '../../lib/queries'
+import { ProfilePictureControl } from '../ProfilePictureControl'
+import { UserAvatar } from '../UserAvatar'
 
 const POLICY_TOGGLES = [
   { key: 'IsAdministrator', label: 'Administrator', hint: 'Full access to the dashboard' },
@@ -29,6 +32,7 @@ interface Props {
 }
 
 export function UserEditor({ user, currentUserId, onClose }: Props) {
+  const api = useApi()
   const [name, setName] = useState(user.Name ?? '')
   const [password, setPassword] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -78,9 +82,14 @@ export function UserEditor({ user, currentUserId, onClose }: Props) {
       <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/10 bg-ink-soft shadow-2xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-white/10 bg-ink-soft/95 px-5 py-4 backdrop-blur">
           <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-full bg-white/10 font-bold">
-              {(user.Name ?? '?').charAt(0).toUpperCase()}
-            </span>
+            <UserAvatar
+              server={api.server}
+              userId={userId}
+              name={user.Name}
+              tag={user.PrimaryImageTag}
+              aspectRatio={user.PrimaryImageAspectRatio}
+              className="size-9 rounded-full bg-white/10 font-bold"
+            />
             <div>
               <p className="font-semibold">{user.Name}</p>
               <p className="text-xs text-white/40">{isSelf ? 'This is you' : 'User account'}</p>
@@ -113,6 +122,10 @@ export function UserEditor({ user, currentUserId, onClose }: Props) {
                 Save
               </button>
             </div>
+          </Group>
+
+          <Group title="Profile picture">
+            <ProfilePictureControl user={user} />
           </Group>
 
           <Group title="Permissions">

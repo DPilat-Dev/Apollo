@@ -73,6 +73,55 @@
   }
 }
 
+/* The recap's panels arrive one after another rather than all at once, so the
+   year reads as a sequence instead of a wall. Staggered by an inline delay. */
+@keyframes recap-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A story's progress bar draining across the life of one card. Paused by
+   `animation-play-state` while a finger is held down, so the bar and the timer
+   agree about what "held" means. */
+@keyframes recap-drain {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* The poster on a reveal card, arriving with a little more force than a fade —
+   it is the one picture on the screen and the card is about it. */
+@keyframes recap-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.86) translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A bar growing from the floor. Scaling rather than animating height keeps it
+   on the compositor, which matters with twelve of them running together. */
+@keyframes recap-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
 /* The double-tap seek confirmation: readable at once, gone before it is in
    the way of the thing being watched. */
 @keyframes seek-flash {

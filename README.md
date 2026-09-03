@@ -364,6 +364,7 @@ not whatever was easiest to assert:
 | `runtime` | `http://` prefixed onto `file:///etc/passwd` produced `http://file`, laundering a rejected scheme into a valid target |
 | `format` | Ticks, timecodes, resume thresholds |
 | `chapters` | Chapter markers arrive unordered, unnamed, doubled up on one instant, and sometimes past the end of the runtime |
+| `userImages` | An avatar URL without its `tag` renders the replaced picture out of cache indefinitely, and `charAt(0)` on a name starting with an emoji draws half a surrogate pair |
 
 Writing them was worthwhile beyond regressions: two assertions I wrote were
 wrong about the code's actual contract, and arguing it out is what produced the
@@ -392,7 +393,7 @@ broken request and an empty library otherwise look identical.
   by `genreIds` or `studioIds`.
 - **Cast & Crew** — portraits from `/Items/{personId}/Images/Primary`, crew
   before cast because a director is usually why someone is looking. Each links
-  to everything that person is in.
+  to that person's own page.
 - **Video & Audio** — what is actually in the file (codec, resolution, HDR,
   bitrate, size) with pickers for version, audio track and subtitle track.
 
@@ -419,6 +420,33 @@ since the series name alone is not enough to know where you are.
 live in the query string so every chip is a plain link — shareable, and Back
 behaves as expected. Results collapse to movies and series, since cast credits
 otherwise list forty episodes of one show.
+
+### People
+
+`/person/:name` is that grid with the person above it — portrait, biography,
+birth date, death date where there is one, birthplace, and IMDb/TMDB links. It
+renders `Browse` and hands it a header, so paging, filters and sorting exist
+once. `/browse?personIds=…&name=…` was the old cast-chip destination and still
+works: it redirects here rather than staying a second page showing the same
+filmography.
+
+The route is keyed by **name**, because `/Persons/{name}` is the only endpoint
+that returns a biography — Jellyfin has no by-id equivalent. Names are the worst
+possible path segment (`Peter O'Toole`, `Renée Zellweger`, `Samuel L. Jackson`,
+and rarely a slash), so every URL carrying one is built in `src/lib/persons.ts`
+and tested against those characters. Nothing interpolates a name into a URL
+anywhere else. Names are also not unique, so the credit's id travels in the
+query and is what filters the grid; the name only fetches the biography.
+
+Portraits go through `imageUrl` like every other image — a person is a library
+item, so `/Items/{id}/Images/Primary` serves the same picture as
+`/Persons/{name}/Images/Primary` and keeps the bucketing described under
+[Artwork precedence](#artwork-precedence). No second, name-keyed image helper.
+
+Most cast have no photo and no biography, and the header degrades in two steps:
+no portrait means no portrait column rather than a grey circle, and nothing at
+all known means no header — just the name, one line saying the library has no
+biography, and the filmography, which is what `/browse?personIds=` always was.
 
 ## Jellyseerr requests
 
@@ -582,7 +610,7 @@ refresh would bounce admins out before their policy loaded. Eleven tabs:
   bitrate cap, chapter images), Transcoding (hardware acceleration, encoder
   preset, CRF, throttling, tone mapping, paths), Trickplay.
 - **Users** — create, rename, delete, seven policy toggles, set or clear a
-  password.
+  password, and set or remove a profile picture.
 - **Plugins** — three sub-tabs: Installed (with uninstall), Catalogue (search
   and install from the enabled repositories), and Repositories (add, remove,
   enable). Installs land on disk immediately but only load on restart.
@@ -600,6 +628,46 @@ refresh would bounce admins out before their policy loaded. Eleven tabs:
 Config panels share `ConfigPanel` in `components/admin/controls.tsx`: it holds a
 local draft, so nothing reaches the server until Save, and re-syncs whenever the
 server copy changes.
+
+### Profile pictures
+
+Every avatar in the app — the nav, the sign-in picker, both dashboard user lists
+and the user editor — is one component, `UserAvatar`, over one decision in
+`src/lib/userImages.ts`. A `UserDto` with no `PrimaryImageTag` has no picture,
+and that is the whole test: the fallback letter is drawn without asking the
+server for an image and reading a 404 as an answer.
+
+You change your own from Settings; an administrator can change anyone's from the
+user editor. Both use the same control, and both go through `canEditUserImage`,
+which the api asks again before sending — a request that should never have been
+offered is a bug in whatever offered it.
+
+Three things are worth knowing:
+
+- **The tag is the cache key**, exactly as for item artwork. `/UserImage` is
+  served with strong caching headers when the URL carries a `tag`, so an upload
+  has to end with `me` and `allUsers` invalidated or every avatar keeps
+  rendering the URL it already had and the browser answers from cache. The
+  upload appears to have done nothing, with no error anywhere.
+- **This route does not resize.** Item images take `fillWidth`/`quality` and the
+  server renders to fit; against 10.11.8 `/UserImage` takes `userId`, `tag` and
+  `format` and nothing else. Whatever is uploaded is what every viewer downloads
+  in full to draw at 32px — so the file is scaled to a 480px long edge in a
+  canvas before it is sent, and anything over 10 MB is refused before it is
+  decoded at all.
+- **Types are checked, not extensions.** JPEG, PNG and WebP. SVG is refused
+  because it is a scriptable document that would be served back from the
+  server's own origin, and GIF because the canvas resize would silently flatten
+  an animated one to its first frame.
+
+Pictures are not square: `PrimaryImageAspectRatio` decides where the crop lands.
+Cover, never contain — a face letterboxed inside a circle looks broken — and a
+portrait is anchored to its top edge, because cropping one down the middle takes
+a band through the chin.
+
+A cast member's photograph is unrelated to any of this. It comes from
+`/Items/{personId}/Images/Primary` (see **People**), because a person is an item
+and not a user.
 
 ### Branding actually applies
 

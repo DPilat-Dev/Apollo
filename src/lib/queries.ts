@@ -1,19 +1,31 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import type {
   BaseItemDto,
   LibraryOptions,
   NetworkConfiguration,
+  RemoteSearchResult,
   RepositoryInfo,
   UserDto,
   UserPolicy,
 } from '@jellyfin/sdk/lib/generated-client/models'
 import type { JellyfinApi } from './api'
-import { useApi } from './auth'
+import { useApi, useAuth } from './auth'
+import { runDeviceRevoke, type DeviceScope, type RevokePlan } from './devices'
+import { pluginConfigPlan, type PluginRow } from './plugins'
 import { buildTasteProfile } from './taste'
 import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
 import { browsableTypes, isBrowsableLibrary } from './collections'
 import { planResumeRemoval } from './continueWatching'
+import { PLAYED_SORT_BY, historyItemsQuery } from './watchHistory'
+import { recapButton, recapSeason, type RecapLink } from './yearRecap'
+import { PLAYED_QUERY_KEYS, runBulkPlayed, shouldInvalidateAfter } from './bulkPlayed'
+import type { BulkPlayedProgress } from './bulkPlayed'
+import { itemViewKeys, type RemoteSearchQuery } from './identify'
+import { artworkPageRequest } from './artwork'
+import { canManageCollections, COLLECTION_QUERY_KEYS } from './boxSets'
+import { AVATAR_QUERY_KEYS, prepareAvatarUpload } from './userImages'
 
 // Genres/Studios/Tags are the facets the match score reads, so every list that
 // feeds a card has to carry them or the same title would score differently
@@ -200,6 +212,40 @@ export const useMovePlaylistItem = () =>
 export const useDeletePlaylist = () =>
   usePlaylistMutation<{ playlistId: string }>((api, v) => api.deletePlaylist(v.playlistId))
 
+/**
+ * Collection mutations. All three end the same way, and what they invalidate
+ * is spelled out in `COLLECTION_QUERY_KEYS` — the box-set list above all,
+ * because a server with none hides the nav entry and the home shelf entirely
+ * until that query has seen one.
+ */
+function useCollectionMutation<T>(fn: (api: JellyfinApi, vars: T) => Promise<unknown>) {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: T) => fn(api, vars),
+    onSuccess: () => {
+      for (const key of COLLECTION_QUERY_KEYS) {
+        void qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+}
+
+export const useCreateCollection = () =>
+  useCollectionMutation<{ name: string; itemIds?: string[] }>((api, v) =>
+    api.createCollection(v.name, v.itemIds ?? []),
+  )
+
+export const useAddToCollection = () =>
+  useCollectionMutation<{ collectionId: string; itemIds: string[] }>((api, v) =>
+    api.addToCollection(v.collectionId, v.itemIds),
+  )
+
+export const useRemoveFromCollection = () =>
+  useCollectionMutation<{ collectionId: string; itemIds: string[] }>((api, v) =>
+    api.removeFromCollection(v.collectionId, v.itemIds),
+  )
+
 export function useSimilar(itemId?: string) {
   const api = useApi()
   return useQuery({
@@ -307,6 +353,12 @@ export function useIsAdmin(): boolean {
   return Boolean(data?.Policy?.IsAdministrator)
 }
 
+/** Not the same question as `useIsAdmin` — see `canManageCollections`. */
+export function useCanManageCollections(): boolean {
+  const { data } = useCurrentUser()
+  return canManageCollections(data)
+}
+
 /** Admin panels poll, since sessions and task progress change under us. */
 export function useSystemInfo() {
   const api = useApi()
@@ -329,6 +381,53 @@ export function useSessions() {
     queryKey: ['sessions'],
     queryFn: () => api.sessions(),
     refetchInterval: 5000,
+  })
+}
+
+/**
+ * The registered devices, which is to say the live access tokens.
+ *
+ * Not polled. The list only changes when somebody signs in or is signed out,
+ * and a refetch under a pointer that is on its way to a revoke button is how
+ * the wrong row gets clicked.
+ */
+export function useDevices(scope: DeviceScope) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  return useQuery({
+    queryKey: ['devices', api.userId, isAdmin, scope],
+    queryFn: () => api.devices({ isAdmin, scope }),
+  })
+}
+
+/**
+ * Signing devices out, one or a hundred and sixty-seven.
+ *
+ * Nothing is decided here: what to ask, what order to send it in, and whether
+ * the session in this browser just ended are all `runDeviceRevoke`'s, where
+ * they are tested. The only thing this adds is what to do about the answer —
+ * and when the token this app is holding has been revoked, the honest move is
+ * to sign out locally rather than refetch with a credential that is now dead.
+ */
+export function useRevokeDevices() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { signOut } = useAuth()
+  return useMutation({
+    mutationFn: (plan: RevokePlan) =>
+      runDeviceRevoke({
+        plan,
+        revoke: (id) => api.revokeDevice(id),
+        confirm: (message) => globalThis.confirm(message),
+      }),
+    onSuccess: (outcome) => {
+      if (outcome.endedSession) {
+        signOut()
+        return
+      }
+      qc.invalidateQueries({ queryKey: ['devices'] })
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+    },
   })
 }
 
@@ -408,6 +507,48 @@ export const useSetUserPassword = () =>
 
 export const useResetUserPassword = () =>
   useUserMutation<{ userId: string }>((api, a) => api.resetUserPassword(a.userId))
+
+/**
+ * Everything a changed profile picture moves.
+ *
+ * The invalidation is the feature, not housekeeping. `/UserImage` is cached
+ * against the `PrimaryImageTag` in the URL, so until the queries carrying that
+ * tag have been asked again, every avatar in the app goes on rendering the URL
+ * it already has — and the browser answers that from cache. The upload looks
+ * like it did nothing, with no error to suggest otherwise.
+ */
+function useAvatarMutation<TArgs extends object>(
+  fn: (api: JellyfinApi, args: TArgs & { isAdmin: boolean }) => Promise<unknown>,
+) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: TArgs) => fn(api, { ...args, isAdmin }),
+    onSuccess: () => {
+      for (const key of AVATAR_QUERY_KEYS) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+}
+
+/**
+ * Sets a profile picture from a file the viewer chose.
+ *
+ * The file is scaled down first: the user-image route does no resizing, so
+ * whatever is stored is what every viewer downloads to draw at 32 pixels.
+ */
+export const useSetUserImage = () =>
+  useAvatarMutation<{ userId: string; file: File }>(async (api, a) => {
+    const upload = await prepareAvatarUpload(a.file)
+    return api.uploadUserImage({ isAdmin: a.isAdmin, userId: a.userId, ...upload })
+  })
+
+export const useRemoveUserImage = () =>
+  useAvatarMutation<{ userId: string }>((api, a) =>
+    api.deleteUserImage({ isAdmin: a.isAdmin, userId: a.userId }),
+  )
 
 // ------------------------------------------------------------ logs, network
 
@@ -570,6 +711,51 @@ export function useUninstallPlugin() {
   })
 }
 
+/**
+ * A plugin's settings, for the detail view.
+ *
+ * Whether to ask at all is `pluginConfigPlan`'s answer, not this hook's: the
+ * endpoint only exists for a plugin the server has loaded, and firing a
+ * request that is known to come back 404 costs a round trip to learn nothing.
+ * Keeping the decision in the hook rather than in the panel means a second
+ * screen that wants a plugin's settings gets it for free.
+ */
+export function usePluginConfiguration(row: PluginRow | null) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const plan = row ? pluginConfigPlan(row) : null
+  return useQuery({
+    queryKey: ['pluginConfiguration', row?.id, isAdmin],
+    queryFn: () => api.pluginConfiguration({ isAdmin, pluginId: row?.id ?? '' }),
+    enabled: Boolean(plan?.fetch),
+  })
+}
+
+export function useSavePluginConfiguration() {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { pluginId: string; config: unknown }) =>
+      api.savePluginConfiguration({ isAdmin, ...args }),
+    onSuccess: (_result, args) =>
+      qc.invalidateQueries({ queryKey: ['pluginConfiguration', args.pluginId] }),
+  })
+}
+
+export function useSetPluginEnabled() {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { pluginId: string; version: string; enable: boolean }) =>
+      api.setPluginEnabled({ isAdmin, ...args }),
+    // The status the server reports only moves at a restart, so the list is
+    // refetched to show what it now says rather than to show the change.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }),
+  })
+}
+
 export function usePackages() {
   const api = useApi()
   return useQuery({
@@ -641,13 +827,19 @@ export function useUpdateItem() {
   return useMutation({
     mutationFn: ({ itemId, item }: { itemId: string; item: BaseItemDto }) =>
       api.updateItem(itemId, item),
-    onSuccess: (_d, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ['item', api.userId, itemId] })
-      qc.invalidateQueries({ queryKey: ['seasons'] })
-      qc.invalidateQueries({ queryKey: ['episodes'] })
-      qc.invalidateQueries({ queryKey: ['itemsRow'] })
-    },
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
   })
+}
+
+/** Everything drawn from an item's own metadata or artwork. See itemViewKeys. */
+function invalidateItemViews(
+  qc: ReturnType<typeof useQueryClient>,
+  userId: string | undefined,
+  itemId: string,
+) {
+  for (const queryKey of itemViewKeys(userId, itemId)) {
+    qc.invalidateQueries({ queryKey })
+  }
 }
 
 export function useRefreshItem() {
@@ -661,6 +853,94 @@ export function useRefreshItem() {
       replaceAllMetadata?: boolean
       replaceAllImages?: boolean
     }) => api.refreshItem(itemId, opts),
+  })
+}
+
+// ------------------------------------------------- identify and artwork
+
+/**
+ * A lookup against the metadata providers.
+ *
+ * A mutation rather than a query even though it reads nothing: it is a POST
+ * the admin fires deliberately, and caching "what did the providers say about
+ * this name" would hand back stale matches to someone who has just corrected
+ * their spelling.
+ */
+export function useRemoteSearch() {
+  const api = useApi()
+  return useMutation({
+    mutationFn: ({ kind, query }: { kind: string; query: RemoteSearchQuery }) =>
+      api.remoteSearch(kind, query),
+  })
+}
+
+/**
+ * Applies a chosen match. See `applyWarnings` for what the server does with
+ * it — this is the destructive half of the feature.
+ */
+export function useApplyRemoteSearch() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      result,
+      replaceAllImages,
+    }: {
+      itemId: string
+      result: RemoteSearchResult
+      replaceAllImages?: boolean
+    }) => api.applyRemoteSearch(itemId, result, { replaceAllImages }),
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
+  })
+}
+
+/**
+ * One page of candidate artwork.
+ *
+ * `placeholderData` keeps the page you are looking at on screen while the next
+ * one loads. Without it the grid empties and the dialog jumps to the height of
+ * a spinner, which on a slow provider is most of the time spent paging.
+ */
+export function useRemoteImages(
+  itemId: string | undefined,
+  opts: { type: string; page: number; providerName?: string; includeAllLanguages?: boolean },
+  enabled = true,
+) {
+  const api = useApi()
+  const window = artworkPageRequest(opts.page)
+  return useQuery({
+    queryKey: [
+      'remoteImages',
+      itemId,
+      opts.type,
+      window.startIndex,
+      opts.providerName ?? '',
+      Boolean(opts.includeAllLanguages),
+    ],
+    queryFn: () =>
+      api.remoteImages(itemId!, {
+        type: opts.type,
+        ...window,
+        providerName: opts.providerName,
+        includeAllLanguages: opts.includeAllLanguages,
+      }),
+    enabled: Boolean(itemId) && enabled,
+    placeholderData: (previous) => previous,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useDownloadRemoteImage() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ itemId, type, imageUrl }: { itemId: string; type: string; imageUrl: string }) =>
+      api.downloadRemoteImage(itemId, type, imageUrl),
+    // The item's ImageTags change, and every poster url on screen is built
+    // from a tag — so this is what actually swaps the picture, not just the
+    // record behind it.
+    onSuccess: (_d, { itemId }) => invalidateItemViews(qc, api.userId, itemId),
   })
 }
 
@@ -682,7 +962,10 @@ export function useTasteProfile() {
           includeItemTypes: ['Movie', 'Series'],
           recursive: true,
           isPlayed: true,
-          sortBy: ['DatePlayed'],
+          // The same sort the history page asks for, from the same constant:
+          // "most recently watched first" is one fact about the server's enum,
+          // and two spellings of it is one spelling waiting to drift.
+          sortBy: [PLAYED_SORT_BY],
           sortOrder: ['Descending'],
           limit: 150,
           fields: TASTE_FIELDS,
@@ -701,6 +984,36 @@ export function useTasteProfile() {
     },
     staleTime: 15 * 60 * 1000,
   })
+}
+
+/**
+ * The year-in-review link, or nothing at all for the ten months it does not
+ * exist.
+ *
+ * The clock is read once, here, and handed to `recapButton` — which owns every
+ * part of the answer: whether it is the season, which year that means, and
+ * whether the account has anything in it worth a recap. Callers render what
+ * comes back or render nothing, so there is no second opinion about December
+ * anywhere in the tree.
+ *
+ * The probe is one page of played items and only runs in season, so eleven
+ * months of the year this hook costs a request nobody makes.
+ */
+export function useRecapLink(): RecapLink | null {
+  const api = useApi()
+  // Fixed at mount. A `new Date()` evaluated on every render would make this
+  // hook a new answer each time and, once a year, change it mid-session.
+  const [now] = useState(() => new Date())
+  const season = recapSeason(now)
+
+  const probe = useQuery({
+    queryKey: ['recapProbe', api.userId],
+    queryFn: async () => (await api.items(historyItemsQuery(0))).Items ?? [],
+    enabled: season !== null,
+    staleTime: 60 * 60 * 1000,
+  })
+
+  return recapButton({ now, probeItems: probe.data })
 }
 
 // -------------------------------------------------------------- jellyseerr
@@ -831,22 +1144,53 @@ export function useTogglePlayed() {
     mutationFn: ({ itemId, played }: { itemId: string; played: boolean }) =>
       api.setPlayed(itemId, played),
     onSuccess: () => {
-      for (const key of [
-        'item',
-        'itemsRow',
-        'episodes',
-        'seasons',
-        'resume',
-        'nextUp',
-        'latest',
-        'library',
-        'browse',
-        'searchByLibrary',
-      ]) {
+      for (const key of PLAYED_QUERY_KEYS) {
         qc.invalidateQueries({ queryKey: [key] })
       }
     },
   })
+}
+
+/**
+ * Marking every episode of a season or a series in one press.
+ *
+ * There is no bulk playstate route, so this is a fan-out: fetch the episode
+ * list, work out which of them actually need writing, then send them a few at
+ * a time. All of the decisions — what to skip, how to batch, whether to ask
+ * first, what to say afterwards — live in `bulkPlayed.ts` where they are
+ * tested; nothing here chooses anything.
+ *
+ * The mutation resolves to an outcome rather than throwing on failure, because
+ * "40 of 62 worked" is a result the viewer has to see, not an error to swallow.
+ * The caches are refetched on a partial run for the same reason: the badges
+ * must show the half-marked truth rather than an optimistic guess.
+ */
+export function useBulkPlayed() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [progress, setProgress] = useState<BulkPlayedProgress | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: ({ item, played }: { item: BaseItemDto; played: boolean }) =>
+      runBulkPlayed({
+        item,
+        played,
+        listEpisodes: async (seriesId, seasonId) =>
+          (await api.episodes(seriesId, seasonId)).Items ?? [],
+        mark: (id, next) => api.setPlayed(id, next),
+        confirm: (message) => globalThis.confirm(message),
+        onProgress: setProgress,
+      }),
+    onSettled: (outcome) => {
+      setProgress(null)
+      if (!shouldInvalidateAfter(outcome)) return
+      for (const key of PLAYED_QUERY_KEYS) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+  })
+
+  return { ...mutation, progress }
 }
 
 /**

@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Row } from '../components/Row'
-import { CheckIcon, PlayIcon, PlusIcon, PlaylistIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
+import { CheckIcon, PlayIcon, PlusIcon, ShuffleIcon, TrailerIcon, WatchedIcon } from '../components/icons'
 import { TrailerModal } from '../components/TrailerModal'
 import { AddToPlaylist } from '../components/AddToPlaylist'
+import { AddToCollection } from '../components/AddToCollection'
 import { RemoteControl } from '../components/RemoteControl'
 import { hasTrailer } from '../lib/trailers'
 import { useApi } from '../lib/auth'
@@ -17,15 +18,24 @@ import {
   playedFraction,
 } from '../lib/format'
 import {
+  useBulkPlayed,
   useEpisodes,
-  useIsAdmin,
   useItem,
+  useRefreshItem,
   useSeasons,
   useSimilar,
   useToggleFavorite,
   useTogglePlayed,
 } from '../lib/queries'
-import { MetadataEditor } from '../components/admin/MetadataEditor'
+import {
+  bulkPlayedMessage,
+  bulkPlayedNeedsAttention,
+  bulkPlayedProgressLabel,
+  bulkPlayedTarget,
+} from '../lib/bulkPlayed'
+import { MetadataEditor, type MetadataTool } from '../components/admin/MetadataEditor'
+import { ItemActionsMenu } from '../components/admin/ItemActionsMenu'
+import type { ItemActionId } from '../lib/itemActions'
 import { MatchBadge } from '../components/MatchBadge'
 import { CastAndCrew, FilterChips, Ratings } from '../components/ItemMeta'
 import { MediaTracks, trackParams, useTrackSelection } from '../components/MediaTracks'
@@ -41,12 +51,38 @@ export function ItemDetail() {
   const similar = useSimilar(itemId)
   const favorite = useToggleFavorite()
   const played = useTogglePlayed()
-  const isAdmin = useIsAdmin()
+  const bulkPlayed = useBulkPlayed()
   // Holds whichever item the metadata editor is open for — the series itself,
   // a season, or a single episode.
   const [editingItem, setEditingItem] = useState<BaseItemDto | null>(null)
+  /** Which view the editor should open on, when the menu named one. */
+  const [editingTool, setEditingTool] = useState<MetadataTool | undefined>(undefined)
+  /** The item whose device picker is open, if any. */
+  const [remoteFor, setRemoteFor] = useState<BaseItemDto | null>(null)
+  const refreshItem = useRefreshItem()
+
+  /*
+    One handler for every surface that shows the menu — the hero, a season
+    card, an episode row — so a new action is wired once rather than three
+    times and cannot end up doing different things in different places.
+  */
+  const runItemAction = (target: BaseItemDto, action: ItemActionId) => {
+    if (action === 'playlist') return setPlaylistOpen(true)
+    // Carries the item the menu was opened on, the way the remote panel does:
+    // the episode rows further down have their own menus, and filing the show
+    // when the viewer asked for one episode is not a mistake they would notice.
+    if (action === 'collection') return setCollectionFor(target)
+    if (action === 'remote') return setRemoteFor(target)
+    if (action === 'refresh') {
+      if (target.Id) refreshItem.mutate({ itemId: target.Id })
+      return
+    }
+    setEditingTool(action === 'edit' ? undefined : action)
+    setEditingItem(target)
+  }
   const [trailerOpen, setTrailerOpen] = useState(false)
   const [playlistOpen, setPlaylistOpen] = useState(false)
+  const [collectionFor, setCollectionFor] = useState<BaseItemDto | null>(null)
   const [tracks, setTracks] = useTrackSelection()
 
   const isSeries = item?.Type === 'Series'
@@ -84,6 +120,13 @@ export function ItemDetail() {
 
   const resumable = Boolean(playTarget && isResumable(playTarget))
   const loadingTarget = (isSeries && seriesEpisodes.isLoading) || (isSeason && episodes.isLoading)
+
+  // A series or a season marks every episode inside it; anything else is the
+  // one-item toggle it always was.
+  const marksEverything = bulkPlayedTarget(item)
+  const bulkStatus =
+    bulkPlayedProgressLabel(bulkPlayed.progress, bulkPlayed.variables?.played ?? true) ??
+    (bulkPlayed.data ? bulkPlayedMessage(bulkPlayed.data) : null)
 
   return (
     <div className="pb-24">
@@ -168,7 +211,14 @@ export function ItemDetail() {
               <Ratings item={item} />
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            {/*
+              Wider than the text column it sits under. `max-w-2xl` is right for
+              a title and an overview and wrong for this row — at 672px the
+              transport buttons wrapped, and the watched toggle and the overflow
+              menu ended up orphaned on a line of their own below everything
+              they belong with.
+            */}
+            <div className="flex w-[calc(100vw-2rem)] flex-wrap items-center gap-3 sm:w-[calc(100vw-7rem)]">
               <button
                 onClick={() =>
                   playTarget?.Id && navigate(`/watch/${playTarget.Id}${trackParams(tracks)}`)
@@ -209,19 +259,6 @@ export function ItemDetail() {
                 </button>
               )}
 
-              <div className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40">
-                <RemoteControl item={item} />
-              </div>
-
-              <button
-                onClick={() => setPlaylistOpen(true)}
-                aria-label="Add to playlist"
-                title="Add to playlist"
-                className="flex size-11 items-center justify-center rounded-full border-2 border-white/40 bg-black/40 transition hover:border-white"
-              >
-                <PlaylistIcon className="size-5" />
-              </button>
-
               {showTrailer && (
                 <button
                   onClick={() => setTrailerOpen(true)}
@@ -242,19 +279,24 @@ export function ItemDetail() {
               </button>
 
               <button
-                onClick={() =>
-                  item.Id && played.mutate({ itemId: item.Id, played: !isWatched })
-                }
-                disabled={played.isPending}
+                onClick={() => {
+                  if (marksEverything) bulkPlayed.mutate({ item, played: !isWatched })
+                  else if (item.Id) played.mutate({ itemId: item.Id, played: !isWatched })
+                }}
+                disabled={played.isPending || bulkPlayed.isPending}
                 aria-label={isWatched ? 'Mark as unwatched' : 'Mark as watched'}
                 title={
                   isSeries
                     ? isWatched
-                      ? 'Mark whole series unwatched'
-                      : 'Mark whole series watched'
-                    : isWatched
-                      ? 'Mark as unwatched'
-                      : 'Mark as watched'
+                      ? 'Mark every episode of this show unwatched'
+                      : 'Mark every episode of this show watched'
+                    : isSeason
+                      ? isWatched
+                        ? 'Mark every episode of this season unwatched'
+                        : 'Mark every episode of this season watched'
+                      : isWatched
+                        ? 'Mark as unwatched'
+                        : 'Mark as watched'
                 }
                 className={`flex size-11 items-center justify-center rounded-full border-2 bg-black/40 transition disabled:opacity-50 ${
                   isWatched
@@ -265,15 +307,31 @@ export function ItemDetail() {
                 <WatchedIcon className="size-5" filled={isWatched} />
               </button>
 
-              {isAdmin && (
-                <button
-                  onClick={() => setEditingItem(item)}
-                  className="rounded-full border-2 border-white/40 bg-black/40 px-5 py-2.5 text-sm font-semibold transition hover:border-white"
-                >
-                  Edit
-                </button>
-              )}
+              <div className="relative">
+                <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
+                {/* Hangs off the menu that opened it, so the panel appears
+                    where the press landed rather than across the page. */}
+                {remoteFor?.Id === item.Id && (
+                  <RemoteControl item={item} openedFromMenu onClose={() => setRemoteFor(null)} />
+                )}
+              </div>
             </div>
+
+            {/*
+              Several seconds of writes, reported as they land. A run that only
+              half-finished says so here rather than quietly leaving the counts
+              wrong — pressing the button again retries just what failed.
+            */}
+            {bulkStatus && (
+              <p
+                aria-live="polite"
+                className={`mt-3 text-sm tabular-nums ${
+                  bulkPlayedNeedsAttention(bulkPlayed.data) ? 'text-amber-300' : 'text-white/70'
+                }`}
+              >
+                {bulkStatus}
+              </p>
+            )}
 
             {resumable && playTarget && (
               <div className="mt-4 max-w-md">
@@ -343,14 +401,7 @@ export function ItemDetail() {
           <div className="mb-4 flex items-center gap-4">
             <h2 className="text-xl font-semibold">Episodes</h2>
             <span className="text-sm text-white/40">{episodes.data?.length ?? 0}</span>
-            {isAdmin && (
-              <button
-                onClick={() => setEditingItem(item)}
-                className="rounded border border-white/20 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/50 hover:text-white"
-              >
-                Edit season
-              </button>
-            )}
+            <ItemActionsMenu item={item} onSelect={(a) => runItemAction(item, a)} />
           </div>
 
           <div className="max-w-5xl divide-y divide-white/8 border-t border-white/8">
@@ -362,7 +413,7 @@ export function ItemDetail() {
               <EpisodeRow
                 key={ep.Id}
                 episode={ep}
-                onEdit={isAdmin ? () => setEditingItem(ep) : undefined}
+                onAction={(a) => runItemAction(ep, a)}
                 onTogglePlayed={() =>
                   ep.Id && played.mutate({ itemId: ep.Id, played: !ep.UserData?.Played })
                 }
@@ -380,9 +431,19 @@ export function ItemDetail() {
 
       {trailerOpen && <TrailerModal item={item} onClose={() => setTrailerOpen(false)} />}
       {playlistOpen && <AddToPlaylist item={item} onClose={() => setPlaylistOpen(false)} />}
+      {collectionFor && (
+        <AddToCollection item={collectionFor} onClose={() => setCollectionFor(null)} />
+      )}
 
       {editingItem && (
-        <MetadataEditor item={editingItem} onClose={() => setEditingItem(null)} />
+        <MetadataEditor
+          item={editingItem}
+          tool={editingTool}
+          onClose={() => {
+            setEditingItem(null)
+            setEditingTool(undefined)
+          }}
+        />
       )}
     </div>
   )
@@ -397,11 +458,11 @@ export function ItemDetail() {
  */
 function EpisodeRow({
   episode,
-  onEdit,
+  onAction,
   onTogglePlayed,
 }: {
   episode: BaseItemDto
-  onEdit?: () => void
+  onAction?: (action: ItemActionId) => void
   onTogglePlayed?: () => void
 }) {
   const api = useApi()
@@ -468,13 +529,18 @@ function EpisodeRow({
         <span className="text-xs tabular-nums text-white/40">
           {formatRuntime(episode.RunTimeTicks)}
         </span>
-        {onEdit && (
-          <button
-            onClick={onEdit}
-            className="rounded border border-white/20 px-2 py-1 text-[11px] text-white/70 opacity-0 transition hover:border-white/50 hover:text-white group-hover:opacity-100 touch:opacity-100"
-          >
-            Edit
-          </button>
+        {/*
+          Kept revealed on hover as the Edit button was, and pinned open where
+          there is no hover to reveal it with.
+        */}
+        {onAction && (
+          <ItemActionsMenu
+            item={episode}
+            onSelect={onAction}
+            compact
+            align="right"
+            className="opacity-0 transition group-hover:opacity-100 touch:opacity-100"
+          />
         )}
         {onTogglePlayed && (
           <button

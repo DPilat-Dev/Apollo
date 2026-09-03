@@ -1,8 +1,12 @@
 import { useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
-import { useRefreshItem, useUpdateItem } from '../../lib/queries'
+import { useIsAdmin, useRefreshItem, useUpdateItem } from '../../lib/queries'
+import { canIdentify } from '../../lib/identify'
+import { canEditArtwork } from '../../lib/artwork'
 import { Modal } from './LibrariesPanel'
 import { NumberInput, Section, Select, TextArea, TextInput, ToggleRow, ToggleRows } from './controls'
+import { IdentifyDialog } from './IdentifyDialog'
+import { ArtworkPicker } from './ArtworkPicker'
 
 /** How Jellyfin orders episodes within a series. */
 const DISPLAY_ORDERS = [
@@ -31,12 +35,37 @@ const parseList = (v: string) =>
 const toDateInput = (iso?: string | null) => (iso ? iso.slice(0, 10) : '')
 const fromDateInput = (v: string) => (v ? new Date(`${v}T00:00:00Z`).toISOString() : null)
 
-export function MetadataEditor({ item, onClose }: { item: BaseItemDto; onClose: () => void }) {
+export type MetadataTool = 'identify' | 'artwork'
+
+export function MetadataEditor({
+  item,
+  onClose,
+  tool,
+}: {
+  item: BaseItemDto
+  onClose: () => void
+  /*
+    Which view to open on. The three-dot menu names one of these directly, so
+    Identify no longer costs a trip through a form nobody asked for. Closing a
+    tool that was opened this way should leave, not fall back into the editor
+    behind it — the caller was never asking for the editor.
+  */
+  tool?: MetadataTool
+}) {
   const [draft, setDraft] = useState<BaseItemDto>(() => structuredClone(item))
   const [notice, setNotice] = useState<string | null>(null)
+  const [openTool, setOpenTool] = useState<MetadataTool | null>(tool ?? null)
   const update = useUpdateItem()
   const refresh = useRefreshItem()
+  const isAdmin = useIsAdmin()
   const itemId = item.Id
+
+  // Asked again here rather than assumed from the caller. This editor is
+  // reached from a button that is already admin-gated, but Identify and the
+  // artwork download are elevated endpoints on a page every viewer can open,
+  // and a gate that depends on who rendered you is a gate waiting to be moved.
+  const identifiable = canIdentify({ isAdmin, item })
+  const artworkEditable = canEditArtwork({ isAdmin, item })
 
   const set = <K extends keyof BaseItemDto>(key: K, value: BaseItemDto[K]) => {
     setNotice(null)
@@ -50,6 +79,20 @@ export function MetadataEditor({ item, onClose }: { item: BaseItemDto; onClose: 
 
   const fail = (e: unknown) =>
     setNotice(e instanceof Error ? e.message : 'Those changes were not saved.')
+
+  // Opening one of these hides the editor rather than stacking on top of it.
+  // Both of them rewrite the record this form is holding a draft of, and a
+  // stale draft sitting behind a dialog is one Save away from putting the old
+  // match back.
+  // A tool reached straight from the menu closes the whole thing; one opened
+  // from inside the form returns to the form.
+  const leaveTool = () => (tool ? onClose() : setOpenTool(null))
+  if (openTool === 'identify') {
+    return <IdentifyDialog item={item} onClose={leaveTool} onApplied={onClose} />
+  }
+  if (openTool === 'artwork') {
+    return <ArtworkPicker item={item} onClose={leaveTool} />
+  }
 
   return (
     <Modal onClose={onClose} title={`Edit ${item.Name ?? 'item'}`}>
@@ -222,6 +265,36 @@ export function MetadataEditor({ item, onClose }: { item: BaseItemDto; onClose: 
           Discard
         </button>
       </div>
+
+      {(identifiable || artworkEditable) && (
+        <Section
+          title="Fix the match"
+          hint={
+            identifiable
+              ? 'When the record belongs to something else entirely, or the poster is the wrong one.'
+              : `${item.Type ?? 'This item'}s cannot be identified on their own — fix the series and refresh.`
+          }
+        >
+          <div className="flex flex-wrap gap-2">
+            {identifiable && (
+              <button
+                onClick={() => setOpenTool('identify')}
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45"
+              >
+                Identify
+              </button>
+            )}
+            {artworkEditable && (
+              <button
+                onClick={() => setOpenTool('artwork')}
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45"
+              >
+                Choose artwork
+              </button>
+            )}
+          </div>
+        </Section>
+      )}
 
       <Section
         title="Refresh from providers"

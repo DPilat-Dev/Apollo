@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   useActivityLog,
   useApiKeys,
@@ -10,9 +10,39 @@ import {
   useRepositories,
   useRevokeApiKey,
   useSaveRepositories,
+  usePluginConfiguration,
+  useSavePluginConfiguration,
+  useSetPluginEnabled,
   useUninstallPlugin,
 } from '../../lib/queries'
-import { ConfigPanel, Section, Switch, TextArea, ToggleRow, ToggleRows } from './controls'
+import {
+  applyPluginConfigEdits,
+  configDraft,
+  configEdited,
+  pluginConfigForm,
+  pluginConfigPlan,
+  pluginRows,
+  pluginSummaryLine,
+  pluginToggle,
+  redactSecrets,
+  secretEdit,
+  secretInputValue,
+  type ConfigDraft,
+  type PluginConfigField,
+  type PluginRow,
+  type PluginStatusTone,
+} from '../../lib/plugins'
+import {
+  ConfigPanel,
+  LooseNumberInput,
+  Section,
+  SecretInput,
+  Switch,
+  TextArea,
+  TextInput,
+  ToggleRow,
+  ToggleRows,
+} from './controls'
 
 // ------------------------------------------------------------------ branding
 
@@ -94,77 +124,349 @@ export function PluginsPanel() {
   )
 }
 
+/**
+ * The installed list, and the detail behind each row.
+ *
+ * A plugin used to be a name, a version and an uninstall button. Two things
+ * were missing: what the status means — seven of the twelve plugins on the
+ * server this was built against are installed and not running — and the
+ * settings, which until now meant leaving Apollo for Jellyfin's own dashboard.
+ */
 function InstalledPlugins() {
   const plugins = usePlugins()
-  const uninstall = useUninstallPlugin()
-  const [confirming, setConfirming] = useState<string | null>(null)
+  const [openKey, setOpenKey] = useState<string | null>(null)
+
+  const rows = pluginRows(plugins.data ?? [])
+  // Looked up by key on every render rather than held in state, so an open
+  // detail follows a refetch instead of showing a row as it was before it was
+  // enabled, disabled or removed.
+  const open = rows.find((row) => row.key === openKey)
+
+  if (open) return <PluginDetail row={open} onBack={() => setOpenKey(null)} />
 
   return (
     <div>
       <p className="mb-4 text-sm text-white/45">
-        {plugins.data?.length ?? 0} installed. Removing one takes effect after a server restart.
+        {plugins.isLoading ? 'Reading the plugin list…' : pluginSummaryLine(rows)}
       </p>
 
       {plugins.isLoading && <div className="skeleton h-32 rounded-lg" />}
-      {!plugins.isLoading && (plugins.data ?? []).length === 0 && (
+      {!plugins.isLoading && rows.length === 0 && (
         <p className="py-12 text-center text-sm text-white/35">No plugins installed.</p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {(plugins.data ?? []).map((p) => (
-          <div key={`${p.Id}-${p.Version}`} className="rounded-xl border border-white/10 bg-ink-soft/60 p-4">
+        {rows.map((row) => (
+          <button
+            key={row.key}
+            onClick={() => setOpenKey(row.key)}
+            className="rounded-xl border border-white/10 bg-ink-soft/60 p-4 text-left transition hover:border-white/25"
+          >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate font-medium">{p.Name}</p>
-                <p className="text-xs text-white/40">v{p.Version}</p>
+                <p className="truncate font-medium">{row.name}</p>
+                <p className="text-xs text-white/40">
+                  {row.version ? `v${row.version}` : 'No version'}
+                </p>
               </div>
-              <span
-                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
-                  p.Status === 'Active'
-                    ? 'border-emerald-500/40 text-emerald-300'
-                    : 'border-amber-500/40 text-amber-300'
-                }`}
-              >
-                {p.Status}
-              </span>
+              <StatusPill row={row} />
             </div>
-            {p.Description && (
-              <p className="mt-2 line-clamp-2 text-xs text-white/50">{p.Description}</p>
+            {row.description && (
+              <p className="mt-2 line-clamp-2 text-xs text-white/50">{row.description}</p>
             )}
-
-            {p.CanUninstall && (
-              <div className="mt-3">
-                {confirming === p.Id ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => p.Id && uninstall.mutate(p.Id, { onSettled: () => setConfirming(null) })}
-                      disabled={uninstall.isPending}
-                      className="rounded bg-accent px-3 py-1 text-xs font-semibold transition hover:bg-accent-hot disabled:opacity-50"
-                    >
-                      Confirm removal
-                    </button>
-                    <button
-                      onClick={() => setConfirming(null)}
-                      className="text-xs text-white/45 hover:text-white"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirming(p.Id ?? null)}
-                    className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-accent hover:text-accent"
-                  >
-                    Uninstall
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+            {/* Said on the card, not only inside the detail. A plugin that is
+                installed and doing nothing is the thing somebody came here to
+                find out, and it should not take a click. */}
+            {!row.running && <p className="mt-2 text-xs text-amber-200/70">{row.statusHint}</p>}
+          </button>
         ))}
       </div>
     </div>
   )
+}
+
+const STATUS_TONE: Record<PluginStatusTone, string> = {
+  running: 'border-emerald-500/40 text-emerald-300',
+  pending: 'border-amber-500/40 text-amber-300',
+  stopped: 'border-red-500/40 text-red-300',
+}
+
+function StatusPill({ row }: { row: PluginRow }) {
+  return (
+    <span
+      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${STATUS_TONE[row.statusTone]}`}
+    >
+      {row.statusLabel}
+    </span>
+  )
+}
+
+function PluginDetail({ row, onBack }: { row: PluginRow; onBack: () => void }) {
+  const uninstall = useUninstallPlugin()
+  const setEnabled = useSetPluginEnabled()
+  const [confirming, setConfirming] = useState(false)
+  const offer = pluginToggle(row)
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <button onClick={onBack} className="text-sm text-white/50 transition hover:text-white">
+        ← All plugins
+      </button>
+
+      <header>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-xl font-semibold">{row.name}</h2>
+          <StatusPill row={row} />
+        </div>
+        <p className="mt-1 font-mono text-xs text-white/35">
+          {row.version ? `v${row.version}` : 'no version reported'} · {row.id}
+        </p>
+        {row.description && <p className="mt-3 text-sm text-white/60">{row.description}</p>}
+        {/* In full, rather than as a word from the server's vocabulary.
+            "NotSupported" on a badge tells a reader nothing about why the
+            plugin they installed does nothing. */}
+        <p className={`mt-3 text-sm ${row.running ? 'text-white/50' : 'text-amber-200/80'}`}>
+          {row.statusHint}
+        </p>
+      </header>
+
+      {(offer || row.canUninstall) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {offer && row.version && (
+            <button
+              onClick={() =>
+                setEnabled.mutate({
+                  pluginId: row.id,
+                  version: row.version ?? '',
+                  enable: offer.enable,
+                })
+              }
+              disabled={setEnabled.isPending}
+              title={offer.hint}
+              className="rounded border border-white/20 px-3 py-1.5 text-xs transition hover:border-white/50 disabled:opacity-40"
+            >
+              {offer.label}
+            </button>
+          )}
+          {row.canUninstall &&
+            (confirming ? (
+              <>
+                <button
+                  onClick={() => uninstall.mutate(row.id, { onSuccess: onBack })}
+                  disabled={uninstall.isPending}
+                  className="rounded bg-accent px-3 py-1.5 text-xs font-semibold transition hover:bg-accent-hot disabled:opacity-50"
+                >
+                  Confirm removal
+                </button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="text-xs text-white/45 transition hover:text-white"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirming(true)}
+                className="rounded border border-white/20 px-3 py-1.5 text-xs transition hover:border-accent hover:text-accent"
+              >
+                Uninstall
+              </button>
+            ))}
+          {setEnabled.isPending && <span className="text-xs text-white/45">Working…</span>}
+          {setEnabled.isError && (
+            <span className="text-xs text-red-300">The server refused that.</span>
+          )}
+          <span className="text-xs text-white/35">Both take effect after a server restart.</span>
+        </div>
+      )}
+
+      <PluginConfiguration row={row} />
+    </div>
+  )
+}
+
+/**
+ * A plugin's settings, drawn from the shape of its own JSON.
+ *
+ * Nothing is decided here. Which fields exist, which of them are credentials,
+ * which cannot be edited safely, whether to ask the server at all and what to
+ * send back are all in `src/lib/plugins.ts`, where they are tested without a
+ * browser. What is left in this file is markup.
+ */
+function PluginConfiguration({ row }: { row: PluginRow }) {
+  const plan = pluginConfigPlan(row)
+  const query = usePluginConfiguration(row)
+  const save = useSavePluginConfiguration()
+
+  const form = useMemo(() => pluginConfigForm(query.data), [query.data])
+  const [draft, setDraft] = useState<ConfigDraft>({})
+  const [syncedFrom, setSyncedFrom] = useState<unknown>(undefined)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  // Rebuilt whenever the server copy changes underneath — after a save, or
+  // after a refetch — so edits made against an older document are never
+  // written back over a newer one.
+  useEffect(() => {
+    if (query.data !== syncedFrom) {
+      setSyncedFrom(query.data)
+      setDraft(configDraft(form))
+      setNotice(null)
+    }
+  }, [query.data, syncedFrom, form])
+
+  const set = (key: string, value: boolean | number | string) => {
+    setNotice(null)
+    setDraft((current) => ({ ...current, [key]: value }))
+  }
+  const dirty = configEdited(form, draft)
+
+  return (
+    <Section title="Settings">
+      {!plan.fetch && <p className="text-sm text-white/50">{plan.note}</p>}
+
+      {plan.fetch && query.isLoading && <div className="skeleton h-32 rounded-lg" />}
+
+      {plan.fetch && query.error && (
+        <p className="rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-red-200">
+          Could not read this plugin&rsquo;s settings.
+        </p>
+      )}
+
+      {plan.fetch && !query.isLoading && !query.error && (
+        <>
+          {/* A running plugin can still have no configuration at all — several
+              on this server have none — and the 404 that says so is not an
+              error worth drawing as one. */}
+          {form.kind === 'none' && (
+            <p className="text-sm text-white/50">This plugin has no settings.</p>
+          )}
+          {form.kind === 'empty' && (
+            <p className="text-sm text-white/50">
+              The server holds a settings document for this plugin with nothing in it.
+            </p>
+          )}
+
+          {form.fields.length > 0 && (
+            <div className="space-y-4">
+              {form.fields.map((field) => (
+                <ConfigField
+                  key={field.key}
+                  field={field}
+                  value={draft[field.key] ?? field.value}
+                  onChange={(value) => set(field.key, value)}
+                />
+              ))}
+            </div>
+          )}
+
+          {form.readOnly.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {form.readOnly.map((entry) => (
+                <div key={entry.key} className="rounded-lg border border-white/10 p-3">
+                  <p className="text-xs text-white/60">{entry.label}</p>
+                  <p className="mt-1 text-xs text-white/35">{entry.reason}</p>
+                  <pre className="mt-2 max-h-48 overflow-auto rounded bg-black/30 p-2 font-mono text-[11px] text-white/55">
+                    {entry.preview}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {notice && <p className="mt-4 text-sm text-white/70">{notice}</p>}
+
+          {form.fields.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() =>
+                  save.mutate(
+                    // The whole document, never the fields that happened to be
+                    // drawn: this endpoint replaces what is stored.
+                    { pluginId: row.id, config: applyPluginConfigEdits(query.data, draft) },
+                    {
+                      onSuccess: () => setNotice('Saved.'),
+                      onError: (error) =>
+                        setNotice(
+                          // Whatever the server said back, with any credential
+                          // of this plugin's taken out of it again.
+                          redactSecrets(
+                            error instanceof Error ? error.message : 'Could not save.',
+                            query.data,
+                          ),
+                        ),
+                    },
+                  )
+                }
+                disabled={!dirty || save.isPending}
+                className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold transition hover:bg-accent-hot disabled:opacity-35"
+              >
+                {save.isPending ? 'Saving…' : 'Save settings'}
+              </button>
+              <button
+                onClick={() => {
+                  setDraft(configDraft(form))
+                  setNotice(null)
+                }}
+                disabled={!dirty}
+                className="rounded-lg border border-white/20 px-5 py-2 text-sm transition hover:border-white/45 disabled:opacity-35"
+              >
+                Discard
+              </button>
+              {dirty && <span className="text-xs text-white/40">Unsaved changes</span>}
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  )
+}
+
+function ConfigField({
+  field,
+  value,
+  onChange,
+}: {
+  field: PluginConfigField
+  value: boolean | number | string
+  onChange: (value: boolean | number | string) => void
+}) {
+  // The plugin's own key, kept beside the label: it is what the plugin's
+  // documentation calls the setting, and a humanised label is not.
+  const hint = field.key === field.label ? undefined : field.key
+
+  if (field.kind === 'boolean') {
+    return (
+      <ToggleRows>
+        <ToggleRow
+          label={field.label}
+          hint={hint}
+          checked={Boolean(value)}
+          onChange={() => onChange(!value)}
+        />
+      </ToggleRows>
+    )
+  }
+  if (field.kind === 'number') {
+    return (
+      <LooseNumberInput label={field.label} hint={hint} value={String(value)} onChange={onChange} />
+    )
+  }
+  if (field.kind === 'secret') {
+    return (
+      <SecretInput
+        label={field.label}
+        hint={
+          field.masked
+            ? 'A value is stored and is not shown here. Leave this blank to keep it.'
+            : `${hint ? `${hint} · ` : ''}Nothing is stored yet.`
+        }
+        value={secretInputValue(value)}
+        onChange={(typed) => onChange(secretEdit(typed))}
+      />
+    )
+  }
+  return <TextInput label={field.label} hint={hint} value={String(value)} onChange={onChange} />
 }
 
 function PluginCatalogue() {

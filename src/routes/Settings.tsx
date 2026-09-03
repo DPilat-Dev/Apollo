@@ -10,8 +10,9 @@ import {
   useSettings,
   type Settings as SettingsShape,
 } from '../lib/settings'
-import { deviceId } from '../lib/api'
+import { CLIENT_NAME, CLIENT_VERSION, deviceId } from '../lib/api'
 import { JellyseerrSection } from '../components/JellyseerrSection'
+import { ProfilePictureControl } from '../components/ProfilePictureControl'
 
 const SUBTITLE_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -33,6 +34,17 @@ export function Settings() {
       <h1 className="mb-8 text-3xl font-bold sm:text-4xl">Settings</h1>
 
       <Section title="Account">
+        {/* Only once the account is loaded: the control is built from the
+            picture tag it carries, and a row with an empty right-hand side
+            reads as a setting that is missing rather than one still arriving. */}
+        {me && (
+          <Row
+            label="Profile picture"
+            hint="Shown on the sign-in picker and beside your name. Removing it goes back to your initial."
+          >
+            <ProfilePictureControl user={me} />
+          </Row>
+        )}
         <Field label="Signed in as" value={session?.userName ?? '—'} />
         <Field label="Server" value={session?.server ?? '—'} />
         <Field label="This device" value={deviceId().slice(0, 8)} mono />
@@ -70,6 +82,7 @@ export function Settings() {
           </button>
         </Row>
       </Section>
+
 
       <Section title="Playback">
         <Row
@@ -207,7 +220,9 @@ export function Settings() {
       </Section>
 
       <Section title="About">
-        <Field label="Client" value="Apollo 1.0.0" />
+        {/* The same identity the server is told, so a bug report quoting this
+            line matches the session the server has on record. */}
+        <Field label="Client" value={`${CLIENT_NAME} ${CLIENT_VERSION}`} />
         {me?.Policy?.IsAdministrator != null && (
           <Field label="Role" value={me.Policy.IsAdministrator ? 'Administrator' : 'User'} />
         )}

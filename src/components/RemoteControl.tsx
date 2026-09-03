@@ -12,9 +12,23 @@ import { CastIcon, PauseIcon, PlayIcon, NextTrackIcon } from './icons'
  * API and talks to a Chromecast. This drives another *Jellyfin* client — a TV,
  * a phone, the official app in another room — through the server.
  */
-export function RemoteControl({ item }: { item?: BaseItemDto }) {
+export function RemoteControl({
+  item,
+  openedFromMenu = false,
+  onClose,
+}: {
+  item?: BaseItemDto
+  /*
+    Opened by the item's overflow menu rather than by its own button. The
+    trigger is dropped in that case: the menu that opened it *was* the trigger,
+    and a second cast button appearing beside the panel is a control that
+    cannot be pressed to any effect.
+  */
+  openedFromMenu?: boolean
+  onClose?: () => void
+}) {
   const api = useApi()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(openedFromMenu)
   const [target, setTarget] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,21 +57,28 @@ export function RemoteControl({ item }: { item?: BaseItemDto }) {
     )
   }
 
+  const dismiss = () => {
+    setOpen(false)
+    onClose?.()
+  }
+
   return (
     <div className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Play on another device"
-        title="Play on another device"
-        className={`p-1.5 transition ${active ? 'text-accent' : 'text-white/80 hover:text-white'}`}
-      >
-        <CastIcon className="size-5" />
-      </button>
+      {!openedFromMenu && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Play on another device"
+          title="Play on another device"
+          className={`p-1.5 transition ${active ? 'text-accent' : 'text-white/80 hover:text-white'}`}
+        >
+          <CastIcon className="size-5" />
+        </button>
+      )}
 
       {open && (
         <>
-          <div className="fixed inset-0 z-0" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-10 mt-2 w-72 rounded-lg border border-white/10 bg-ink-soft/98 p-3 shadow-2xl backdrop-blur">
+          <div className="fixed inset-0 z-0" onClick={dismiss} />
+          <div className={`absolute z-10 mt-2 w-72 ${openedFromMenu ? 'left-0' : 'right-0'} rounded-lg border border-white/10 bg-ink-soft/98 p-3 shadow-2xl backdrop-blur`}>
             <p className="mb-2 text-sm font-semibold">Play on another device</p>
 
             {error && (

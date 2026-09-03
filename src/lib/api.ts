@@ -1,3 +1,8 @@
+import { personRequestPath } from './persons'
+import { devicesRequest, summariseDevices } from './devices'
+import { pluginConfigPath, pluginTogglePath } from './plugins'
+import { blobToBase64, canEditUserImage } from './userImages'
+import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import type {
   ActivityLogEntry,
@@ -17,6 +22,8 @@ import type {
   PlaybackInfoResponse,
   PackageInfo,
   PluginInfo,
+  RemoteImageInfo,
+  RemoteSearchResult,
   RepositoryInfo,
   SearchHintResult,
   ServerConfiguration,
@@ -29,7 +36,17 @@ import type {
 } from '@jellyfin/sdk/lib/generated-client/models'
 
 export const CLIENT_NAME = 'Apollo'
-export const CLIENT_VERSION = '1.0.0'
+/**
+ * Sent on every request and recorded by the server against the session, so a
+ * wrong value here is what the admin dashboard and the Devices list show.
+ *
+ * The fallback is deliberately not a version number. A plausible one is how
+ * this went unnoticed for four releases: 1.0.0 looked like an answer, so
+ * nobody asked. `0.0.0-unknown` is visibly broken, and a build that lost the
+ * define gets chased instead of believed.
+ */
+export const CLIENT_VERSION =
+  typeof __APOLLO_VERSION__ === 'string' ? __APOLLO_VERSION__ : '0.0.0-unknown'
 
 /** A SyncPlay group as the server lists it. */
 export interface GroupInfoDto {
@@ -374,6 +391,43 @@ export class JellyfinApi {
 
   async deletePlaylist(playlistId: string): Promise<void> {
     await this.request(`/Items/${playlistId}`, { method: 'DELETE' })
+  }
+
+  // ----------------------------------------------------------- collections
+
+  /*
+    Unlike /Playlists directly above, which takes a JSON body, all three
+    collection routes take everything in the query string. Sending a body
+    instead is not an error the server reports — it answers 200 and hands back
+    a brand new collection with nothing in it.
+  */
+
+  /** Makes a box set, optionally with its first members already inside. */
+  async createCollection(name: string, itemIds: string[] = []): Promise<{ Id?: string }> {
+    return this.request('/Collections', {
+      method: 'POST',
+      // Absent rather than empty: `ids=` is read as a list containing one
+      // blank id, which is a 400 rather than a collection with no members.
+      query: { name, ids: itemIds.length ? itemIds : undefined },
+    })
+  }
+
+  async addToCollection(collectionId: string, itemIds: string[]): Promise<void> {
+    // `ids` is required, so an empty list is a round trip that can only fail.
+    if (itemIds.length === 0) return
+    await this.request(`/Collections/${collectionId}/Items`, {
+      method: 'POST',
+      query: { ids: itemIds },
+    })
+  }
+
+  /** Removes by item id — a collection has no per-entry id the way a playlist does. */
+  async removeFromCollection(collectionId: string, itemIds: string[]): Promise<void> {
+    if (itemIds.length === 0) return
+    await this.request(`/Collections/${collectionId}/Items`, {
+      method: 'DELETE',
+      query: { ids: itemIds },
+    })
   }
 
   // -------------------------------------------------------------- syncplay
@@ -737,6 +791,23 @@ export class JellyfinApi {
     })
   }
 
+  /**
+   * One person's own record — biography, dates, birthplace, portrait.
+   *
+   * Keyed by name, which is Jellyfin's design rather than a choice here; the
+   * encoding of that name lives in `personRequestPath` so it can be tested
+   * against the apostrophes and accents real names carry.
+   */
+  person(name: string) {
+    const path = personRequestPath(name)
+    if (!path) {
+      // Without this, a blank name asks for `/Persons` — the entire person
+      // index — and the page would render whoever happened to be first.
+      return Promise.reject(new ApiError('A person lookup needs a name', 400))
+    }
+    return this.request<BaseItemDto>(path, { query: { userId: this.userId } })
+  }
+
   seasons(seriesId: string) {
     return this.request<BaseItemDtoQueryResult>(`/Shows/${seriesId}/Seasons`, {
       query: { userId: this.userId, enableUserData: true },
@@ -775,9 +846,17 @@ export class JellyfinApi {
   }
 
   /**
-   * Marks an item watched or unwatched. Pointed at a series or season the
-   * server cascades to the episodes inside, which is what makes "mark season
-   * watched" a single call.
+   * Marks one item watched or unwatched.
+   *
+   * One item is all it is. Pointed at a season it returns 200 having reported
+   * nothing about the episodes underneath — how many there were, how many
+   * changed, whether any of it failed — so "mark this season watched" cannot be
+   * built on it. `bulkPlayed.ts` fans this out over the real episode ids
+   * instead, and knows what it wrote.
+   *
+   * Marking played also resets the playback position server-side (MarkPlayed
+   * takes the item off the resume list as a side effect), which is why nothing
+   * calls `clearResumePosition` alongside it.
    */
   setPlayed(itemId: string, played: boolean) {
     return this.request<unknown>(`/UserPlayedItems/${itemId}`, {
@@ -897,6 +976,93 @@ export class JellyfinApi {
       query: { userId },
       body: JSON.stringify({ ResetPassword: true }),
     })
+  }
+
+  // --------------------------------------------------------- profile picture
+
+  /**
+   * Replaces a user's profile picture with the bytes given.
+   *
+   * `/UserImage` wants the image itself under an `image/*` content type — not
+   * multipart, not a JSON envelope with base64 in it. The header has to be set
+   * explicitly because `request` labels anything carrying a body as
+   * `application/json`, and this is the one call here where that is wrong.
+   *
+   * What arrives is whatever leaves: the route does no resizing, so callers
+   * come through `prepareAvatarUpload` rather than handing over a camera file.
+   */
+  async uploadUserImage(opts: {
+    isAdmin: boolean
+    userId: string
+    blob: Blob
+    contentType: string
+  }) {
+    this.assertMayEditImage(opts)
+    /*
+      Base64, not the bytes — and the server's own OpenAPI says otherwise.
+
+      `/UserImage` advertises `image/*` with `format: binary`, and posting the
+      blob that describes fails with a FormatException out of
+      ThrowBase64FormatException: the controller reads the body as a base64
+      string whatever the document claims. Sending the raw bytes gets a 500 and
+      leaves a zero-byte image record behind, which then breaks every later
+      upload as well.
+    */
+    return this.request<void>('/UserImage', {
+      method: 'POST',
+      query: { userId: opts.userId },
+      body: await blobToBase64(opts.blob),
+      headers: { 'Content-Type': opts.contentType },
+    })
+  }
+
+  /** Takes the picture away, which drops the account back to its initial. */
+  async deleteUserImage(opts: { isAdmin: boolean; userId: string }) {
+    this.assertMayEditImage(opts)
+    return this.request<void>('/UserImage', {
+      method: 'DELETE',
+      query: { userId: opts.userId },
+    })
+  }
+
+  /*
+    Refused before anything is sent, rather than left to the server's 403. A
+    request that should never have been offered is a bug in whatever offered
+    it, and the failing response is a poor place to find that out.
+  */
+  private assertMayEditImage(opts: { isAdmin: boolean; userId: string }) {
+    const allowed = canEditUserImage({
+      isAdmin: opts.isAdmin,
+      targetUserId: opts.userId,
+      currentUserId: this.userId,
+    })
+    if (!allowed) {
+      throw new Error('Only an administrator can change another account’s picture.')
+    }
+  }
+
+  // ---------------------------------------------------------------- devices
+
+  /**
+   * Every device the server has issued a token to, already sorted, grouped and
+   * with the browser in hand flagged.
+   *
+   * The flagging happens here rather than in a component because it depends on
+   * `deviceId()`, and a screen that forgot to pass it would draw a revoke
+   * button that signs the viewer out with no warning. The permission gate is
+   * here for the same reason: a non-admin never gets as far as a request.
+   */
+  async devices(opts: { isAdmin: boolean; scope: DeviceScope }): Promise<DeviceOverview> {
+    const query = devicesRequest({ ...opts, userId: this.userId })
+    const list = query
+      ? await this.requestArray<DeviceInfo>('/Devices', { query })
+      : []
+    return summariseDevices({ devices: list, currentDeviceId: deviceId() })
+  }
+
+  /** Signs a device out for good — the id goes in the query, not the path. */
+  revokeDevice(id: string) {
+    return this.request<void>('/Devices', { method: 'DELETE', query: { id } })
   }
 
   // ------------------------------------------------------------------- logs
@@ -1042,6 +1208,54 @@ export class JellyfinApi {
     return this.request<void>(`/Plugins/${pluginId}`, { method: 'DELETE' })
   }
 
+  /**
+   * A plugin's settings document, or null when there is none to have.
+   *
+   * Null covers two cases that both end in the same sentence on the screen:
+   * the caller is not an administrator, so nothing is sent at all; or the
+   * server answered 404, which is what it says for every plugin it has not
+   * loaded. That 404 is the ordinary case on a server with an out-of-date
+   * plugin — `pluginConfigPlan` normally keeps the request from being made —
+   * and letting it throw would put a red error box where the honest answer is
+   * "this plugin has no settings".
+   */
+  async pluginConfiguration(opts: { isAdmin: boolean; pluginId: string }): Promise<unknown> {
+    const path = pluginConfigPath(opts)
+    if (!path) return null
+    try {
+      return (await this.request<unknown>(path)) ?? null
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    }
+  }
+
+  /**
+   * Writes a settings document back.
+   *
+   * The body is the *whole* document — see `applyPluginConfigEdits`, which is
+   * the only thing that should ever build one. This endpoint replaces what is
+   * stored rather than merging into it.
+   */
+  async savePluginConfiguration(opts: { isAdmin: boolean; pluginId: string; config: unknown }) {
+    const path = pluginConfigPath(opts)
+    // Refused here rather than sent and left to the server, so a write that
+    // should never have been offered cannot be the thing that discovers it.
+    if (!path) throw new Error('Only an administrator can change plugin settings.')
+    return this.request<void>(path, { method: 'POST', body: JSON.stringify(opts.config) })
+  }
+
+  async setPluginEnabled(opts: {
+    isAdmin: boolean
+    pluginId: string
+    version: string
+    enable: boolean
+  }) {
+    const path = pluginTogglePath(opts)
+    if (!path) throw new Error('Only an administrator can enable or disable a plugin.')
+    return this.request<void>(path, { method: 'POST' })
+  }
+
   /** The catalogue, aggregated from every enabled repository. */
   packages() {
     return this.requestArray<PackageInfo>('/Packages')
@@ -1126,6 +1340,92 @@ export class JellyfinApi {
         replaceAllMetadata: opts.replaceAllMetadata ?? false,
         replaceAllImages: opts.replaceAllImages ?? false,
       },
+    })
+  }
+
+  // ------------------------------------------------- identify and artwork
+
+  /**
+   * Asks the metadata providers what they have matching a query.
+   *
+   * `kind` picks the endpoint rather than being sent as data — the server has
+   * a separate path per item type, and `identifyKind` is what decides which
+   * one an item gets (and which items get none at all).
+   */
+  remoteSearch(kind: string, query: unknown) {
+    return this.requestArray<RemoteSearchResult>(`/Items/RemoteSearch/${kind}`, {
+      method: 'POST',
+      body: JSON.stringify(query),
+    })
+  }
+
+  /**
+   * Re-points an item at a chosen match, and re-scrapes it.
+   *
+   * `replaceAllImages` defaults to false here and to *true* on the server. The
+   * flip is deliberate: the controller pairs it with a hardcoded
+   * RemoveOldMetadata, so the server's default deletes every image on the item
+   * before the providers are asked for replacements. Fixing a wrong match is
+   * not a reason to lose a hand-picked poster, so keeping the artwork is the
+   * quiet path and replacing it is the one that has to be asked for.
+   */
+  applyRemoteSearch(
+    itemId: string,
+    result: RemoteSearchResult,
+    opts: { replaceAllImages?: boolean } = {},
+  ) {
+    return this.request<void>(`/Items/RemoteSearch/Apply/${itemId}`, {
+      method: 'POST',
+      query: { replaceAllImages: opts.replaceAllImages ?? false },
+      body: JSON.stringify(result),
+    })
+  }
+
+  /**
+   * One window of the artwork the providers hold for an item.
+   *
+   * Always a window. A well-known film has hundreds of backdrops, and the
+   * caller has no way to know that before asking.
+   */
+  async remoteImages(
+    itemId: string,
+    opts: {
+      type: string
+      startIndex?: number
+      limit?: number
+      providerName?: string
+      includeAllLanguages?: boolean
+    },
+  ): Promise<{ Images: RemoteImageInfo[]; TotalRecordCount: number; Providers: string[] }> {
+    const res = await this.request<{
+      Images?: RemoteImageInfo[] | null
+      TotalRecordCount?: number
+      Providers?: string[] | null
+    }>(`/Items/${itemId}/RemoteImages`, {
+      query: {
+        type: opts.type,
+        startIndex: opts.startIndex,
+        limit: opts.limit,
+        providerName: opts.providerName,
+        includeAllLanguages: opts.includeAllLanguages ?? false,
+      },
+    })
+    // A server whose image providers all failed answers with a body carrying
+    // no Images at all, and the grid maps over whatever comes back.
+    return {
+      Images: res?.Images ?? [],
+      TotalRecordCount: res?.TotalRecordCount ?? 0,
+      Providers: res?.Providers ?? [],
+    }
+  }
+
+  downloadRemoteImage(itemId: string, type: string, imageUrl: string) {
+    return this.request<void>(`/Items/${itemId}/RemoteImages/Download`, {
+      method: 'POST',
+      // Through the query builder rather than interpolated: provider urls carry
+      // their own query strings, and one folded into ours would arrive as an
+      // extra parameter with the image url cut in half.
+      query: { type, imageUrl },
     })
   }
 

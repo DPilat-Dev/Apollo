@@ -42,8 +42,8 @@ export function Collections() {
 
       {surface === 'absent' && (
         <p className="text-sm text-white/45">
-          No collections on this server yet. Group titles into one on the Jellyfin dashboard and
-          they will show up here.
+          No collections on this server yet. Open any film or show, press the three-dot button and
+          choose "Add to collection" to start the first one.
         </p>
       )}
 

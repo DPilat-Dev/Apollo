@@ -13,9 +13,13 @@ import { Library } from './routes/Library'
 import { Login } from './routes/Login'
 import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
+import { Person } from './routes/Person'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
+import { History } from './routes/History'
 import { Collections } from './routes/Collections'
+import { YearRecap } from './routes/YearRecap'
+import { RecapStory } from './routes/RecapStory'
 import { PlaylistDetail } from './routes/PlaylistDetail'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
@@ -142,6 +146,21 @@ export default function App() {
           }
         />
 
+        {/*
+          Chrome-free like the player. A story that runs under the nav bar has
+          its own controls covered by the app's — the Skip button ended up
+          behind the account avatar — and a full-screen run with a header on it
+          is not full screen.
+        */}
+        <Route
+          path="/recap/story"
+          element={
+            <ErrorBoundary resetKey="recap-story">
+              <RecapStory />
+            </ErrorBoundary>
+          }
+        />
+
         <Route
           element={
             <ErrorBoundary resetKey="layout">
@@ -154,11 +173,19 @@ export default function App() {
           <Route path="/item/:itemId" element={<ItemDetail />} />
           <Route path="/search" element={<Search />} />
           <Route path="/browse" element={<Browse />} />
+          {/* Keyed by name: /Persons/{name} is the only way to a biography,
+              and Jellyfin has no by-id equivalent. The credit's id travels in
+              the query, since names are not unique. */}
+          <Route path="/person/:name" element={<Person />} />
           <Route path="/playlists" element={<Playlists />} />
           {/* A single collection has no route: it is /browse with a parentId,
               which already does grids of items with paging and sorting. */}
           <Route path="/collections" element={<Collections />} />
           <Route path="/playlist/:playlistId" element={<PlaylistDetail />} />
+          <Route path="/history" element={<History />} />
+          {/* Always routed, but out of season the page redirects home — the
+              seasonal decision belongs to one function, not to the router. */}
+          <Route path="/recap" element={<YearRecap />} />
           <Route path="/settings" element={<Settings />} />
           {/* Admin gates on the user's policy internally, not on the route. */}
           <Route path="/admin" element={<Admin />} />

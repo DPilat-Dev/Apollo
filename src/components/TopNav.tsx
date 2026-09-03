@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { useBoxSets, useIsAdmin, useViews } from '../lib/queries'
+import { useBoxSets, useCurrentUser, useIsAdmin, useRecapLink, useViews } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
 import { MenuIcon, SearchIcon } from './icons'
 import { RemoteControl } from './RemoteControl'
+import { UserAvatar } from './UserAvatar'
 
 /**
  * Transparent over the billboard, solid once scrolled — the standard streaming
@@ -13,6 +14,9 @@ import { RemoteControl } from './RemoteControl'
 export function TopNav() {
   const { session, signOut, switchUser } = useAuth()
   const { data: views } = useViews()
+  // Already in the cache — `useIsAdmin` reads the same query. The picture
+  // comes along with it, so the nav costs no extra request to draw a face.
+  const { data: me } = useCurrentUser()
   const isAdmin = useIsAdmin()
   const navigate = useNavigate()
   const location = useLocation()
@@ -74,6 +78,8 @@ export function TopNav() {
   // that appears a beat after the rest of the bar has settled.
   const boxSets = useBoxSets()
   const showCollections = shouldShowCollections(boxSets)
+
+  const recap = useRecapLink()
 
   const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
     `block px-3 py-2.5 text-sm transition-colors ${
@@ -203,10 +209,18 @@ export function TopNav() {
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex size-8 items-center justify-center rounded bg-accent text-sm font-bold text-white"
+              className="flex size-8 items-center justify-center rounded"
               aria-label="Account menu"
             >
-              {(session?.userName ?? '?').charAt(0).toUpperCase()}
+              <UserAvatar
+                server={session?.server ?? ''}
+                userId={session?.userId}
+                name={me?.Name ?? session?.userName}
+                tag={me?.PrimaryImageTag}
+                aspectRatio={me?.PrimaryImageAspectRatio}
+                eager
+                className="size-8 rounded bg-accent text-sm font-bold text-white"
+              />
             </button>
             {menuOpen && (
               <>
@@ -217,6 +231,30 @@ export function TopNav() {
                     <span className="font-medium text-white/80">{session?.userName}</span>
                   </p>
                   <div className="my-1 h-px bg-white/10" />
+                  {/* Only ever rendered in December and January, and only for
+                      an account with something in that year — `useRecapLink`
+                      returns nothing otherwise, so the entry is absent rather
+                      than hidden. */}
+                  {recap && (
+                    <Link
+                      to={recap.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="block px-3 py-2 text-sm font-medium text-accent hover:bg-white/5"
+                    >
+                      {recap.label}
+                    </Link>
+                  )}
+                  {/* In the account menu rather than the library bar: history
+                      is a fact about this account, not somewhere to browse,
+                      and the bar already scrolls on a server with many
+                      libraries. */}
+                  <Link
+                    to="/history"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                  >
+                    Watch history
+                  </Link>
                   <Link
                     to="/settings"
                     onClick={() => setMenuOpen(false)}

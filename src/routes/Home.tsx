@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Billboard } from '../components/Billboard'
 import { Row } from '../components/Row'
@@ -7,6 +8,7 @@ import {
   useItemsRow,
   useLatest,
   useNextUp,
+  useRecapLink,
   useRemoveFromResume,
   useResume,
   useViews,
@@ -22,6 +24,7 @@ export function Home() {
   const nextUp = useNextUp()
   const removeFromResume = useRemoveFromResume()
   const boxSets = useBoxSets()
+  const recap = useRecapLink()
 
   const movieView = views?.find((v) => v.CollectionType === 'movies')
   const libraries = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
@@ -117,6 +120,26 @@ export function Home() {
         past it puts the first row on top of the Play / More Info buttons.
       */}
       <div className="relative z-10 -mt-8 sm:-mt-16">
+        {/*
+          December and January only, and only once the probe has found viewing
+          in the year — `useRecapLink` returns nothing the rest of the time, so
+          for ten months this strip is not in the tree at all. It sits above the
+          rows because it is the one thing on this page with a season, and below
+          the billboard because it is not what anyone came here to press.
+        */}
+        {recap && (
+          <div className="mb-6 px-4 sm:px-14">
+            <Link
+              to={recap.href}
+              className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent hover:bg-accent/20"
+            >
+              {recap.label}
+              <span aria-hidden className="text-white/50">
+                →
+              </span>
+            </Link>
+          </div>
+        )}
         {/*
           Dismissal belongs to this row alone. What the × does is clear the
           saved position, and a position is the only reason anything is in this

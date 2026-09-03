@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
+import { atScrollEnd } from '../lib/scrollEnd'
 import type { SessionInfoDto, TaskInfo, UserDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
 import {
@@ -16,6 +17,8 @@ import {
 import { formatTimecode, ticksToSeconds } from '../lib/format'
 import { NewUserDialog, UserEditor } from '../components/admin/UserEditor'
 import { LogsPanel } from '../components/admin/LogsPanel'
+import { DevicesSection } from '../components/DevicesSection'
+import { UserAvatar } from '../components/UserAvatar'
 import { NetworkPanel } from '../components/admin/NetworkPanel'
 import { ConnectionsPanel } from '../components/admin/ConnectionsPanel'
 import { GeneralPanel } from '../components/admin/GeneralPanel'
@@ -34,6 +37,7 @@ const TABS = [
   'Libraries',
   'Playback',
   'Users',
+  'Devices',
   'Plugins',
   'Branding',
   'Network',
@@ -43,6 +47,8 @@ const TABS = [
   'Logs',
 ] as const
 type Tab = (typeof TABS)[number]
+
+
 
 export function Admin() {
   const me = useCurrentUser()
@@ -62,7 +68,20 @@ export function Admin() {
 }
 
 function Dashboard() {
+  const api = useApi()
   const [tab, setTab] = useState<Tab>('Overview')
+  const tabStrip = useRef<HTMLDivElement>(null)
+  const [tabsAtEnd, setTabsAtEnd] = useState(true)
+
+  // Measured after paint and on resize: whether the strip overflows depends on
+  // the viewport, and a fade drawn over a row that fits is a lie about there
+  // being more.
+  useEffect(() => {
+    const measure = () => setTabsAtEnd(atScrollEnd(tabStrip.current))
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   const info = useSystemInfo()
   const counts = useItemCounts()
   const sessions = useSessions()
@@ -103,7 +122,18 @@ function Dashboard() {
         </p>
       )}
 
-      <div className="scrollbar-none mb-6 flex gap-1 overflow-x-auto border-b border-white/10">
+      {/*
+        The row scrolls, and with a hidden scrollbar nothing said so — adding a
+        thirteenth tab pushed Logs 77px past the edge on a 1440px screen with
+        no sign it was there. The fade is the sign, and it goes away at the end
+        so the last tab is never dimmed for no reason.
+      */}
+      <div className="relative">
+        <div
+          ref={tabStrip}
+          onScroll={(e) => setTabsAtEnd(atScrollEnd(e.currentTarget))}
+          className="scrollbar-none mb-6 flex gap-1 overflow-x-auto border-b border-white/10"
+        >
         {TABS.map((t) => (
           <button
             key={t}
@@ -115,13 +145,21 @@ function Dashboard() {
             }`}
           >
             {t}
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
+        {!tabsAtEnd && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 mb-6 w-12 bg-gradient-to-l from-ink to-transparent" />
+        )}
       </div>
 
       {tab === 'General' && <GeneralPanel />}
       {tab === 'Libraries' && <LibrariesPanel />}
       {tab === 'Playback' && <PlaybackPanel />}
+      {/* Alongside Users rather than in personal settings: GET and DELETE
+          /Devices are RequiresElevation on the server, so this was a section
+          no ordinary viewer could ever see sitting in their own preferences. */}
+      {tab === 'Devices' && <DevicesSection />}
       {tab === 'Plugins' && <PluginsPanel />}
       {tab === 'Branding' && <BrandingPanel />}
       {tab === 'API Keys' && <ApiKeysPanel />}
@@ -132,6 +170,7 @@ function Dashboard() {
 
       {tab === 'Users' && (
         <UsersTab
+          server={api.server}
           users={users.data ?? []}
           loading={users.isLoading}
           onEdit={setEditing}
@@ -178,9 +217,14 @@ function Dashboard() {
           <div className="divide-y divide-white/8">
             {(users.data ?? []).map((u) => (
               <div key={u.Id} className="flex items-center gap-3 py-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold">
-                  {(u.Name ?? '?').charAt(0).toUpperCase()}
-                </span>
+                <UserAvatar
+                  server={api.server}
+                  userId={u.Id}
+                  name={u.Name}
+                  tag={u.PrimaryImageTag}
+                  aspectRatio={u.PrimaryImageAspectRatio}
+                  className="size-8 shrink-0 rounded-full bg-white/10 text-xs font-bold"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{u.Name}</p>
                   <p className="text-xs text-white/40">
@@ -263,11 +307,13 @@ function Dashboard() {
 
 /** Full user list with management affordances. */
 function UsersTab({
+  server,
   users,
   loading,
   onEdit,
   onCreate,
 }: {
+  server: string
   users: UserDto[]
   loading: boolean
   onEdit: (id: string) => void
@@ -297,9 +343,14 @@ function UsersTab({
             onClick={() => u.Id && onEdit(u.Id)}
             className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/4"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
-              {(u.Name ?? '?').charAt(0).toUpperCase()}
-            </span>
+            <UserAvatar
+              server={server}
+              userId={u.Id}
+              name={u.Name}
+              tag={u.PrimaryImageTag}
+              aspectRatio={u.PrimaryImageAspectRatio}
+              className="size-9 shrink-0 rounded-full bg-white/10 text-sm font-bold"
+            />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{u.Name}</p>
               <p className="text-xs text-white/40">
