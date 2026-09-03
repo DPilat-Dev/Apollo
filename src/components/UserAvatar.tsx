@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { avatarView, type AvatarInput } from '../lib/userImages'
 
 interface Props extends AvatarInput {
@@ -21,14 +22,28 @@ interface Props extends AvatarInput {
  */
 export function UserAvatar({ className = '', eager = false, ...input }: Props) {
   const view = avatarView(input)
+
+  /*
+    A tag is a promise that a picture exists, and it can be broken. This server
+    stores a zero-byte file when its own upload fails, so the account keeps a
+    tag pointing at nothing and the avatar became an empty box with the letter
+    gone — the fallback keyed on the tag being absent, and it was present.
+
+    Keyed on the URL so a new picture gets a fresh attempt rather than
+    inheriting the last one's failure.
+  */
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [view.src])
+
   return (
     <span
       className={`flex items-center justify-center overflow-hidden ${className}`}
       aria-hidden="true"
     >
-      {view.src ? (
+      {view.src && !failed ? (
         <img
           src={view.src}
+          onError={() => setFailed(true)}
           alt=""
           loading={eager ? 'eager' : 'lazy'}
           fetchPriority={eager ? 'high' : 'auto'}
