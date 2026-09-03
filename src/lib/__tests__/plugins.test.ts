@@ -447,3 +447,35 @@ describe('pluginToggle', () => {
     expect(pluginToggle(row('Active', null))).toBeNull()
   })
 })
+
+/*
+  Pinning the behaviour rather than the guard.
+
+  Deleting the `Object.hasOwn` check leaves every test passing, which looks
+  like a hole and is not one: an unknown key has no value on the document, so
+  `typeof before` matches none of the branches and nothing is written either
+  way. The check is a shortcut, not the thing doing the work.
+
+  The behaviour still deserves a test, because the *type switch* is what
+  actually holds it, and a later edit that adds an `else` for unknown types
+  would open exactly the hole the check appears to close. It matters the moment
+  two plugins are opened in one sitting: the draft for the first is still in
+  hand when the second's document arrives.
+*/
+describe('a draft cannot invent a key the plugin does not have', () => {
+  it('drops a key the server never sent', () => {
+    const saved = applyPluginConfigEdits({ Real: 'kept' }, { Real: 'edited', Stray: 'nonsense' })
+    expect(saved).toEqual({ Real: 'edited' })
+    expect(Object.hasOwn(saved, 'Stray')).toBe(false)
+  })
+
+  it('drops every key of a draft belonging to a different plugin', () => {
+    const tmdb = { TmdbApiKey: '', MaxCastMembers: 15 }
+    const leftOver = { IncludeAdult: true, EnableImages: false, SomeOtherPluginPort: 9000 }
+    expect(applyPluginConfigEdits(tmdb, leftOver)).toEqual(tmdb)
+  })
+
+  it('still writes the keys that do belong to it', () => {
+    expect(applyPluginConfigEdits({ A: 1, B: 'x' }, { A: 7, Ghost: 'no' })).toEqual({ A: 7, B: 'x' })
+  })
+})
