@@ -1,5 +1,6 @@
 import { personRequestPath } from './persons'
 import { devicesRequest, summariseDevices } from './devices'
+import { pluginConfigPath, pluginTogglePath } from './plugins'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import type {
@@ -1141,6 +1142,54 @@ export class JellyfinApi {
 
   uninstallPlugin(pluginId: string) {
     return this.request<void>(`/Plugins/${pluginId}`, { method: 'DELETE' })
+  }
+
+  /**
+   * A plugin's settings document, or null when there is none to have.
+   *
+   * Null covers two cases that both end in the same sentence on the screen:
+   * the caller is not an administrator, so nothing is sent at all; or the
+   * server answered 404, which is what it says for every plugin it has not
+   * loaded. That 404 is the ordinary case on a server with an out-of-date
+   * plugin — `pluginConfigPlan` normally keeps the request from being made —
+   * and letting it throw would put a red error box where the honest answer is
+   * "this plugin has no settings".
+   */
+  async pluginConfiguration(opts: { isAdmin: boolean; pluginId: string }): Promise<unknown> {
+    const path = pluginConfigPath(opts)
+    if (!path) return null
+    try {
+      return (await this.request<unknown>(path)) ?? null
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    }
+  }
+
+  /**
+   * Writes a settings document back.
+   *
+   * The body is the *whole* document — see `applyPluginConfigEdits`, which is
+   * the only thing that should ever build one. This endpoint replaces what is
+   * stored rather than merging into it.
+   */
+  async savePluginConfiguration(opts: { isAdmin: boolean; pluginId: string; config: unknown }) {
+    const path = pluginConfigPath(opts)
+    // Refused here rather than sent and left to the server, so a write that
+    // should never have been offered cannot be the thing that discovers it.
+    if (!path) throw new Error('Only an administrator can change plugin settings.')
+    return this.request<void>(path, { method: 'POST', body: JSON.stringify(opts.config) })
+  }
+
+  async setPluginEnabled(opts: {
+    isAdmin: boolean
+    pluginId: string
+    version: string
+    enable: boolean
+  }) {
+    const path = pluginTogglePath(opts)
+    if (!path) throw new Error('Only an administrator can enable or disable a plugin.')
+    return this.request<void>(path, { method: 'POST' })
   }
 
   /** The catalogue, aggregated from every enabled repository. */

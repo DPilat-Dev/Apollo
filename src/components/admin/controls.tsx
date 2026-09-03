@@ -160,6 +160,69 @@ export function NumberInput({
   )
 }
 
+/**
+ * A number field that can be empty.
+ *
+ * `NumberInput` hands back `Number(text)`, and `Number('')` is 0 — so clearing
+ * the box in order to retype it writes a real zero into whatever it is bound
+ * to. This one reports the raw text and leaves the reading of an empty box to
+ * the caller, which for a plugin setting means "unchanged".
+ */
+export function LooseNumberInput({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <Labelled label={label} hint={hint}>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${inputClass} tabular-nums`}
+      />
+    </Labelled>
+  )
+}
+
+/**
+ * A field for something nobody may read back.
+ *
+ * The box starts empty and the current value is never put into it — see
+ * `secretInputValue`. `type="password"` is what keeps the browser from
+ * offering to remember it and what keeps it off the screen while it is typed.
+ */
+export function SecretInput({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <Labelled label={label} hint={hint}>
+      <input
+        type="password"
+        value={value}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${inputClass} font-mono`}
+      />
+    </Labelled>
+  )
+}
+
 export function Select({
   label,
   hint,

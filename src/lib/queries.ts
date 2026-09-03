@@ -12,6 +12,7 @@ import type {
 import type { JellyfinApi } from './api'
 import { useApi, useAuth } from './auth'
 import { runDeviceRevoke, type DeviceScope, type RevokePlan } from './devices'
+import { pluginConfigPlan, type PluginRow } from './plugins'
 import { buildTasteProfile } from './taste'
 import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
@@ -663,6 +664,51 @@ export function useUninstallPlugin() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (pluginId: string) => api.uninstallPlugin(pluginId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }),
+  })
+}
+
+/**
+ * A plugin's settings, for the detail view.
+ *
+ * Whether to ask at all is `pluginConfigPlan`'s answer, not this hook's: the
+ * endpoint only exists for a plugin the server has loaded, and firing a
+ * request that is known to come back 404 costs a round trip to learn nothing.
+ * Keeping the decision in the hook rather than in the panel means a second
+ * screen that wants a plugin's settings gets it for free.
+ */
+export function usePluginConfiguration(row: PluginRow | null) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const plan = row ? pluginConfigPlan(row) : null
+  return useQuery({
+    queryKey: ['pluginConfiguration', row?.id, isAdmin],
+    queryFn: () => api.pluginConfiguration({ isAdmin, pluginId: row?.id ?? '' }),
+    enabled: Boolean(plan?.fetch),
+  })
+}
+
+export function useSavePluginConfiguration() {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { pluginId: string; config: unknown }) =>
+      api.savePluginConfiguration({ isAdmin, ...args }),
+    onSuccess: (_result, args) =>
+      qc.invalidateQueries({ queryKey: ['pluginConfiguration', args.pluginId] }),
+  })
+}
+
+export function useSetPluginEnabled() {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { pluginId: string; version: string; enable: boolean }) =>
+      api.setPluginEnabled({ isAdmin, ...args }),
+    // The status the server reports only moves at a restart, so the list is
+    // refetched to show what it now says rather than to show the change.
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugins'] }),
   })
 }
