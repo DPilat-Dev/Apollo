@@ -10,7 +10,8 @@ import type {
   UserPolicy,
 } from '@jellyfin/sdk/lib/generated-client/models'
 import type { JellyfinApi } from './api'
-import { useApi } from './auth'
+import { useApi, useAuth } from './auth'
+import { runDeviceRevoke, type DeviceScope, type RevokePlan } from './devices'
 import { buildTasteProfile } from './taste'
 import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
@@ -337,6 +338,53 @@ export function useSessions() {
     queryKey: ['sessions'],
     queryFn: () => api.sessions(),
     refetchInterval: 5000,
+  })
+}
+
+/**
+ * The registered devices, which is to say the live access tokens.
+ *
+ * Not polled. The list only changes when somebody signs in or is signed out,
+ * and a refetch under a pointer that is on its way to a revoke button is how
+ * the wrong row gets clicked.
+ */
+export function useDevices(scope: DeviceScope) {
+  const api = useApi()
+  const isAdmin = useIsAdmin()
+  return useQuery({
+    queryKey: ['devices', api.userId, isAdmin, scope],
+    queryFn: () => api.devices({ isAdmin, scope }),
+  })
+}
+
+/**
+ * Signing devices out, one or a hundred and sixty-seven.
+ *
+ * Nothing is decided here: what to ask, what order to send it in, and whether
+ * the session in this browser just ended are all `runDeviceRevoke`'s, where
+ * they are tested. The only thing this adds is what to do about the answer —
+ * and when the token this app is holding has been revoked, the honest move is
+ * to sign out locally rather than refetch with a credential that is now dead.
+ */
+export function useRevokeDevices() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { signOut } = useAuth()
+  return useMutation({
+    mutationFn: (plan: RevokePlan) =>
+      runDeviceRevoke({
+        plan,
+        revoke: (id) => api.revokeDevice(id),
+        confirm: (message) => globalThis.confirm(message),
+      }),
+    onSuccess: (outcome) => {
+      if (outcome.endedSession) {
+        signOut()
+        return
+      }
+      qc.invalidateQueries({ queryKey: ['devices'] })
+      qc.invalidateQueries({ queryKey: ['sessions'] })
+    },
   })
 }
 
