@@ -16,7 +16,7 @@ import { pluginConfigPlan, type PluginRow } from './plugins'
 import { buildTasteProfile } from './taste'
 import * as seerr from './jellyseerr'
 import { autoConnectError, settleConnect } from './jellyseerrConnect'
-import { browsableTypes, isBrowsableLibrary } from './collections'
+import { browsableTypes, isBrowsableLibrary, orderedSeasons } from './collections'
 import { planResumeRemoval } from './continueWatching'
 import { PLAYED_SORT_BY, historyItemsQuery } from './watchHistory'
 import { recapButton, recapSeason, type RecapLink } from './yearRecap'
@@ -259,7 +259,11 @@ export function useSeasons(seriesId?: string) {
   const api = useApi()
   return useQuery({
     queryKey: ['seasons', api.userId, seriesId],
-    queryFn: async () => (await api.seasons(seriesId!)).Items ?? [],
+    /*
+      Ordered here rather than by the caller: every surface that lists seasons
+      wants the running order, and the server does not reliably send one.
+    */
+    queryFn: async () => orderedSeasons((await api.seasons(seriesId!)).Items ?? []),
     enabled: Boolean(seriesId),
   })
 }
