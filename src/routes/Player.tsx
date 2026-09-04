@@ -50,7 +50,14 @@ import { UpNext, upNextLeadSeconds } from '../components/UpNext'
 import { SleepPrompt } from '../components/SleepPrompt'
 import { SLEEP_DURATIONS_MINUTES } from '../lib/sleepTimer'
 import { useSleepTimer } from '../lib/useSleepTimer'
-import { BITRATE_OPTIONS, useSettings } from '../lib/settings'
+import {
+  BITRATE_OPTIONS,
+  DEFAULT_SUBTITLE_SIZE,
+  SUBTITLE_SIZE_STEP,
+  clampSubtitleSize,
+  setSetting,
+  useSettings,
+} from '../lib/settings'
 import { displayTitle, episodeCode, formatTimecode, ticksToSeconds } from '../lib/format'
 import {
   BackIcon,
@@ -89,6 +96,13 @@ export function Player() {
   const api = useApi()
   const navigate = useNavigate()
   const settings = useSettings()
+  // Clamped centrally: the Settings slider has its own bounds, and a second
+  // control that did not share them could take the size somewhere the first
+  // one cannot bring it back from.
+  const setSubtitleSize = useCallback(
+    (next: number) => setSetting('subtitleSize', clampSubtitleSize(next)),
+    [],
+  )
   const syncPlay = useSyncPlay()
   const { data: requestedItem } = useItem(itemId)
 
@@ -1495,6 +1509,39 @@ export function Player() {
                         )}
                       </MenuGroup>
                     )}
+
+                    {/*
+                      Size lived only in Settings, which is the wrong place to
+                      put it: you find out subtitles are too small while
+                      watching, and leaving the player to fix it means leaving
+                      the thing you were judging it against.
+                    */}
+                    <MenuGroup title="Subtitle size">
+                      <div className="flex items-center gap-2 px-3 py-1.5">
+                        <StepButton
+                          label="Smaller subtitles"
+                          onClick={() => setSubtitleSize(settings.subtitleSize - SUBTITLE_SIZE_STEP)}
+                        >
+                          −
+                        </StepButton>
+                        <span className="min-w-14 text-center text-sm tabular-nums text-white/80">
+                          {settings.subtitleSize}%
+                        </span>
+                        <StepButton
+                          label="Larger subtitles"
+                          onClick={() => setSubtitleSize(settings.subtitleSize + SUBTITLE_SIZE_STEP)}
+                        >
+                          +
+                        </StepButton>
+                        <button
+                          onClick={() => setSubtitleSize(DEFAULT_SUBTITLE_SIZE)}
+                          disabled={settings.subtitleSize === DEFAULT_SUBTITLE_SIZE}
+                          className="ml-auto rounded px-2 py-1 text-xs text-white/60 transition hover:bg-white/8 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </MenuGroup>
 
                     <MenuGroup title="Audio">
                       {plan?.audio.length === 0 && <MenuEmpty>No audio tracks</MenuEmpty>}

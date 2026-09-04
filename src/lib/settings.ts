@@ -17,6 +17,7 @@ export interface Settings {
   /** On a phone, take the player fullscreen and turn it sideways on play. */
   rotateToLandscape: boolean
   /** Subtitle appearance, applied through ::cue. */
+  /** Percent of the player's default. See SUBTITLE_SIZE_RANGE. */
   subtitleSize: number
   subtitleColor: string
   subtitleBackground: 'none' | 'subtle' | 'solid'
@@ -88,4 +89,20 @@ export function useSettings(): Settings {
 
 export function useSetSetting() {
   return useCallback(setSetting, [])
+}
+
+/**
+ * The bounds subtitle size is clamped to, wherever it is changed from.
+ *
+ * There are two places now — the Settings slider and the player's own menu,
+ * which is where anyone actually notices the size is wrong. A range that lives
+ * in only one of them is a range the other can walk straight past.
+ */
+export const SUBTITLE_SIZE_RANGE = { min: 50, max: 300 } as const
+export const SUBTITLE_SIZE_STEP = 10
+export const DEFAULT_SUBTITLE_SIZE = DEFAULT_SETTINGS.subtitleSize
+
+export function clampSubtitleSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_SUBTITLE_SIZE
+  return Math.min(SUBTITLE_SIZE_RANGE.max, Math.max(SUBTITLE_SIZE_RANGE.min, Math.round(size)))
 }

@@ -5,6 +5,7 @@ import {
   syncCueOffset,
   type CueTiming,
 } from './subtitleOffset'
+import { cleanCues } from './subtitleText'
 
 /**
  * The offset control, wired to the live cues of the showing text track.
@@ -79,6 +80,16 @@ export function useSubtitleOffset({
     let stop: (() => void) | null = null
 
     const apply = () => {
+      /*
+        Cleaned before it is shifted, and in this effect rather than one of its
+        own: both jobs need the same "the cues have loaded now" moment, and the
+        machinery for finding it is the awkward part.
+
+        Idempotent, so the poll below repeating it costs nothing — a cleaned
+        line has no override blocks left to strip.
+      */
+      cleanCues(track.cues)
+
       const result = syncCueOffset(track.cues, baselineRef.current, offsetMs)
       baselineRef.current = result.baseline
       if (result.applied > 0) stop?.()
