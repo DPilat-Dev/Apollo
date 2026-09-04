@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
-import { pickPlayableEpisode } from '../playback'
+import type {
+  BaseItemDto,
+  MediaSourceInfo,
+  MediaStream,
+} from '@jellyfin/sdk/lib/generated-client/models'
+import { JellyfinApi } from '../api'
+import { pickPlayableEpisode, subtitleTracks } from '../playback'
 
 const TICK = 10_000_000
 const ep = (id: string, opts: { played?: boolean; pct?: number } = {}): BaseItemDto =>
@@ -53,5 +58,41 @@ describe('pickPlayableEpisode', () => {
   it('returns null rather than throwing on nothing', () => {
     expect(pickPlayableEpisode([])).toBeNull()
     expect(pickPlayableEpisode(undefined)).toBeNull()
+  })
+})
+
+/*
+  What the player needs to know about a subtitle stream before it can decide
+  how to draw it: the converted WebVTT for the <track> element, and — for the
+  one family of formats libass can improve on — the raw file as well.
+*/
+describe('subtitleTracks', () => {
+  const api = new JellyfinApi({ server: 'http://s', userId: 'u', userName: 'D', token: 'tok' })
+  const source = (streams: Partial<MediaStream>[]): MediaSourceInfo =>
+    ({ Id: 'src-1', MediaStreams: streams }) as MediaSourceInfo
+
+  it('offers the raw ASS file alongside the converted one', () => {
+    const [t] = subtitleTracks(api, 'item-1', source([
+      { Type: 'Subtitle', Index: 2, Codec: 'ass', IsTextSubtitleStream: true },
+    ]))
+    expect(t.codec).toBe('ass')
+    expect(t.url).toContain('/Subtitles/2/0/Stream.vtt')
+    expect(t.assUrl).toContain('/Subtitles/2/0/Stream.ass')
+  })
+
+  it('offers no raw file for SubRip, which has no typesetting to lose', () => {
+    const [t] = subtitleTracks(api, 'item-1', source([
+      { Type: 'Subtitle', Index: 2, Codec: 'subrip', IsTextSubtitleStream: true },
+    ]))
+    expect(t.url).toContain('Stream.vtt')
+    expect(t.assUrl).toBeUndefined()
+  })
+
+  it('offers neither for a picture track the server has to burn in', () => {
+    const [t] = subtitleTracks(api, 'item-1', source([
+      { Type: 'Subtitle', Index: 4, Codec: 'pgssub', IsTextSubtitleStream: false },
+    ]))
+    expect(t.url).toBeUndefined()
+    expect(t.assUrl).toBeUndefined()
   })
 })

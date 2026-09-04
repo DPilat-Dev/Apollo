@@ -1,6 +1,7 @@
 import type { BaseItemDto, MediaSourceInfo } from '@jellyfin/sdk/lib/generated-client/models'
 import type { JellyfinApi } from './api'
 import { secondsToTicks } from './format'
+import { assStreamPath, isAssCodec } from './assSubtitles'
 
 /** Item types that hold media themselves rather than containing other items. */
 const PLAYABLE_TYPES = new Set(['Movie', 'Episode', 'Video', 'Audio', 'MusicVideo', 'Trailer'])
@@ -74,6 +75,13 @@ export interface SubtitleTrack {
   language?: string
   /** Present when the track can be attached as a <track> element. */
   url?: string
+  /**
+   * The untouched ASS/SSA file, for the tracks libass can do better with than
+   * the server's WebVTT conversion. Absent for every other format.
+   */
+  assUrl?: string
+  /** As the server names it: `ass`, `subrip`, `pgssub`… */
+  codec?: string
   isDefault: boolean
 }
 
@@ -113,7 +121,7 @@ export async function resolveStream(
   const base = {
     mediaSource: source,
     playSessionId: info.PlaySessionId ?? undefined,
-    subtitles: collectSubtitles(api, itemId, source),
+    subtitles: subtitleTracks(api, itemId, source),
     audio: audioTracks(source),
   }
 
@@ -151,7 +159,7 @@ export async function resolveStream(
   throw new Error('This item cannot be played by this client.')
 }
 
-function collectSubtitles(
+export function subtitleTracks(
   api: JellyfinApi,
   itemId: string,
   source: MediaSourceInfo,
@@ -163,16 +171,27 @@ function collectSubtitles(
       const index = s.Index ?? -1
       // Text subtitles can be fetched as VTT; image-based ones (PGS/VOBSUB) cannot.
       const canExtract = s.IsTextSubtitleStream === true && index >= 0
+      const codec = s.Codec ?? undefined
       return {
         index,
         label: s.DisplayTitle ?? s.Language ?? `Track ${index}`,
         language: s.Language ?? undefined,
+        codec,
         isDefault: Boolean(s.IsDefault),
         url: canExtract
           ? api.authedUrl(
               `/Videos/${itemId}/${source.Id}/Subtitles/${index}/0/Stream.vtt`,
             )
           : undefined,
+        /*
+          Offered alongside the VTT rather than instead of it. The conversion
+          is what plays if libass cannot start, so both have to be here before
+          anything decides which one is used.
+        */
+        assUrl:
+          canExtract && isAssCodec(codec) && source.Id
+            ? api.authedUrl(assStreamPath(itemId, source.Id, index))
+            : undefined,
       }
     })
 }

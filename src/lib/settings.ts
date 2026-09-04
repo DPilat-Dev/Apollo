@@ -19,6 +19,8 @@ export interface Settings {
   /** Subtitle appearance, applied through ::cue. */
   /** Percent of the player's default. See SUBTITLE_SIZE_RANGE. */
   subtitleSize: number
+  /** Draw ASS/SSA with libass, keeping its typesetting. Off falls back to text. */
+  assTypesetting: boolean
   subtitleColor: string
   subtitleBackground: 'none' | 'subtle' | 'solid'
 }
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSkipIntros: false,
   rotateToLandscape: true,
   subtitleSize: 100,
+  assTypesetting: true,
   subtitleColor: '#ffffff',
   subtitleBackground: 'subtle',
 }
