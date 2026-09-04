@@ -42,12 +42,15 @@ import { MediaTracks, trackParams, useTrackSelection } from '../components/Media
 import { SeasonCard } from '../components/SeasonCard'
 import { pickPlayableEpisode } from '../lib/playback'
 import { startShuffle } from '../lib/queue'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 export function ItemDetail() {
   const { itemId } = useParams<{ itemId: string }>()
   const api = useApi()
   const navigate = useNavigate()
   const { data: item, isLoading } = useItem(itemId)
+  useDocumentTitle(pageTitle(item?.Name, item?.SeriesName))
   const similar = useSimilar(itemId)
   const favorite = useToggleFavorite()
   const played = useTogglePlayed()

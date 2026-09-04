@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
 import { displayTitle, itemSubtitle } from '../lib/format'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 import {
   formatPlayedTime,
   groupWatchHistory,
@@ -30,6 +32,7 @@ import {
  * that looks right in the afternoon and is wrong all evening.
  */
 export function History() {
+  useDocumentTitle(pageTitle('Watch history'))
   const api = useApi()
   const sentinel = useRef<HTMLDivElement>(null)
 

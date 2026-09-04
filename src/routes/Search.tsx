@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { MediaCard } from '../components/MediaCard'
 import { useJellyseerrSession, useSearchByLibrary } from '../lib/queries'
 import { RequestResults } from '../components/RequestResults'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 /** 'all' | a library id | 'jellyseerr' */
 type Filter = string
@@ -24,6 +26,8 @@ export function Search() {
     filter === 'all' ? found : found.filter((g) => g.view.Id === filter)
   const showSeerr = seerrAvailable && (filter === 'all' || filter === 'jellyseerr')
   const showLibrary = filter !== 'jellyseerr'
+
+  useDocumentTitle(pageTitle(term, 'Search'))
 
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">

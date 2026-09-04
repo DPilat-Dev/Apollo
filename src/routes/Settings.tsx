@@ -13,6 +13,8 @@ import {
 import { CLIENT_NAME, CLIENT_VERSION, deviceId } from '../lib/api'
 import { JellyseerrSection } from '../components/JellyseerrSection'
 import { ProfilePictureControl } from '../components/ProfilePictureControl'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 const SUBTITLE_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -24,6 +26,7 @@ const SUBTITLE_COLORS = [
 
 
 export function Settings() {
+  useDocumentTitle(pageTitle('Settings'))
   const { session, signOut, switchUser } = useAuth()
   const settings = useSettings()
   const { data: me } = useCurrentUser()

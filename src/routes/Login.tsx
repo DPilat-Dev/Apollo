@@ -8,6 +8,8 @@ import { connectJellyseerr } from '../lib/jellyseerrConnect'
 import { useBranding } from '../lib/branding'
 import { DemoNotice } from '../components/DemoNotice'
 import { UserAvatar } from '../components/UserAvatar'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
@@ -27,6 +29,7 @@ export function Login() {
     screen anyway.
   */
   const [remembered] = useState(loadAccounts)
+  useDocumentTitle(pageTitle('Sign in'))
   /*
     A deployment without VITE_JELLYFIN_SERVER used to open on an empty address
     field, so switching users on a home server meant retyping the hostname —

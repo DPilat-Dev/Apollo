@@ -14,6 +14,8 @@ import {
   useViews,
 } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 /** Enough to fill the shelf without building a hundred cards nobody scrolls to. */
 const COLLECTIONS_IN_ROW = 24
@@ -25,6 +27,8 @@ export function Home() {
   const removeFromResume = useRemoveFromResume()
   const boxSets = useBoxSets()
   const recap = useRecapLink()
+
+  useDocumentTitle(pageTitle())
 
   const movieView = views?.find((v) => v.CollectionType === 'movies')
   const libraries = (views ?? []).filter((v) => v.CollectionType !== 'livetv')

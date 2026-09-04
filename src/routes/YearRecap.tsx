@@ -4,6 +4,8 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
 import { useSettings } from '../lib/settings'
 import { useCountUp } from '../lib/useCountUp'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 import {
   ESTIMATE_CAVEAT,
   formatEstimatedTime,
@@ -29,6 +31,7 @@ import {
  * never measured it.
  */
 export function YearRecap() {
+  useDocumentTitle(pageTitle('Year in review'))
   const api = useApi()
   // Read once, at the top, and immediately handed to the function that decides.
   const [params] = useSearchParams()

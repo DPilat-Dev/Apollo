@@ -1,6 +1,8 @@
 import { MediaCard } from '../components/MediaCard'
 import { useBoxSets } from '../lib/queries'
 import { collectionsSurface } from '../lib/boxSets'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 /**
  * Every collection on the server, as a grid of their own posters.
@@ -11,6 +13,7 @@ import { collectionsSurface } from '../lib/boxSets'
  * differently, or a broken server looks like an empty one.
  */
 export function Collections() {
+  useDocumentTitle(pageTitle('Collections'))
   const query = useBoxSets()
   const surface = collectionsSurface(query)
   const collections = query.data ?? []

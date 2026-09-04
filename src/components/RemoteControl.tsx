@@ -4,6 +4,7 @@ import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
 import { displayTitle } from '../lib/format'
 import { CastIcon, PauseIcon, PlayIcon, NextTrackIcon } from './icons'
+import { useDismissOnEscape } from '../lib/useDismissOnEscape'
 
 /**
  * Plays something on another device signed in to the same server.
@@ -61,6 +62,9 @@ export function RemoteControl({
     setOpen(false)
     onClose?.()
   }
+
+  // Escape leaves the picker exactly as the backdrop does.
+  useDismissOnEscape(dismiss)
 
   return (
     <div className="relative">

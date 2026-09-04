@@ -1,11 +1,21 @@
 import { useEffect } from 'react'
 import { SHORTCUTS } from '../lib/shortcuts'
+import { useDialog } from '../lib/useDialog'
 
 /** The help sheet. Its content comes from the same map the handlers use. */
 export function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  const { titleId, dialogProps } = useDialog({ onClose })
+
+  /*
+    `?` closes it as well as opening it, which Escape alone would not give —
+    the same key toggling the sheet is how it is documented in the sheet. The
+    listener stays on the window for that reason: `?` is a global shortcut and
+    this is the one screen where it means something else. Escape belongs to
+    `useDialog` and is deliberately not handled twice.
+  */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === '?') {
+      if (e.key === '?') {
         e.preventDefault()
         onClose()
       }
@@ -18,9 +28,12 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-ink-soft shadow-2xl">
+      <div
+        {...dialogProps}
+        className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-ink-soft shadow-2xl outline-none"
+      >
         <div className="sticky top-0 flex items-center justify-between border-b border-white/10 bg-ink-soft/95 px-5 py-4 backdrop-blur">
-          <h2 className="text-lg font-semibold">Keyboard shortcuts</h2>
+          <h2 id={titleId} className="text-lg font-semibold">Keyboard shortcuts</h2>
           <button
             onClick={onClose}
             aria-label="Close"
