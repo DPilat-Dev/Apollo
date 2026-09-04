@@ -202,6 +202,12 @@ This bites the moment you add a public hostname, and the symptom — everything
 failing at once, with CORS-looking console errors — does not obviously say
 "mixed content".
 
+## Licence
+
+Apollo is MIT. It ships one copyleft dependency — the libass WebAssembly build
+that draws ASS subtitles — and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+says what that means and how to drop it.
+
 ## Stack
 
 | Piece | Choice | Why |
