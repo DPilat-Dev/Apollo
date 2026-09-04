@@ -1,5 +1,11 @@
 import JASSUB from 'jassub'
-import workerUrl from 'jassub/dist/worker/worker.js?worker&url'
+/*
+  Apollo's worker rather than JASSUB's, because JASSUB's asks every canvas it
+  makes for `desynchronized: true` and an Android compositor answers that by
+  giving the canvas its own hardware plane, where transparency comes out black.
+  `assWorker.ts` installs the patch and then loads JASSUB's worker untouched.
+*/
+import workerUrl from './assWorker?worker&url'
 import wasmUrl from 'jassub/dist/wasm/jassub-worker.wasm?url'
 import modernWasmUrl from 'jassub/dist/wasm/jassub-worker-modern.wasm?url'
 import defaultFontUrl from 'jassub/dist/default.woff2?url'
