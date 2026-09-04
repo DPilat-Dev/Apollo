@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanCues, cleanSubtitleText, needsCleaning } from '../subtitleText'
+import { cleanCues, cleanSubtitleText, cuePlacement, needsCleaning, placeCues } from '../subtitleText'
 
 describe('cleanSubtitleText', () => {
   it('takes the typesetting out of a real line', () => {
@@ -88,5 +88,84 @@ describe('cleanCues', () => {
   it('skips anything that is not a cue with text', () => {
     const cues = [{ text: 42 } as unknown as { text: string }, cue('{\\i1}ok{\\i0}')]
     expect(cleanCues(cues)).toBe(1)
+  })
+})
+
+describe('cuePlacement', () => {
+  const at = (n: number) => cuePlacement(`{\\an${n}}Some line`)
+
+  it('reads the keypad layout', () => {
+    // 7 8 9 across the top, 4 5 6 middle, 1 2 3 bottom.
+    expect(at(1)).toEqual({ align: 'start', linePercent: null })
+    expect(at(2)).toEqual({ align: 'center', linePercent: null })
+    expect(at(3)).toEqual({ align: 'end', linePercent: null })
+    expect(at(4)?.align).toBe('start')
+    expect(at(5)?.align).toBe('center')
+    expect(at(6)?.align).toBe('end')
+    expect(at(7)?.align).toBe('start')
+    expect(at(8)?.align).toBe('center')
+    expect(at(9)?.align).toBe('end')
+  })
+
+  it('sends the top row up and the middle row to the middle', () => {
+    expect(at(8)!.linePercent!).toBeLessThan(at(5)!.linePercent!)
+    // The bottom row already sits where a cue goes, so it is left alone.
+    expect(at(2)!.linePercent).toBeNull()
+  })
+
+  it('has nothing to say about a line with no alignment tag', () => {
+    expect(cuePlacement('Just dialogue.')).toBeNull()
+    expect(cuePlacement('{\\i1}Italic, but unplaced{\\i0}')).toBeNull()
+  })
+
+  it('takes the last alignment, as a renderer does', () => {
+    expect(cuePlacement('{\\an8}{\\an2}Moved back down')).toEqual({
+      align: 'center',
+      linePercent: null,
+    })
+  })
+
+  it('ignores \\pos, which it cannot honestly place', () => {
+    // \pos is in the script's own coordinates and the WebVTT has dropped the
+    // header saying what those are — the files here range from 1280x720 to
+    // 3840x2160, so a percentage from it would be a guess.
+    expect(cuePlacement('{\\pos(688.521,214.285)}Fifth Epoch')).toBeNull()
+  })
+
+  it('is not fooled by a number that is not an alignment', () => {
+    expect(cuePlacement('{\\an0}x')).toBeNull()
+    expect(cuePlacement('{\\fs36}x')).toBeNull()
+  })
+})
+
+describe('placeCues', () => {
+  const cue = (text: string) => ({ text, align: 'center', line: 'auto' as number | 'auto', snapToLines: true })
+
+  it('moves only the cues that ask to be moved', () => {
+    const cues = [cue('{\\an8}Sign'), cue('Dialogue'), cue('{\\an1}Corner')]
+    expect(placeCues(cues)).toBe(2)
+    expect(cues[1].line).toBe('auto')
+  })
+
+  it('turns snapToLines off, or the number would not be a percentage', () => {
+    // Left on, `line` counts lines of text from the top and 10 lands the cue
+    // somewhere entirely different.
+    const cues = [cue('{\\an8}Top')]
+    placeCues(cues)
+    expect(cues[0].snapToLines).toBe(false)
+    expect(cues[0].line).toBeLessThan(50)
+  })
+
+  it('leaves a bottom-row cue where it already sits', () => {
+    const cues = [cue('{\\an2}Bottom centre')]
+    placeCues(cues)
+    expect(cues[0].snapToLines).toBe(true)
+    expect(cues[0].line).toBe('auto')
+    expect(cues[0].align).toBe('center')
+  })
+
+  it('copes with nothing to place', () => {
+    expect(placeCues(null)).toBe(0)
+    expect(placeCues([])).toBe(0)
   })
 })

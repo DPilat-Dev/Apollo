@@ -5,7 +5,7 @@ import {
   syncCueOffset,
   type CueTiming,
 } from './subtitleOffset'
-import { cleanCues } from './subtitleText'
+import { cleanCues, placeCues } from './subtitleText'
 
 /**
  * The offset control, wired to the live cues of the showing text track.
@@ -88,6 +88,15 @@ export function useSubtitleOffset({
         Idempotent, so the poll below repeating it costs nothing — a cleaned
         line has no override blocks left to strip.
       */
+      /*
+        Placed before it is cleaned, because placement reads the very tags
+        cleaning removes. Running the other way round finds nothing and every
+        sign stays at the bottom on top of the dialogue.
+
+        Both are idempotent for the poll's sake: once the tag is gone there is
+        nothing left to place, and the cue keeps the position it was given.
+      */
+      placeCues(track.cues)
       cleanCues(track.cues)
 
       const result = syncCueOffset(track.cues, baselineRef.current, offsetMs)

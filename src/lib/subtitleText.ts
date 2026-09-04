@@ -100,3 +100,81 @@ export function cleanCues(cues: ArrayLike<unknown> | null | undefined): number {
 function isTextCue(cue: unknown): cue is { text: string } {
   return typeof cue === 'object' && cue !== null && typeof (cue as { text?: unknown }).text === 'string'
 }
+
+
+/**
+ * Where a cue belongs on screen, from ASS's own alignment tag.
+ *
+ * `\anN` uses the numeric keypad: 7 8 9 across the top, 4 5 6 through the
+ * middle, 1 2 3 along the bottom. It is the one placement tag that means the
+ * same thing at any resolution, which is why it is honoured here and `\pos`
+ * is not — `\pos` is in the script's own coordinates, and the files in one
+ * library alone declare anything from 1280x720 to 3840x2160. The WebVTT the
+ * server hands over has dropped the header that says which, so a percentage
+ * derived from it would be a guess that is wrong more often than not.
+ *
+ * This matters for reading rather than for looks: a sign translation typeset
+ * at the top lands on top of the dialogue if it is dropped to the bottom with
+ * everything else.
+ */
+export interface CuePlacement {
+  align: 'start' | 'center' | 'end'
+  /** Percentage down the frame, or null to leave the cue where it would sit. */
+  linePercent: number | null
+}
+
+/** Far enough in that a cue is not touching the edge of the frame. */
+const TOP_LINE = 10
+const MIDDLE_LINE = 45
+
+export function cuePlacement(text: string): CuePlacement | null {
+  // The last one wins, as it does in a renderer: a later override replaces it.
+  const matches = [...text.matchAll(/\\an([1-9])/g)]
+  const an = matches.length ? Number(matches[matches.length - 1][1]) : null
+  if (an == null) return null
+
+  const column = (an - 1) % 3
+  const row = Math.floor((an - 1) / 3)
+  return {
+    align: column === 0 ? 'start' : column === 1 ? 'center' : 'end',
+    // Row 0 is the bottom, which is where a cue already goes.
+    linePercent: row === 0 ? null : row === 1 ? MIDDLE_LINE : TOP_LINE,
+  }
+}
+
+/**
+ * Apply placement to the cues of a track, returning how many moved.
+ *
+ * `snapToLines` has to go off for `line` to mean a percentage; left on, the
+ * number is counted in lines of text from the top and a value of 10 puts the
+ * cue somewhere entirely different.
+ */
+export function placeCues(cues: ArrayLike<unknown> | null | undefined): number {
+  if (!cues) return 0
+  let moved = 0
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i]
+    if (!isPlaceableCue(cue)) continue
+    const placement = cuePlacement(cue.text)
+    if (!placement) continue
+    cue.align = placement.align
+    if (placement.linePercent != null) {
+      cue.snapToLines = false
+      cue.line = placement.linePercent
+    }
+    moved++
+  }
+  return moved
+}
+
+function isPlaceableCue(
+  cue: unknown,
+): cue is { text: string; align: string; line: number | 'auto'; snapToLines: boolean } {
+  return (
+    typeof cue === 'object' &&
+    cue !== null &&
+    typeof (cue as { text?: unknown }).text === 'string' &&
+    'align' in cue &&
+    'line' in cue
+  )
+}
