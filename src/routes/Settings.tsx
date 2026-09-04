@@ -15,6 +15,7 @@ import { JellyseerrSection } from '../components/JellyseerrSection'
 import { ProfilePictureControl } from '../components/ProfilePictureControl'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { MOTION_LABELS, MOTION_PREFERENCES, type MotionPreference } from '../lib/motion'
 
 const SUBTITLE_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -214,12 +215,24 @@ export function Settings() {
       <JellyseerrSection />
 
       <Section title="Appearance">
-        <Toggle
-          name="reduceMotion"
-          label="Reduce motion"
-          hint="Stops the hero from crossfading and calms card hover effects."
-          checked={settings.reduceMotion}
-        />
+        <Row
+          label="Motion"
+          hint="Crossfades on the hero, card hover effects, count-ups and the recap sequence."
+        >
+          <select
+            aria-label="Motion"
+            value={settings.motion}
+            onChange={(e) => setSetting('motion', e.target.value as MotionPreference)}
+            className="shrink-0 rounded-lg border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35 focus-visible:border-white/60"
+          >
+            {MOTION_PREFERENCES.map((p) => (
+              <option key={p} value={p}>
+                {MOTION_LABELS[p].label}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <p className="-mt-2 text-xs text-white/40">{MOTION_LABELS[settings.motion].hint}</p>
       </Section>
 
       <Section title="About">

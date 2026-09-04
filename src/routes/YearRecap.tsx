@@ -2,10 +2,10 @@ import { useEffect, useMemo } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
-import { useSettings } from '../lib/settings'
 import { useCountUp } from '../lib/useCountUp'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { useReducedMotion } from '../lib/useReducedMotion'
 import {
   ESTIMATE_CAVEAT,
   formatEstimatedTime,
@@ -222,7 +222,7 @@ function Recap({ stats }: { stats: RecapStats }) {
 }
 
 function Tile({ value, label, delay = 0 }: { value: number; label: string; delay?: number }) {
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const shown = useCountUp(value, { enabled: !reduceMotion })
   return (
     <div className="rounded-xl border border-white/10 bg-ink-soft/50 p-5" style={rise(reduceMotion, delay)}>
@@ -283,7 +283,7 @@ function TopList({
 /** A show's own poster, at the size it is drawn rather than a full-size one. */
 function Poster({ item, rank }: { item: PosterRef; rank: number }) {
   const api = useApi()
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const src = api.coverUrl(item as never, 80, 120)
   if (!src) return null
   return (
@@ -308,7 +308,7 @@ function Poster({ item, rank }: { item: PosterRef; rank: number }) {
  */
 function PosterWash({ posters }: { posters: PosterRef[] }) {
   const api = useApi()
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const srcs = posters.map((p) => api.coverUrl(p as never, 160, 240)).filter(Boolean) as string[]
   if (srcs.length === 0) return null
 
@@ -351,7 +351,7 @@ const prettyDay = (key: string | null) =>
  * the subject, and a tie genuinely has no answer.
  */
 function HabitsPanel({ habits, year }: { habits: RecapHabits; year: number }) {
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const streak = useCountUp(habits.longestStreak, { enabled: !reduceMotion })
   const active = useCountUp(habits.activeDays, { enabled: !reduceMotion })
   if (habits.activeDays === 0) return null
@@ -401,7 +401,7 @@ function Fact({ big, unit, label, detail }: { big: string; unit?: string; label:
 
 /** Twelve bars, scaled to the biggest month, so the shape of the year shows. */
 function MonthChart({ months }: { months: number[] }) {
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const peak = Math.max(...months, 1)
   const names = months.map((_, i) =>
     new Intl.DateTimeFormat(undefined, { month: 'narrow', timeZone: 'UTC' }).format(

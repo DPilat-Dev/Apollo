@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
-import { useSettings } from '../lib/settings'
 import { useCountUp } from '../lib/useCountUp'
 import {
   ESTIMATE_CAVEAT,
@@ -17,6 +16,7 @@ import {
 } from '../lib/yearRecap'
 import { SLIDE_MS, advance, storySlides, tapDirection, type StorySlide } from '../lib/recapStory'
 import { CloseIcon } from '../components/icons'
+import { useReducedMotion } from '../lib/useReducedMotion'
 
 /**
  * The year, dealt out one card at a time.
@@ -29,7 +29,7 @@ import { CloseIcon } from '../components/icons'
 export function RecapStory() {
   const api = useApi()
   const navigate = useNavigate()
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const [params] = useSearchParams()
   const preview = params.get('preview')
   const season = useMemo(() => previewSeason(preview) ?? recapSeason(new Date()), [preview])

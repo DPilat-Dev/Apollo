@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
+import { migrateMotion, type MotionPreference } from './motion'
 
 export interface Settings {
   /** Ceiling handed to the server, in bits/sec. 0 means "no cap". */
@@ -6,8 +7,12 @@ export interface Settings {
   autoplayNext: boolean
   /** Turn on the default subtitle track automatically when one exists. */
   subtitlesDefault: boolean
-  /** Skip the billboard's crossfade and card hover animations. */
-  reduceMotion: boolean
+  /*
+    Whether to animate. Three-way rather than a switch so the operating
+    system's own reduced-motion preference can be the default — see `motion.ts`.
+    Was `reduceMotion: boolean`; existing installs are migrated on read.
+  */
+  motion: MotionPreference
   /** Show the Jellyseerr request shelf in search. */
   jellyseerrEnabled: boolean
   /** Request every season of a series in one go, rather than season one only. */
@@ -29,7 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxBitrate: 0,
   autoplayNext: true,
   subtitlesDefault: false,
-  reduceMotion: false,
+  motion: 'system',
   jellyseerrEnabled: true,
   requestAllSeasons: true,
   autoSkipIntros: false,
@@ -54,7 +59,15 @@ const KEY = 'apollo.settings'
 function read(): Settings {
   try {
     const raw = localStorage.getItem(KEY)
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
+    if (!raw) return DEFAULT_SETTINGS
+    const stored = JSON.parse(raw)
+    return {
+      ...DEFAULT_SETTINGS,
+      ...stored,
+      // Not a plain merge: this field changed shape, and a stored `reduceMotion`
+      // would otherwise sit unread beside a `motion` that never got set.
+      motion: migrateMotion(stored),
+    }
   } catch {
     return DEFAULT_SETTINGS
   }
