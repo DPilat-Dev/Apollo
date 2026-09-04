@@ -39,6 +39,8 @@ import type { MediaSegment } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
 import { useSubtitleOffset } from '../lib/useSubtitleOffset'
+import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
+import { useAssSubtitles } from '../lib/useAssSubtitles'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { Scrubber } from '../components/Scrubber'
 import { ChapterList } from '../components/ChapterList'
@@ -883,16 +885,6 @@ export function Player() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
-  // Apply the chosen subtitle track to the <track> elements React rendered.
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v) return
-    Array.from(v.textTracks).forEach((track) => {
-      const idx = Number(track.id)
-      track.mode = textTrackIndex != null && idx === textTrackIndex ? 'showing' : 'disabled'
-    })
-  }, [textTrackIndex, plan])
-
   // Subtitles cut for a different release of the same film run ahead of the
   // audio; this shifts the showing track's cues to meet it.
   const subtitleOffset = useSubtitleOffset({
@@ -902,6 +894,58 @@ export function Player() {
     reloadKey: plan,
   })
   const offsetStatus = subtitleOffsetStatus({ textTrackIndex, burnedSubIndex })
+
+  /*
+    ASS and SSA carry typesetting WebVTT has no way to express — absolute
+    positions, fades, outlines, per-line fonts — and Jellyfin's conversion
+    drops all of it. When the chosen track is one of those, libass draws the
+    original file onto a canvas over the video instead.
+
+    Everything below stays exactly as it was for every other format, and for
+    ASS on a browser or a server where this cannot start: `assActive` is false
+    until libass is genuinely drawing, and the <track> element keeps showing
+    for as long as it is.
+  */
+  const assLayerRef = useRef<HTMLDivElement>(null)
+  const assTrack = useMemo(
+    () =>
+      assTrackFor({
+        subtitles: plan?.subtitles,
+        textTrackIndex,
+        burnedSubIndex,
+        supported: browserCanRenderAss(),
+      }),
+    [plan, textTrackIndex, burnedSubIndex],
+  )
+  const { active: assActive } = useAssSubtitles({
+    videoRef,
+    layerRef: assLayerRef,
+    api,
+    track: assTrack,
+    itemId: item?.Id,
+    mediaSourceId: plan?.mediaSource.Id ?? undefined,
+    startOffsetSeconds: plan?.startOffsetSeconds ?? 0,
+    subtitleOffsetMs: subtitleOffset.offsetMs,
+    sizePercent: settings.subtitleSize,
+    reloadKey: plan,
+  })
+
+  /*
+    Apply the chosen subtitle track to the <track> elements React rendered.
+
+    `assActive` is in here because the two renderers must never both be on:
+    libass is drawing the same dialogue from the original file, and leaving the
+    converted cues showing underneath puts every line on screen twice.
+  */
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    Array.from(v.textTracks).forEach((track) => {
+      const idx = Number(track.id)
+      track.mode =
+        !assActive && textTrackIndex != null && idx === textTrackIndex ? 'showing' : 'disabled'
+    })
+  }, [textTrackIndex, plan, assActive])
 
   // Thumbnails for scrubbing. Absent unless the server has generated them for
   // this item, in which case the scrubber quietly shows just a timecode.
@@ -1075,6 +1119,21 @@ export function Player() {
             />
           ))}
       </video>
+
+      {/*
+        Where libass puts its canvas, when it is drawing an ASS track.
+
+        Empty as far as React is concerned — the canvas is created and removed
+        by the hook, because `transferControlToOffscreen` may only ever be
+        called once on a given element and a canvas React kept across a track
+        change would refuse the second renderer. An always-empty box is also
+        the one shape React will never try to reconcile a foreign child out of.
+
+        `inset-0` over the same box as the video, so the absolute positions the
+        renderer computes from the video's own offsets land where it expects.
+        Pointer-events off: every gesture in this player is on the <video>.
+      */}
+      <div ref={assLayerRef} className="pointer-events-none absolute inset-0" aria-hidden />
 
       {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70">
@@ -1541,6 +1600,21 @@ export function Player() {
                           Reset
                         </button>
                       </div>
+                      {assActive && (
+                        /*
+                          Said out loud because it is not what the number means
+                          on any other track. This file specifies its own sizes
+                          and its own colours; the percentage multiplies the
+                          former, and nothing here can honestly claim the
+                          latter — so the colour and background settings do not
+                          apply, and pretending they did would be worse than
+                          saying so.
+                        */
+                        <MenuEmpty>
+                          Scales this track’s own typesetting. Its colours come from the
+                          subtitle file.
+                        </MenuEmpty>
+                      )}
                     </MenuGroup>
 
                     <MenuGroup title="Audio">

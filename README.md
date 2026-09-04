@@ -767,6 +767,45 @@ the reset lands back on the file's own timings. A burned-in track says so
 instead of offering the control — those subtitles are already in the picture.
 The delay is per track and per item, and survives a stream reload.
 
+### ASS and SSA subtitles
+
+Jellyfin converts ASS/SSA to WebVTT for the `<track>` element, and WebVTT
+cannot express most of what those files say — absolute `\pos` placement, fades,
+blurs, outlines, per-line fonts and colours. Worse, the conversion drops the
+`[Script Info]` header, so the resolution every one of those coordinates is
+measured against is not even knowable client-side.
+
+So for those two formats — and only those two; SubRip is fine as it is, and
+image tracks are burned in by the server — Apollo fetches the file itself from
+`/Videos/{id}/{source}/Subtitles/{index}/0/Stream.ass` and renders it with
+[libass](https://github.com/libass/libass), compiled to WebAssembly by
+[JASSUB](https://github.com/ThaUnknown/jassub), onto a canvas over the video.
+
+The WASM is around 2 MB, so like hls.js it is behind a dynamic import and never
+touches the initial bundle. Everything about it is best-effort: the `<track>`
+element stays showing until libass is actually drawing, and any failure — the
+fetch, the worker, the WASM, a browser without `OffscreenCanvas` — leaves it
+showing. Nobody ends up with no subtitles because the better renderer did not
+start.
+
+Two controls mean something different on this path:
+
+| Control | On `<track>` | On libass |
+| --- | --- | --- |
+| Subtitle delay | Shifts the cue times | Shifts the renderer's own clock |
+| Subtitle size | `::cue { font-size }` | Multiplies the script's own sizes |
+
+Size is done by rewriting the `Fontsize` column of each style and every `\fs`
+override, rather than by scaling the canvas or the declared resolution: the
+positions in the file are in that same coordinate space, so scaling geometry
+would move every sign off the thing it labels. Colour and background settings
+do not apply — an ASS file specifies its own — and the menu says so rather than
+offering controls that do nothing.
+
+Fonts come from the server's `/FallbackFont/Fonts` where an admin has
+configured any (capped, since each one is fetched before the first line is
+drawn), with libass's bundled Liberation Sans as the default.
+
 Reloads resume from the current position, not from the start: `resumeTargetRef`
 is set to wherever playback is before the query key changes.
 

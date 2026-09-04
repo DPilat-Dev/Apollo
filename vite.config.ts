@@ -50,6 +50,12 @@ export default defineConfig({
     // keeps the warning meaningful for chunks we control.
     chunkSizeWarningLimit: 600,
   },
+  worker: {
+    // JASSUB starts libass with `new Worker(url, { type: 'module' })`, so the
+    // file that URL points at has to be an ES module. The default here is an
+    // IIFE, which a module worker will not execute.
+    format: 'es',
+  },
   plugins: [react(), tailwindcss(), apolloRuntime()],
   server: {
     host: true,

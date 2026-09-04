@@ -1,6 +1,7 @@
 import { personRequestPath } from './persons'
 import { devicesRequest, summariseDevices } from './devices'
 import { pluginConfigPath, pluginTogglePath } from './plugins'
+import { FALLBACK_FONT_LIST_PATH, assStreamPath, fallbackFontPath } from './assSubtitles'
 import { blobToBase64, canEditUserImage } from './userImages'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
@@ -14,6 +15,7 @@ import type {
   CultureDto,
   EncodingOptions,
   FileSystemEntryInfo,
+  FontFile,
   ItemCounts,
   LibraryOptions,
   LocalizationOption,
@@ -712,6 +714,52 @@ export class JellyfinApi {
     )
     // Jellyfin returns a QueryResult here, but a bare array elsewhere; accept both.
     return Array.isArray(res) ? res : (res?.Items ?? [])
+  }
+
+  /**
+   * The subtitle file exactly as it sits in the container, for libass.
+   *
+   * Not `request`, because this is not JSON, and not `authedUrl`, because
+   * nothing here is loaded by an element that cannot set a header — so the
+   * token stays out of the URL. A refusal throws, which is what lets the
+   * caller fall back to the `<track>` element rather than showing an error
+   * page where the dialogue should be.
+   */
+  async assSubtitle(itemId: string, mediaSourceId: string, index: number): Promise<string> {
+    const path = assStreamPath(itemId, mediaSourceId, index)
+    const res = await fetch(this.url(path), {
+      headers: { Authorization: authHeader(this.session.token) },
+    })
+    if (!res.ok) {
+      throw new ApiError(`Could not read the subtitle file (${res.status})`, res.status)
+    }
+    return res.text()
+  }
+
+  /**
+   * Fonts the server keeps for subtitles that name one it does not embed.
+   *
+   * The folder is opt-in and most servers never set it, so an empty list is
+   * the ordinary answer — as is a refusal from a server that has the feature
+   * turned off entirely. Neither is worth failing subtitle rendering over,
+   * which is why this swallows rather than throws.
+   */
+  async fallbackFonts(): Promise<FontFile[]> {
+    try {
+      return await this.requestArray<FontFile>(FALLBACK_FONT_LIST_PATH)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * A fallback font's URL, token and all.
+   *
+   * libass fetches its fonts from inside the WASM worker, which is handed a
+   * string and has no way to attach a header to it.
+   */
+  fallbackFontUrl(name: string) {
+    return this.authedUrl(fallbackFontPath(name))
   }
 
   /** Trailer files held on the server, playable like any other item. */
