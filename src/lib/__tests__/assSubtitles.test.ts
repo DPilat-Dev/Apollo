@@ -215,6 +215,7 @@ describe('assTrackFor', () => {
     textTrackIndex: 2,
     burnedSubIndex: undefined,
     supported: true,
+    enabled: true,
   }
 
   it('picks the showing track when it is ASS and the browser can draw it', () => {
@@ -392,5 +393,49 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\fs48}Hi
   it('does not touch a Fontsize-looking field outside the styles section', () => {
     const out = scaleAssFontSizes(SAMPLE, 200)
     expect(out).toContain('Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello there')
+  })
+})
+
+/*
+  The viewer's own switch, which is not the same question as whether the
+  browser can do it. Three unrelated reasons to want it off: two megabytes of
+  WebAssembly, a canvas laid out for the Fit aspect that cannot follow a
+  cropped picture under Fill or Stretch, and a weak device.
+*/
+describe('assTrackFor respects the setting', () => {
+  const track = () => ({
+    index: 2,
+    codec: 'ass',
+    assUrl: '/Videos/i/m/Subtitles/2/0/Stream.ass',
+    label: 'English',
+    url: '/x.vtt',
+    language: 'eng',
+    isDefault: false,
+  })
+  const args = (over = {}) => ({
+    subtitles: [track()] as never,
+    textTrackIndex: 2,
+    burnedSubIndex: undefined,
+    supported: true,
+    enabled: true,
+    ...over,
+  })
+
+  it('draws with libass when the setting is on', () => {
+    expect(assTrackFor(args())?.index).toBe(2)
+  })
+
+  it('hands an ASS track back to the text path when the setting is off', () => {
+    expect(assTrackFor(args({ enabled: false }))).toBeNull()
+  })
+
+  it('stays off even where the browser is perfectly capable', () => {
+    // The switch is a preference, not a capability check — the two must not be
+    // conflated, or turning it off would look like a broken browser.
+    expect(assTrackFor(args({ enabled: false, supported: true }))).toBeNull()
+  })
+
+  it('is still off when the browser cannot, whatever the setting says', () => {
+    expect(assTrackFor(args({ enabled: true, supported: false }))).toBeNull()
   })
 })

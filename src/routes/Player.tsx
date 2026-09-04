@@ -914,9 +914,24 @@ export function Player() {
         textTrackIndex,
         burnedSubIndex,
         supported: browserCanRenderAss(),
+        enabled: settings.assTypesetting,
       }),
+    [plan, textTrackIndex, burnedSubIndex, settings.assTypesetting],
+  )
+  /* Whether the switch is worth showing at all: an ASS track this browser
+     could draw, setting aside whether the viewer wants it. */
+  const assCandidate = useMemo(
+    () =>
+      assTrackFor({
+        subtitles: plan?.subtitles,
+        textTrackIndex,
+        burnedSubIndex,
+        supported: browserCanRenderAss(),
+        enabled: true,
+      }) != null,
     [plan, textTrackIndex, burnedSubIndex],
   )
+
   const { active: assActive } = useAssSubtitles({
     videoRef,
     layerRef: assLayerRef,
@@ -1575,6 +1590,28 @@ export function Player() {
                       watching, and leaving the player to fix it means leaving
                       the thing you were judging it against.
                     */}
+                    {/*
+                      Offered wherever an ASS track is showing, because the
+                      reasons to turn it off are all noticed while watching:
+                      a sign that will not follow a cropped picture, or a
+                      device struggling with the canvas.
+                    */}
+                    {assCandidate && (
+                      <MenuGroup title="Typesetting">
+                        <MenuItem
+                          active={settings.assTypesetting}
+                          hint={
+                            settings.assTypesetting
+                              ? 'Signs and captions are drawn where they were placed.'
+                              : 'Plain text, positioned by the player.'
+                          }
+                          onClick={() => setSetting('assTypesetting', !settings.assTypesetting)}
+                        >
+                          Keep the original typesetting
+                        </MenuItem>
+                      </MenuGroup>
+                    )}
+
                     <MenuGroup title="Subtitle size">
                       <div className="flex items-center gap-2 px-3 py-1.5">
                         <StepButton

@@ -156,13 +156,25 @@ export function assTrackFor({
   textTrackIndex,
   burnedSubIndex,
   supported,
+  enabled,
 }: {
   subtitles: SubtitleTrack[] | undefined
   textTrackIndex: number | null
   burnedSubIndex: number | undefined
   supported: boolean
+  /*
+    The viewer's choice, separate from whether the browser can do it at all.
+
+    Worth having for three reasons that have nothing to do with each other: it
+    is two megabytes of WebAssembly nobody should be made to fetch, the canvas
+    is laid out for the player's Fit aspect and so cannot follow a cropped
+    picture under Fill or Stretch, and a weak device may simply do better with
+    plain text. Off, an ASS track falls back to the same cleaned-up `<track>`
+    path SubRip uses.
+  */
+  enabled: boolean
 }): SubtitleTrack | null {
-  if (!supported || burnedSubIndex != null || textTrackIndex == null) return null
+  if (!enabled || !supported || burnedSubIndex != null || textTrackIndex == null) return null
   const track = subtitles?.find((s) => s.index === textTrackIndex)
   if (!track?.assUrl || !isAssCodec(track.codec)) return null
   return track
