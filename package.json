@@ -1,7 +1,7 @@
 {
   "name": "apollo",
   "private": true,
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "A modern, Netflix-style web client for Jellyfin.",
   "homepage": "https://dpilat-dev.github.io/Apollo/",
   "repository": {
