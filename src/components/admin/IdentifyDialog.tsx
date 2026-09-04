@@ -8,7 +8,7 @@ import {
   remoteSearchQuery,
   replaceArtworkByDefault,
 } from '../../lib/identify'
-import { Modal } from './LibrariesPanel'
+import { Modal } from '../Modal'
 import { Section, ToggleRow, ToggleRows } from './controls'
 
 const inputClass =

@@ -6,6 +6,8 @@ import { FilterBar } from '../components/FilterBar'
 import { useApi } from '../lib/auth'
 import { useViews } from '../lib/queries'
 import { browsableTypes } from '../lib/collections'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 import {
   NO_FILTERS,
   filterCacheKey,
@@ -115,6 +117,8 @@ export function Library() {
 
   const total = query.data?.pages[0]?.TotalRecordCount
   const filtered = isFilterActive(filters)
+
+  useDocumentTitle(pageTitle(view?.Name))
 
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">

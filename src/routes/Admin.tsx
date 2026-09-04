@@ -24,6 +24,8 @@ import { ConnectionsPanel } from '../components/admin/ConnectionsPanel'
 import { GeneralPanel } from '../components/admin/GeneralPanel'
 import { PlaybackPanel } from '../components/admin/PlaybackPanel'
 import { LibrariesPanel } from '../components/admin/LibrariesPanel'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 import {
   ActivityPanel,
   ApiKeysPanel,
@@ -51,6 +53,7 @@ type Tab = (typeof TABS)[number]
 
 
 export function Admin() {
+  useDocumentTitle(pageTitle('Dashboard'))
   const me = useCurrentUser()
 
   // Wait for the policy before deciding — redirecting on a pending query would

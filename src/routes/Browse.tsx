@@ -19,6 +19,8 @@ import {
 import { personRedirect } from '../lib/persons'
 import { collectionInView } from '../lib/boxSets'
 import { useCanManageCollections, useRemoveFromCollection } from '../lib/queries'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 const PAGE_SIZE = 60
 
@@ -78,6 +80,7 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const parentId = params.get('parentId') ?? undefined
   const filters = useMemo(() => parseFilters(params), [params])
   const title = params.get('name') || filters.genre || 'Browse'
+  useDocumentTitle(pageTitle(title))
   const kind = params.get('kind') ?? ''
 
   const { sorts, fallback } = sortContextFor(Boolean(parentId))
@@ -162,6 +165,7 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   }, [query])
 
   if (handOff) return <Navigate to={handOff} replace />
+
 
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">

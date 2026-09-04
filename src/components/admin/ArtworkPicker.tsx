@@ -8,7 +8,7 @@ import {
   artworkThumbnail,
   type ArtworkKind,
 } from '../../lib/artwork'
-import { Modal } from './LibrariesPanel'
+import { Modal } from '../Modal'
 import { Section, ToggleRow, ToggleRows } from './controls'
 
 /**

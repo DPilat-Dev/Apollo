@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './lib/auth'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
+import { useScrollRestoration } from './lib/useScrollRestoration'
 import { ShortcutsModal } from './components/ShortcutsModal'
 import { isTypingTarget } from './lib/shortcuts'
 import { Home } from './routes/Home'
@@ -72,22 +73,18 @@ function RouteSpinner() {
   )
 }
 
-/** Browse chrome: nav + scroll reset. The player deliberately opts out of both. */
+/** Browse chrome: nav + scroll handling. The player deliberately opts out of both. */
 function BrowseLayout() {
   const { pathname } = useLocation()
 
   /*
-    Block body, deliberately. Written as `useEffect(() => window.scrollTo(0, 0))`
-    the arrow returns whatever scrollTo returns, and React treats an effect's
-    return value as its cleanup function. Production React only checks that the
-    value is not undefined before calling it — it never checks it is callable —
-    so on any browser where scrollTo returns something instead of undefined,
-    the next navigation threw `is not a function` from the commit phase. That
-    unmounted the tree and left a black page.
+    Was an unconditional `window.scrollTo(0, 0)` on every path change, which is
+    right for following a link and wrong for going back: twenty rows into a
+    library, open a show, press back, and you were at the top again. The rules
+    now live in `scrollMemory.ts` and the waiting-for-content part, which the
+    browser's own scrollRestoration cannot do, in `useScrollRestoration`.
   */
-  useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [pathname])
+  useScrollRestoration()
 
   return (
     <>

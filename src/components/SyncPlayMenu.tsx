@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSyncPlay } from '../lib/syncplay'
 import { SyncPlayIcon } from './icons'
+import { useDismissOnEscape } from '../lib/useDismissOnEscape'
 
 /**
  * Group controls for the player.
@@ -17,6 +18,10 @@ export function SyncPlayMenu() {
   useEffect(() => {
     if (open) void sync?.refreshGroups()
   }, [open, sync])
+
+  // Above the early return, and unconditional: closing an already-closed menu
+  // is a no-op, so it needs no guard of its own.
+  useDismissOnEscape(() => setOpen(false))
 
   if (!sync) return null
 

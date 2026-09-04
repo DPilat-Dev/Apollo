@@ -6,6 +6,7 @@ import { displayTitle, episodeCode } from '../lib/format'
 import { blurhashBackground } from '../lib/blurhash'
 import { jumpInQueue, moveInQueue, removeFromQueue, type PlayQueue } from '../lib/queue'
 import { ChevronDown, TrashIcon } from './icons'
+import { useDismissOnEscape } from '../lib/useDismissOnEscape'
 
 /**
  * The running order, opened from the player.
@@ -49,6 +50,8 @@ export function QueuePanel({
     for (const episode of episodes.data ?? []) if (episode.Id) map.set(episode.Id, episode)
     return map
   }, [episodes.data])
+
+  useDismissOnEscape(onClose)
 
   return (
     <>

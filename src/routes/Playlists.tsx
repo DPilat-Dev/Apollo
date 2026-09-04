@@ -4,9 +4,12 @@ import { useApi } from '../lib/auth'
 import { useCreatePlaylist, usePlaylists } from '../lib/queries'
 import { CardSkeleton } from '../components/MediaCard'
 import { PlusIcon } from '../components/icons'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 /** Every playlist this user can see, plus a way to start a new one. */
 export function Playlists() {
+  useDocumentTitle(pageTitle('Playlists'))
   const api = useApi()
   const { data, isLoading, error } = usePlaylists()
   const create = useCreatePlaylist()

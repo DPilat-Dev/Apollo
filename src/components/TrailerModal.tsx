@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useLocalTrailers } from '../lib/queries'
 import { remoteTrailers } from '../lib/trailers'
 import { displayTitle } from '../lib/format'
 import { PlayIcon } from './icons'
+import { useDialog } from '../lib/useDialog'
 
 /**
  * Trailer playback.
@@ -20,25 +21,20 @@ export function TrailerModal({ item, onClose }: { item: BaseItemDto; onClose: ()
   const remotes = remoteTrailers(item)
   const [playing, setPlaying] = useState<string | null>(null)
 
-  // Escape closes, as it does everywhere else in the app.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   const localItems = locals.data ?? []
   // One embeddable trailer and nothing else: skip the list and just play it.
   const only = remotes.length === 1 && localItems.length === 0 ? remotes[0] : null
   const active = playing ?? only?.embedUrl ?? null
 
+  const { titleId, dialogProps } = useDialog({ onClose })
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-4xl">
+      <div {...dialogProps} className="relative w-full max-w-4xl outline-none">
         <div className="mb-3 flex items-center justify-between gap-4">
-          <h2 className="truncate text-lg font-semibold text-white">
+          <h2 id={titleId} className="truncate text-lg font-semibold text-white">
             {displayTitle(item)} <span className="text-white/45">— trailer</span>
           </h2>
           <button

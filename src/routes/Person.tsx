@@ -3,6 +3,8 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
 import { Browse } from './Browse'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 import {
   bioIsLong,
   personBio,
@@ -45,6 +47,8 @@ export function Person() {
     // does not make it exist.
     retry: false,
   })
+
+  useDocumentTitle(pageTitle(person?.Name || name))
 
   /*
     Straight through `imageUrl`, which builds `/Items/{id}/Images/Primary`.

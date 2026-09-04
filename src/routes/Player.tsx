@@ -80,6 +80,9 @@ import {
   SubtitlesIcon,
   VolumeIcon,
 } from '../components/icons'
+import { useDismissOnEscape } from '../lib/useDismissOnEscape'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { pageTitle } from '../lib/pageTitle'
 
 const IDLE_MS = 3000
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
@@ -1092,6 +1095,7 @@ export function Player() {
 
   const title = item ? displayTitle(item) : ''
   const sub = item && item.Type === 'Episode' ? `${episodeCode(item) ?? ''} · ${item.Name}` : null
+  useDocumentTitle(pageTitle(item?.Name, item?.SeriesName))
   const activeSubtitle = plan?.subtitles.find(
     (s) => s.index === (burnedSubIndex ?? textTrackIndex),
   )
@@ -1880,6 +1884,13 @@ function Popover({
   wide?: boolean
   children: React.ReactNode
 }) {
+  /*
+    Not a dialog: the video behind is still playing and still takes every
+    gesture, so trapping a keyboard in here would be a lie about what is
+    reachable. Escape and a click anywhere are both ways out.
+  */
+  useDismissOnEscape(onClose)
+
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
