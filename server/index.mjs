@@ -11,26 +11,11 @@ import http from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { handleConfigRequest, proxyJellyseerr, readConfig } from './runtime.mjs'
-import { wantsSpaFallback } from './static.mjs'
+import { wantsSpaFallback, contentTypeFor } from './static.mjs'
 
 const PORT = Number(process.env.PORT ?? 4173)
 const DIST = process.env.APOLLO_DIST ?? path.resolve(process.cwd(), 'dist')
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.woff2': 'font/woff2',
-  '.ico': 'image/x-icon',
-  // Browsers ignore a manifest served as anything else, which silently costs
-  // installability with nothing in the console to explain it.
-  '.webmanifest': 'application/manifest+json',
-  '.txt': 'text/plain; charset=utf-8',
-}
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -67,7 +52,7 @@ function serveStatic(req, res) {
 
   const ext = path.extname(file)
   res.writeHead(200, {
-    'Content-Type': MIME[ext] ?? 'application/octet-stream',
+    'Content-Type': contentTypeFor(file),
     // Hashed assets are immutable; index.html must never be cached.
     'Cache-Control': file.endsWith('index.html')
       ? 'no-cache'
