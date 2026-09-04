@@ -8,12 +8,12 @@ import {
   playedFraction,
   remainingLabel,
 } from '../lib/format'
-import { useSettings } from '../lib/settings'
 import { blurhashBackground } from '../lib/blurhash'
 import { boxSetHref } from '../lib/boxSets'
 import { useTogglePlayed } from '../lib/queries'
 import { MatchBadge } from './MatchBadge'
 import { PlayIcon, ChevronDown, CloseIcon, WatchedIcon } from './icons'
+import { useReducedMotion } from '../lib/useReducedMotion'
 
 export type CardShape = 'poster' | 'landscape'
 
@@ -47,7 +47,7 @@ export function MediaCard({
 }: Props) {
   const api = useApi()
   const navigate = useNavigate()
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const played = useTogglePlayed()
 
   const isLandscape = shape === 'landscape'

@@ -6,6 +6,8 @@ import { useAuth } from './lib/auth'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
 import { useScrollRestoration } from './lib/useScrollRestoration'
+import { useReducedMotion } from './lib/useReducedMotion'
+import { motionAttribute } from './lib/motion'
 import { ShortcutsModal } from './components/ShortcutsModal'
 import { isTypingTarget } from './lib/shortcuts'
 import { Home } from './routes/Home'
@@ -14,7 +16,6 @@ import { Library } from './routes/Library'
 import { Login } from './routes/Login'
 import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
-import { Person } from './routes/Person'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
 import { History } from './routes/History'
@@ -22,6 +23,7 @@ import { Collections } from './routes/Collections'
 import { YearRecap } from './routes/YearRecap'
 import { RecapStory } from './routes/RecapStory'
 import { PlaylistDetail } from './routes/PlaylistDetail'
+import { Person } from './routes/Person'
 
 // hls.js is ~500 kB and only the player needs it, so keep it out of the entry chunk.
 const Player = lazyWithReload(() =>
@@ -108,6 +110,17 @@ export default function App() {
   const { helpOpen, closeHelp } = useGlobalShortcuts(Boolean(session))
   // Keeps the server's custom CSS applied across every signed-in screen.
   useBranding(session?.server)
+
+  /*
+    Published once, here, so stylesheets answer the same question the
+    components do. They could ask `prefers-reduced-motion` themselves, but then
+    a viewer who overrode the system preference would get a calm recap and
+    restless skeletons underneath it.
+  */
+  const reduceMotion = useReducedMotion()
+  useEffect(() => {
+    document.documentElement.dataset.motion = motionAttribute(reduceMotion)
+  }, [reduceMotion])
 
   if (!session) {
     // Sign-in needs a boundary too. It is the one screen a user cannot

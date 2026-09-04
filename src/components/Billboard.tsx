@@ -5,8 +5,8 @@ import { useApi } from '../lib/auth'
 import { blurhashBackground } from '../lib/blurhash'
 import { displayTitle, episodeCode, formatRuntime, isResumable, playedFraction } from '../lib/format'
 import { MatchBadge } from './MatchBadge'
-import { useSettings } from '../lib/settings'
 import { InfoIcon, PlayIcon } from './icons'
+import { useReducedMotion } from '../lib/useReducedMotion'
 
 /**
  * Full-bleed hero at the top of Home, cycling through five candidates every 12s.
@@ -18,7 +18,7 @@ import { InfoIcon, PlayIcon } from './icons'
 export function Billboard({ items }: { items: BaseItemDto[] }) {
   const api = useApi()
   const navigate = useNavigate()
-  const { reduceMotion } = useSettings()
+  const reduceMotion = useReducedMotion()
   const [index, setIndex] = useState(0)
 
   const pool = items.slice(0, 5)

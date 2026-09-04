@@ -215,3 +215,72 @@ input[type='range'].scrubber::-moz-range-track {
   border-radius: 9999px;
   background: transparent;
 }
+
+/*
+  Less movement, for anyone who asked for it — through the attribute App stamps
+  rather than the media query directly, so an explicit override in Settings is
+  honoured here too. See `lib/motion.ts`.
+
+  The recap screens already skip their sequences in JavaScript. These three
+  only ever existed in CSS and so no setting ever reached them: the skeleton
+  shimmer on every loading grid, the double-tap seek flash, and the pill behind
+  a volume swipe.
+
+  The two player affordances are not simply switched off. Both fade as well as
+  scale, and it is the scaling that anyone asking for less motion means; a
+  fade is how a transient notice arrives. Removing the animation outright would
+  be worse than either: `seek-flash` ends at `opacity: 0` with `forwards`, so
+  jumping to its finished state means the seek confirmation never appears at
+  all. They get still variants that keep the timing and drop the movement.
+*/
+@keyframes seek-flash-still {
+  0% {
+    opacity: 0;
+  }
+  15%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes gesture-pill-still {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+:root[data-motion='reduced'] {
+  /* A continuous slide across every loading card. Nothing is lost by stopping
+     it: the card underneath already reads as "not here yet". */
+  .skeleton::after {
+    animation: none;
+  }
+
+  /* Matched on the class because these are Tailwind arbitrary animations —
+     `animate-[seek-flash_650ms_ease-out_forwards]` — not inline styles. The
+     duration and fill mode on the class are kept; only the name is swapped,
+     so the timing stays and the transform steps disappear. */
+  [class*='seek-flash'] {
+    animation-name: seek-flash-still;
+  }
+
+  [class*='gesture-pill'] {
+    animation-name: gesture-pill-still;
+  }
+
+  /* Everything else that moves. Colour transitions get collapsed too, which
+     is a snap rather than a fade on hover — the alternative is enumerating
+     every transition in the app and keeping that list correct. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
