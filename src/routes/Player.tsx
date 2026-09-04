@@ -32,6 +32,7 @@ import { useTapGestures, type TapFeedback } from '../lib/useTapGestures'
 import { usePressGestures, type PressFeedback } from '../lib/usePressGestures'
 import { HOLD_RATE } from '../lib/pressGesture'
 import { useWakeLock } from '../lib/useWakeLock'
+import { playerLoadingMessage } from '../lib/playerLoading'
 import { useOrientationLock } from '../lib/useOrientationLock'
 import { useSyncPlay } from '../lib/syncplay'
 import { creditsStartSeconds, segmentAt, shouldAutoSkip, usableSegments } from '../lib/segments'
@@ -1074,6 +1075,18 @@ export function Player() {
     [api, item],
   )
 
+  /*
+    `plan` is the tell for a reload rather than a first load: it holds the
+    stream that was playing until the new one resolves, so a change has one
+    and an opening item does not.
+  */
+  const loadingMessage = playerLoadingMessage({
+    burnedSubIndex,
+    reloading: streamQuery.isLoading && plan != null,
+    firstLoad: playable.isLoading || (streamQuery.isLoading && plan == null),
+    buffering: waiting,
+  })
+
   const asMessage = (e: unknown) => (e instanceof Error ? e.message : null)
   const failure = error ?? asMessage(playable.error) ?? asMessage(streamQuery.error) ?? null
 
@@ -1151,8 +1164,21 @@ export function Player() {
       <div ref={assLayerRef} className="pointer-events-none absolute inset-0" aria-hidden />
 
       {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/70 px-8 text-center">
           <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
+          {/*
+            Only where the wait is longer than a spinner implies. Burning in an
+            image subtitle re-encodes the video, which is tens of seconds on a
+            large file — unexplained, that reads as the player having hung.
+          */}
+          {loadingMessage && (
+            <div className="max-w-sm">
+              <p className="text-sm font-semibold">{loadingMessage.headline}</p>
+              {loadingMessage.detail && (
+                <p className="mt-1 text-xs leading-relaxed text-white/50">{loadingMessage.detail}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
