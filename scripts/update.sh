@@ -136,7 +136,9 @@ fetch_prebuilt() {
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
 
-  local base="https://github.com/${REPO}/releases/download/${tag}"
+  # Overridable so this path can be exercised against a local server, and so a
+  # deployment behind a mirror is not forced to build instead.
+  local base="${APOLLO_RELEASE_BASE:-https://github.com/${REPO}/releases/download}/${tag}"
   curl -fsSL --retry 3 -o "$tmp/$asset" "$base/$asset" || return 1
   curl -fsSL --retry 3 -o "$tmp/$asset.sha256" "$base/$asset.sha256" || return 1
 
@@ -151,7 +153,10 @@ fetch_prebuilt() {
   # Into place only once it has extracted cleanly: a half-unpacked dist over
   # the live one is a broken site with no way back.
   rm -rf "$tmp/unpack" && mkdir -p "$tmp/unpack"
-  tar -xzf "$tmp/$asset" -C "$tmp/unpack" || return 1
+  # --no-same-owner: root would otherwise restore whatever uid the archive
+  # records, which is the build machine's and means nothing here. The chown at
+  # the end of this script is what decides who owns these files.
+  tar -xzf "$tmp/$asset" -C "$tmp/unpack" --no-same-owner || return 1
   [[ -f "$tmp/unpack/dist/index.html" ]] || return 1
 
   rm -rf "$APP_DIR/dist"
