@@ -16,6 +16,7 @@ import { ProfilePictureControl } from '../components/ProfilePictureControl'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { MOTION_LABELS, MOTION_PREFERENCES, type MotionPreference } from '../lib/motion'
+import { THEME_LABELS, THEME_PREFERENCES, type ThemePreference } from '../lib/theme'
 import {
   SUBTITLE_FONT_LABELS,
   SUBTITLE_FONTS,
@@ -265,6 +266,22 @@ export function Settings() {
       <JellyseerrSection />
 
       <Section title="Appearance">
+        <Row label="Theme" hint="The player and the home page's hero stay dark whatever this says — they sit on a picture.">
+          <select
+            aria-label="Theme"
+            value={settings.theme}
+            onChange={(e) => setSetting('theme', e.target.value as ThemePreference)}
+            className="shrink-0 rounded-lg border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35 focus-visible:border-white/60"
+          >
+            {THEME_PREFERENCES.map((t) => (
+              <option key={t} value={t}>
+                {THEME_LABELS[t].label}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <p className="-mt-2 px-4 pb-2 text-xs text-white/40">{THEME_LABELS[settings.theme].hint}</p>
+
         <Row
           label="Motion"
           hint="Crossfades on the hero, card hover effects, count-ups and the recap sequence."

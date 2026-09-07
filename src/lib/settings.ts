@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { migrateMotion, type MotionPreference } from './motion'
+import type { ThemePreference } from './theme'
 import type { SubtitleFont } from './subtitleStyle'
 
 export interface Settings {
@@ -14,6 +15,8 @@ export interface Settings {
     Was `reduceMotion: boolean`; existing installs are migrated on read.
   */
   motion: MotionPreference
+  /** Light or dark, or whatever the device says. See `theme.ts`. */
+  theme: ThemePreference
   /** Show the Jellyseerr request shelf in search. */
   jellyseerrEnabled: boolean
   /** Request every season of a series in one go, rather than season one only. */
@@ -46,6 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoplayNext: true,
   subtitlesDefault: false,
   motion: 'system',
+  theme: 'dark',
   jellyseerrEnabled: true,
   requestAllSeasons: true,
   autoSkipIntros: false,

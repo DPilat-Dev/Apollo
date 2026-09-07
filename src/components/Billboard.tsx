@@ -29,6 +29,10 @@ import { useReducedMotion } from '../lib/useReducedMotion'
 */
 const HERO_HEIGHT = 'h-[68vh] min-h-[30rem] w-full sm:h-[84vh]'
 
+// Its title and buttons sit on a backdrop, so they keep the dark palette
+// whatever the rest of the page is doing.
+const HERO_SURFACE = `on-media ${HERO_HEIGHT}`
+
 export function Billboard({ items }: { items: BaseItemDto[] }) {
   const api = useApi()
   const navigate = useNavigate()
@@ -46,7 +50,7 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
   // Same box as the real thing, holding the space open rather than filling it:
   // a skeleton here would be a large bright rectangle on what is usually a
   // sub-second wait.
-  if (pool.length === 0) return <div className={HERO_HEIGHT} aria-hidden />
+  if (pool.length === 0) return <div className={HERO_SURFACE} aria-hidden />
 
   // The hero spans the viewport, so ask for what is actually on screen rather
   // than a fixed 1920 that is too small on a wide display and wasteful on a phone.
@@ -66,7 +70,7 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
       : null
 
   return (
-    <header className={`relative ${HERO_HEIGHT}`}>
+    <header className={`relative ${HERO_SURFACE}`}>
       {pool.map((candidate, i) => {
         const src = api.heroBackdropUrl(candidate, heroWidth)
         if (!src) return null
@@ -93,8 +97,25 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
       {!backdrop && <div className="absolute inset-0 bg-ink-soft" />}
 
       {/* Two-axis scrim: bottom fade into the rows, left fade behind the copy. */}
-      <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/30 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/50 to-transparent" />
+      {/*
+        Two gradients doing two different jobs, which only became visible once
+        there was a light theme.
+
+        Upward: the hero dissolving into the page, so the rows that ride up
+        into it have something to arrive on. That has to reach whatever the
+        page is painted — `page`, not `ink`, because `ink` inside `on-media` is
+        the dark palette's and would leave a dark band across a light page.
+
+        Rightward: the scrim that makes the title and synopsis legible over a
+        photograph. That is not a transition to anything and stays dark in both
+        themes; `ink` here is the dark value, by way of `on-media`.
+      */}
+      <div className="absolute inset-0 bg-gradient-to-t from-page via-page/30 to-transparent" />
+      {/* Stopping short of the bottom edge: the first row rides up into the
+          hero by design, and a dark scrim running the full height put its
+          title on a dark ground in the light theme — half a heading legible
+          and half not. It only ever needed to cover the text above it. */}
+      <div className="absolute inset-x-0 bottom-20 top-0 bg-gradient-to-r from-ink via-ink/50 to-transparent" />
 
       {/*
         Bottom padding here must exceed the negative margin Home applies to the

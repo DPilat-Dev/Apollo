@@ -92,8 +92,17 @@ export function TopNav() {
     }`
 
   return (
+    /*
+      `on-media` in both states, and deliberately.
+
+      Unscrolled, this bar floats over the home page's hero — a photograph —
+      and its links have to be legible against it. Scrolled, it is its own dark
+      surface. Following the page's palette instead would put dark links on a
+      dark photograph the moment anyone opened the home page in the light
+      theme, which is precisely what this exists to avoid.
+    */
     <nav
-      className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${
+      className={`on-media fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${
         scrolled ? 'bg-ink/95 backdrop-blur-md shadow-lg shadow-black/40' : 'bg-gradient-to-b from-black/80 to-transparent'
       }`}
     >
