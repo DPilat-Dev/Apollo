@@ -122,7 +122,7 @@ export function RecapStory() {
 
   if (settling || slides.length === 0) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-ink">
+      <div className="on-media flex h-dvh items-center justify-center bg-ink">
         <div className="size-10 animate-spin rounded-full border-3 border-white/15 border-t-accent" />
       </div>
     )
@@ -132,7 +132,7 @@ export function RecapStory() {
 
   return (
     <div
-      className="relative flex h-dvh select-none flex-col overflow-hidden bg-ink"
+      className="on-media relative flex h-dvh select-none flex-col overflow-hidden bg-ink"
       style={{ touchAction: 'manipulation' }}
       onPointerDown={(e) => {
         if (e.pointerType === 'touch') setPaused(true)

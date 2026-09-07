@@ -2,12 +2,15 @@ import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react
 import { Suspense, useEffect, useState } from 'react'
 import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { useAuth } from './lib/auth'
+import { useApi, useAuth } from './lib/auth'
+import { useSettingsSync } from './lib/useSettingsSync'
+import { useQueryPersistence } from './lib/useQueryPersistence'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
 import { useScrollRestoration } from './lib/useScrollRestoration'
 import { useReducedMotion } from './lib/useReducedMotion'
 import { motionAttribute } from './lib/motion'
+import { useTheme } from './lib/useTheme'
 import { ShortcutsModal } from './components/ShortcutsModal'
 import { isTypingTarget } from './lib/shortcuts'
 import { Home } from './routes/Home'
@@ -107,9 +110,25 @@ function BrowseLayout() {
 
 export default function App() {
   const { session } = useAuth()
+  const api = useApi()
   const { helpOpen, closeHelp } = useGlobalShortcuts(Boolean(session))
   // Keeps the server's custom CSS applied across every signed-in screen.
   useBranding(session?.server)
+
+  /*
+    Settings that describe the viewer rather than this device follow the
+    account, through Jellyfin's own per-user preference store. Which ones, and
+    what happens when the two copies disagree, is `settingsSync.ts`.
+  */
+  useSettingsSync(session ? api : null, session?.userId)
+
+  /*
+    The query cache, kept across reloads so opening Apollo shows shelves and
+    then refreshes them, rather than showing nothing until the server answers.
+    Which queries are worth keeping — and which are dangerous to — is decided
+    in `queryPersistence.ts`.
+  */
+  useQueryPersistence(session?.server, session?.userId)
 
   /*
     Published once, here, so stylesheets answer the same question the
@@ -121,6 +140,16 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.motion = motionAttribute(reduceMotion)
   }, [reduceMotion])
+
+  /*
+    Same arrangement for the palette. On the document rather than a wrapper so
+    the page's own background — the part behind everything React draws — is
+    painted too; a light app on a black `html` shows a dark band on overscroll.
+  */
+  const theme = useTheme()
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
   if (!session) {
     // Sign-in needs a boundary too. It is the one screen a user cannot

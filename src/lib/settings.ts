@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { migrateMotion, type MotionPreference } from './motion'
+import type { ThemePreference } from './theme'
 import type { SubtitleFont } from './subtitleStyle'
 
 export interface Settings {
@@ -8,12 +9,20 @@ export interface Settings {
   autoplayNext: boolean
   /** Turn on the default subtitle track automatically when one exists. */
   subtitlesDefault: boolean
+  /**
+   * The language to turn on automatically, as an ISO code, or empty for no
+   * preference. Setting one implies wanting subtitles — see
+   * `subtitleLanguage.ts`.
+   */
+  subtitleLanguage: string
   /*
     Whether to animate. Three-way rather than a switch so the operating
     system's own reduced-motion preference can be the default — see `motion.ts`.
     Was `reduceMotion: boolean`; existing installs are migrated on read.
   */
   motion: MotionPreference
+  /** Light or dark, or whatever the device says. See `theme.ts`. */
+  theme: ThemePreference
   /** Show the Jellyseerr request shelf in search. */
   jellyseerrEnabled: boolean
   /** Request every season of a series in one go, rather than season one only. */
@@ -45,7 +54,9 @@ export const DEFAULT_SETTINGS: Settings = {
   maxBitrate: 0,
   autoplayNext: true,
   subtitlesDefault: false,
+  subtitleLanguage: '',
   motion: 'system',
+  theme: 'dark',
   jellyseerrEnabled: true,
   requestAllSeasons: true,
   autoSkipIntros: false,
@@ -103,6 +114,24 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
   snapshot = { ...snapshot, [key]: value }
   localStorage.setItem(KEY, JSON.stringify(snapshot))
   listeners.forEach((fn) => fn())
+}
+
+/**
+ * Replace the whole snapshot at once.
+ *
+ * For settings arriving from the server: applying them one `setSetting` at a
+ * time would notify every subscriber a dozen times and, worse, each write would
+ * look like a local change and be sent straight back.
+ */
+export function applySettings(next: Settings) {
+  snapshot = next
+  localStorage.setItem(KEY, JSON.stringify(snapshot))
+  listeners.forEach((fn) => fn())
+}
+
+/** Read once, outside React — for the sync layer's own comparisons. */
+export function currentSettings(): Settings {
+  return snapshot
 }
 
 export function resetSettings() {
