@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { clampSubtitleSize, safeColor, subtitleCss } from '../subtitleStyle'
+import {
+  SUBTITLE_FONTS,
+  SUBTITLE_FONT_LABELS,
+  clampSubtitlePosition,
+  clampSubtitleSize,
+  isSubtitleFont,
+  safeColor,
+  subtitleCss,
+  subtitleLinePercent,
+} from '../subtitleStyle'
 
-const base = { subtitleSize: 100, subtitleColor: '#ffffff', subtitleBackground: 'subtle' as const }
+const base = {
+  subtitleSize: 100,
+  subtitleColor: '#ffffff',
+  subtitleBackground: 'subtle' as const,
+  subtitleFont: 'default' as const,
+  subtitleOutline: false,
+}
 
 describe('clampSubtitleSize', () => {
   it('keeps sane values', () => {
@@ -52,13 +67,88 @@ describe('subtitleCss', () => {
     expect(subtitleCss({ ...base, subtitleBackground: 'none' })).toContain('transparent')
   })
 
+  it('names a font only when one was chosen', () => {
+    // `font-family: ;` is an invalid declaration and some parsers drop the
+    // whole rule over it, taking size and colour with it.
+    expect(subtitleCss(base)).not.toContain('font-family')
+    expect(subtitleCss({ ...base, subtitleFont: 'serif' })).toContain('font-family: ui-serif')
+  })
+
+  it('outlines the glyphs when asked, whatever the background is', () => {
+    const css = subtitleCss({ ...base, subtitleOutline: true })
+    expect(css).toContain('text-shadow')
+    expect(css).toContain('-1px -1px 0 #000')
+  })
+
+  it('still softens light text over a bright frame with no box behind it', () => {
+    // The case the shadow was added for, and it must survive the outline
+    // setting being off.
+    expect(subtitleCss({ ...base, subtitleBackground: 'none' })).toContain('text-shadow')
+  })
+
+  it('does not shadow text that already has a box behind it', () => {
+    expect(subtitleCss({ ...base, subtitleBackground: 'solid' })).not.toContain('text-shadow')
+  })
+
   it('cannot be made to emit anything but a single rule', () => {
     const css = subtitleCss({
+      ...base,
       subtitleSize: 999,
       subtitleColor: '#fff; } * { display:none } video::cue {',
-      subtitleBackground: 'subtle',
+      // A font name is written into the stylesheet too, so it is chosen from a
+      // fixed list and anything else falls back rather than being emitted.
+      subtitleFont: 'Arial"; } * { display: none } video::cue { color: red' as never,
     })
     expect(css.match(/\{/g)).toHaveLength(1)
     expect(css).toContain('color: #ffffff')
+    expect(css).not.toContain('display: none')
+  })
+})
+
+describe('clampSubtitlePosition', () => {
+  it('keeps the control inside its range', () => {
+    expect(clampSubtitlePosition(-20)).toBe(0)
+    expect(clampSubtitlePosition(90)).toBe(30)
+    expect(clampSubtitlePosition(12.4)).toBe(12)
+  })
+
+  it('falls back to the default rather than storing nonsense', () => {
+    expect(clampSubtitlePosition(Number.NaN)).toBe(10)
+    expect(clampSubtitlePosition(Number.POSITIVE_INFINITY)).toBe(10)
+  })
+})
+
+describe('subtitleLinePercent', () => {
+  it('reproduces exactly where subtitles already were, at the default', () => {
+    // Jellyfin writes `line:90%` onto every cue it converts, so 10 has to come
+    // back as 90 or turning this control on would move every subtitle.
+    expect(subtitleLinePercent(10)).toBe(90)
+  })
+
+  it('measures from the top, because `line` does', () => {
+    expect(subtitleLinePercent(0)).toBe(100)
+    expect(subtitleLinePercent(30)).toBe(70)
+  })
+
+  it('clamps before converting', () => {
+    expect(subtitleLinePercent(500)).toBe(70)
+  })
+})
+
+describe('isSubtitleFont', () => {
+  it('accepts the four on offer', () => {
+    for (const f of Object.keys(SUBTITLE_FONTS)) expect(isSubtitleFont(f)).toBe(true)
+  })
+
+  it('rejects anything else, including CSS', () => {
+    expect(isSubtitleFont('Comic Sans')).toBe(false)
+    expect(isSubtitleFont('serif; } * { display: none }')).toBe(false)
+    expect(isSubtitleFont(null)).toBe(false)
+  })
+
+  it('has a label for every font', () => {
+    for (const f of Object.keys(SUBTITLE_FONTS)) {
+      expect(SUBTITLE_FONT_LABELS[f as keyof typeof SUBTITLE_FONTS]).toBeTruthy()
+    }
   })
 })

@@ -2,6 +2,7 @@ import type { BaseItemDto, MediaSourceInfo } from '@jellyfin/sdk/lib/generated-c
 import type { JellyfinApi } from './api'
 import { secondsToTicks } from './format'
 import { assStreamPath, isAssCodec } from './assSubtitles'
+import { isPgsCodec, pgsStreamPath } from './pgsSubtitles'
 
 /** Item types that hold media themselves rather than containing other items. */
 const PLAYABLE_TYPES = new Set(['Movie', 'Episode', 'Video', 'Audio', 'MusicVideo', 'Trailer'])
@@ -80,6 +81,13 @@ export interface SubtitleTrack {
    * the server's WebVTT conversion. Absent for every other format.
    */
   assUrl?: string
+  /**
+   * The raw PGS bitmap stream, drawn on a canvas rather than burned into the
+   * video by the server. Absent for every other format — and for PGS itself
+   * on a server that will not deliver it, which is why the burn-in path is
+   * still reachable.
+   */
+  pgsUrl?: string
   /** As the server names it: `ass`, `subrip`, `pgssub`… */
   codec?: string
   isDefault: boolean
@@ -172,6 +180,13 @@ export function subtitleTracks(
       // Text subtitles can be fetched as VTT; image-based ones (PGS/VOBSUB) cannot.
       const canExtract = s.IsTextSubtitleStream === true && index >= 0
       const codec = s.Codec ?? undefined
+      /*
+        PGS is a picture and so has no VTT, but it does not need one: the
+        server hands over the bitmap stream itself once the device profile
+        says this client can draw it. VOBSUB has no equivalent here and still
+        goes to the server to be burned in.
+      */
+      const canDrawPgs = isPgsCodec(codec) && index >= 0 && Boolean(source.Id)
       return {
         index,
         label: s.DisplayTitle ?? s.Language ?? `Track ${index}`,
@@ -192,6 +207,7 @@ export function subtitleTracks(
           canExtract && isAssCodec(codec) && source.Id
             ? api.authedUrl(assStreamPath(itemId, source.Id, index))
             : undefined,
+        pgsUrl: canDrawPgs ? api.authedUrl(pgsStreamPath(itemId, source.Id!, index)) : undefined,
       }
     })
 }

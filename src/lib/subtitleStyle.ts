@@ -14,6 +14,77 @@ import type { Settings } from './settings'
 
 const STYLE_ID = 'apollo-subtitle-css'
 
+/**
+ * The faces on offer, and the stacks they mean.
+ *
+ * A fixed list rather than a text box. The chosen value is written into a
+ * stylesheet, so a free-text font name is a way to write other things into one
+ * — the same reason a colour has to be a hex triple to get through.
+ *
+ * `default` is the player's own font, which is what subtitles have always used.
+ * The rest are the families a subtitle is actually improved by: a humanist sans
+ * for most dialogue, a serif for period pieces where it suits the film, and a
+ * monospace, which is genuinely easier to read for anyone who finds similar
+ * letterforms hard to tell apart.
+ */
+export const SUBTITLE_FONTS = {
+  default: '',
+  sans: 'ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif',
+  serif: 'ui-serif, Georgia, "Times New Roman", serif',
+  mono: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace',
+} as const
+
+export type SubtitleFont = keyof typeof SUBTITLE_FONTS
+
+export const SUBTITLE_FONT_LABELS: Record<SubtitleFont, string> = {
+  default: 'Player default',
+  sans: 'Sans serif',
+  serif: 'Serif',
+  mono: 'Monospace',
+}
+
+export function isSubtitleFont(value: unknown): value is SubtitleFont {
+  return typeof value === 'string' && value in SUBTITLE_FONTS
+}
+
+/**
+ * How far above the bottom of the picture dialogue sits, in percent.
+ *
+ * The ceiling is deliberately not 50: past about a third of the way up, a
+ * subtitle is no longer at the edge of the picture but across the middle of
+ * it, which is a different thing to want and not what this control is for.
+ */
+export const SUBTITLE_POSITION_RANGE = { min: 0, max: 30 } as const
+
+export const clampSubtitlePosition = (percent: number) =>
+  Math.min(
+    SUBTITLE_POSITION_RANGE.max,
+    Math.max(SUBTITLE_POSITION_RANGE.min, Math.round(Number.isFinite(percent) ? percent : 10)),
+  )
+
+/**
+ * The WebVTT `line` for a given distance above the bottom.
+ *
+ * `line` is measured from the top with `snapToLines` off, so the two are
+ * complements. Jellyfin already writes `line:90%` onto every cue it converts,
+ * which is why 10 is the default: it reproduces exactly what was there before
+ * this control existed.
+ */
+export function subtitleLinePercent(positionFromBottom: number): number {
+  return 100 - clampSubtitlePosition(positionFromBottom)
+}
+
+/*
+  A faux outline, drawn with four shadows.
+
+  `-webkit-text-stroke` is the obvious tool and is not portable — Firefox has
+  never supported it, and it thins the glyph from the centre rather than
+  growing it outward, so text set in it reads lighter at exactly the size
+  subtitles are set at. Four offset shadows work everywhere and thicken.
+*/
+const OUTLINE =
+  '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 4px rgba(0,0,0,0.9)'
+
 const BACKGROUNDS: Record<Settings['subtitleBackground'], string> = {
   none: 'transparent',
   subtle: 'rgba(0, 0, 0, 0.55)',
@@ -31,22 +102,35 @@ export function safeColor(value: string): string {
 
 export function subtitleCss(settings: Pick<
   Settings,
-  'subtitleSize' | 'subtitleColor' | 'subtitleBackground'
+  'subtitleSize' | 'subtitleColor' | 'subtitleBackground' | 'subtitleFont' | 'subtitleOutline'
 >): string {
   const size = clampSubtitleSize(settings.subtitleSize)
   const color = safeColor(settings.subtitleColor)
   const background = BACKGROUNDS[settings.subtitleBackground] ?? BACKGROUNDS.subtle
-  // A shadow keeps light text legible over a bright frame when the background
-  // is off, which is exactly when it is hardest to read.
-  const shadow =
-    settings.subtitleBackground === 'none'
+
+  /*
+    An explicit outline wins. Otherwise a softer shadow is added only when
+    there is no background box, which is exactly when light text over a bright
+    frame is hardest to read — and would be wasted ink behind a solid one.
+  */
+  const shadow = settings.subtitleOutline
+    ? `text-shadow: ${OUTLINE};`
+    : settings.subtitleBackground === 'none'
       ? 'text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.8);'
       : ''
+
+  const family = isSubtitleFont(settings.subtitleFont)
+    ? SUBTITLE_FONTS[settings.subtitleFont]
+    : ''
+  // Omitted rather than set empty: `font-family: ;` is an invalid declaration
+  // and takes the whole rule with it in some parsers.
+  const fontFamily = family ? `font-family: ${family};` : ''
 
   return `video::cue {
   font-size: ${size}%;
   color: ${color};
   background-color: ${background};
+  ${fontFamily}
   ${shadow}
 }`
 }

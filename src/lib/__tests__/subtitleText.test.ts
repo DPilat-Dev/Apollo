@@ -169,3 +169,44 @@ describe('placeCues', () => {
     expect(placeCues([])).toBe(0)
   })
 })
+
+describe('placeCues with a viewer position', () => {
+  const cue = (text: string) => ({ text, align: 'center', line: 'auto' as number | 'auto', snapToLines: true })
+
+  it('moves plain dialogue to where the viewer asked for it', () => {
+    const c = cue('Ordinary dialogue.')
+    placeCues([c], 85)
+    expect(c.snapToLines).toBe(false)
+    expect(c.line).toBe(85)
+  })
+
+  it('leaves dialogue alone when no position is given', () => {
+    // Omitting it has to mean "exactly what the server sent", or every caller
+    // that does not care would silently move the subtitles.
+    const c = cue('Ordinary dialogue.')
+    placeCues([c])
+    expect(c.snapToLines).toBe(true)
+    expect(c.line).toBe('auto')
+  })
+
+  it('does not drag a typeset sign down to the dialogue band', () => {
+    // `\an8` is a sign placed at the top of the frame, usually over the thing
+    // it labels. The viewer's preference is about dialogue, not about that.
+    const c = cue('{\\an8}SHOP')
+    placeCues([c], 85)
+    expect(c.line).toBe(10)
+  })
+
+  it('applies the position to bottom-anchored signs too', () => {
+    // Row 0 of the numpad is the bottom, which is where dialogue goes — so the
+    // viewer's offset is exactly as relevant there.
+    const c = cue('{\\an2}Centred at the bottom.')
+    placeCues([c], 85)
+    expect(c.line).toBe(85)
+    expect(c.align).toBe('center')
+  })
+
+  it('still reports how many cues it touched', () => {
+    expect(placeCues([cue('one'), cue('{\\an8}two')], 85)).toBe(2)
+  })
+})

@@ -149,18 +149,42 @@ export function cuePlacement(text: string): CuePlacement | null {
  * number is counted in lines of text from the top and a value of 10 puts the
  * cue somewhere entirely different.
  */
-export function placeCues(cues: ArrayLike<unknown> | null | undefined): number {
+export function placeCues(
+  cues: ArrayLike<unknown> | null | undefined,
+  /**
+   * Where dialogue with no placement of its own should sit, as a WebVTT
+   * `line`. Omitted leaves those cues exactly where the server put them.
+   *
+   * Applied second, and only to cues the file said nothing about: a sign
+   * typeset onto a shop front has an `\an` and must not be dragged to wherever
+   * the viewer likes their dialogue.
+   */
+  defaultLinePercent?: number,
+): number {
   if (!cues) return 0
   let moved = 0
   for (let i = 0; i < cues.length; i++) {
     const cue = cues[i]
     if (!isPlaceableCue(cue)) continue
     const placement = cuePlacement(cue.text)
-    if (!placement) continue
+
+    if (!placement) {
+      if (defaultLinePercent == null) continue
+      cue.snapToLines = false
+      cue.line = defaultLinePercent
+      moved++
+      continue
+    }
+
     cue.align = placement.align
     if (placement.linePercent != null) {
       cue.snapToLines = false
       cue.line = placement.linePercent
+    } else if (defaultLinePercent != null) {
+      // Row 0 of `\an` is the bottom, which is where dialogue goes — so the
+      // viewer's own bottom offset applies to it too.
+      cue.snapToLines = false
+      cue.line = defaultLinePercent
     }
     moved++
   }
