@@ -9,6 +9,7 @@ import { lazyWithReload } from './lib/lazyChunk'
 import { useScrollRestoration } from './lib/useScrollRestoration'
 import { useReducedMotion } from './lib/useReducedMotion'
 import { motionAttribute } from './lib/motion'
+import { useTheme } from './lib/useTheme'
 import { ShortcutsModal } from './components/ShortcutsModal'
 import { isTypingTarget } from './lib/shortcuts'
 import { Home } from './routes/Home'
@@ -130,6 +131,16 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.motion = motionAttribute(reduceMotion)
   }, [reduceMotion])
+
+  /*
+    Same arrangement for the palette. On the document rather than a wrapper so
+    the page's own background — the part behind everything React draws — is
+    painted too; a light app on a black `html` shows a dark band on overscroll.
+  */
+  const theme = useTheme()
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
   if (!session) {
     // Sign-in needs a boundary too. It is the one screen a user cannot

@@ -30,6 +30,9 @@ export const SYNCED_KEYS = [
   'jellyseerrEnabled',
   'requestAllSeasons',
   'motion',
+  // 'system' already adapts per device, so an explicit light or dark is a
+  // decision about the person rather than the machine.
+  'theme',
   'subtitleSize',
   'subtitleColor',
   'subtitleBackground',

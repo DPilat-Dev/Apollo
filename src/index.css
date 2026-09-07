@@ -12,6 +12,16 @@
   --color-ink: #0a0a0b;
   --color-ink-soft: #141416;
   --color-ink-card: #1b1b1f;
+  /*
+    The ground the page itself is painted on, as distinct from `ink`.
+
+    They are the same colour in the dark theme, which is why one variable did
+    for both until now. They are not the same thing: `on-media` moves `ink` to
+    the dark palette for a subtree, and the hero's fade has to reach the ground
+    the *page* is on or it ends in a dark band across a light page. `page` is
+    deliberately not overridden by `on-media` for exactly that reason.
+  */
+  --color-page: #0a0a0b;
   --color-accent: #e50914;
   --color-accent-hot: #f6121d;
 
@@ -19,6 +29,53 @@
     'Segoe UI', Roboto, sans-serif;
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+  ── The light palette ──────────────────────────────────────────────────────
+
+  Four grounds and a foreground. `--color-white` is the interesting one: every
+  `text-white/60` and `border-white/10` in the app resolves through it, so
+  redefining it here turns a thousand declarations over at once. They always
+  meant "the foreground, at this strength"; only on a dark ground did that
+  happen to be white.
+
+  Written as an attribute selector rather than a media query because the
+  preference is Apollo's, resolved from the setting and the device together in
+  `theme.ts` — the media query alone cannot express "dark unless I say
+  otherwise", which is what this client defaults to.
+*/
+:root[data-theme='light'] {
+  --color-ink: #f4f4f6;
+  --color-ink-soft: #ffffff;
+  --color-ink-card: #e7e7ec;
+  --color-page: #f4f4f6;
+  --color-white: #17171b;
+  color-scheme: light;
+}
+
+/*
+  Anything with a picture behind it rather than a background: the hero's title
+  over a backdrop, a card's badges over a poster, the player's controls over
+  the film. A light theme cannot reach these without making them unreadable,
+  and the dark palette is not a fallback here — it is correct.
+*/
+@utility on-media {
+  --color-ink: #0a0a0b;
+  --color-ink-soft: #141416;
+  --color-ink-card: #1b1b1f;
+  --color-white: #ffffff;
+  /*
+    Restated, not just redefined. `body` sets `color: var(--color-white)` once
+    and everything inherits the *computed* colour from there, so redefining the
+    variable in here would not reach a heading that never sets a colour of its
+    own — the player's title came out near-black on the film.
+  */
+  color: var(--color-white);
+  color-scheme: dark;
+  /* `--color-page` is deliberately absent: a subtree pinned to the dark
+     palette still has to know what the page behind it is painted, or the
+     hero's fade ends in a dark band across a light page. */
 }
 
 @layer base {
@@ -30,7 +87,7 @@
   body {
     margin: 0;
     background-color: var(--color-ink);
-    color: #f5f5f7;
+    color: var(--color-white);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;

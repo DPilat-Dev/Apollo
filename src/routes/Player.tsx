@@ -1156,7 +1156,7 @@ export function Player() {
 
   return (
     <div
-      className="relative h-dvh w-full select-none overflow-hidden bg-black"
+      className="on-media relative h-dvh w-full select-none overflow-hidden bg-black"
       /*
         Pointer events and not `onMouseMove`: a browser fires a compatibility
         `mousemove` after every touch tap, which summoned the controls again a
