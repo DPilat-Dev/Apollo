@@ -5,6 +5,7 @@ import { JellyfinApi, clearSession, loadSession, saveSession, type Session } fro
 import { signOut as jellyseerrSignOut } from './jellyseerr'
 import { forgetSignIn, purgeDeviceState, rememberSignIn } from './accounts'
 import { resetSettings } from './settings'
+import { clearPersistedCache } from './useQueryPersistence'
 
 interface AuthValue {
   session: Session | null
@@ -61,6 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // person inherits the last one's subtitle size until a reload.
       resetSettings()
       queryClient.clear()
+      /*
+        And the copy on disk. `queryClient.clear()` empties memory, but the
+        persisted cache outlives the tab — leaving one account's library
+        described on a shared computer after they have left, which is the one
+        thing that store must not do.
+      */
+      if (session) void clearPersistedCache(session.server, session.userId)
       setSession(null)
     },
     [queryClient, session],

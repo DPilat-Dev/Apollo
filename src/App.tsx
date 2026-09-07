@@ -4,6 +4,7 @@ import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useApi, useAuth } from './lib/auth'
 import { useSettingsSync } from './lib/useSettingsSync'
+import { useQueryPersistence } from './lib/useQueryPersistence'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
 import { useScrollRestoration } from './lib/useScrollRestoration'
@@ -120,6 +121,14 @@ export default function App() {
     what happens when the two copies disagree, is `settingsSync.ts`.
   */
   useSettingsSync(session ? api : null, session?.userId)
+
+  /*
+    The query cache, kept across reloads so opening Apollo shows shelves and
+    then refreshes them, rather than showing nothing until the server answers.
+    Which queries are worth keeping — and which are dangerous to — is decided
+    in `queryPersistence.ts`.
+  */
+  useQueryPersistence(session?.server, session?.userId)
 
   /*
     Published once, here, so stylesheets answer the same question the
