@@ -16,6 +16,11 @@ import { ProfilePictureControl } from '../components/ProfilePictureControl'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { MOTION_LABELS, MOTION_PREFERENCES, type MotionPreference } from '../lib/motion'
+import {
+  SUBTITLE_FONT_LABELS,
+  SUBTITLE_FONTS,
+  SUBTITLE_POSITION_RANGE,
+} from '../lib/subtitleStyle'
 
 const SUBTITLE_COLORS = [
   { value: '#ffffff', label: 'White' },
@@ -186,6 +191,47 @@ export function Settings() {
           </select>
         </Row>
 
+        <Row label="Font" hint="Applies to plain subtitles. ASS keeps the fonts its author chose.">
+          <select
+            value={settings.subtitleFont}
+            onChange={(e) => setSetting('subtitleFont', e.target.value as SettingsShape['subtitleFont'])}
+            className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/40"
+          >
+            {(Object.keys(SUBTITLE_FONT_LABELS) as (keyof typeof SUBTITLE_FONT_LABELS)[]).map((f) => (
+              <option key={f} value={f}>
+                {SUBTITLE_FONT_LABELS[f]}
+              </option>
+            ))}
+          </select>
+        </Row>
+
+        <Row
+          label="Position"
+          hint="How far above the bottom of the picture dialogue sits. Typeset signs stay where they were placed."
+        >
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={SUBTITLE_POSITION_RANGE.min}
+              max={SUBTITLE_POSITION_RANGE.max}
+              step={1}
+              value={settings.subtitlePosition}
+              onChange={(e) => setSetting('subtitlePosition', Number(e.target.value))}
+              className="w-40 accent-[var(--color-accent)]"
+            />
+            <span className="w-12 text-right text-sm tabular-nums text-white/60">
+              {settings.subtitlePosition}%
+            </span>
+          </div>
+        </Row>
+
+        <Toggle
+          name="subtitleOutline"
+          label="Outline the text"
+          hint="A hard edge around each letter. Helps most where the background is off."
+          checked={settings.subtitleOutline}
+        />
+
         <div className="px-4 py-5">
           <p className="mb-2 text-xs text-white/40">Preview</p>
           <div className="flex items-end justify-center rounded-lg bg-gradient-to-br from-sky-800 via-slate-700 to-amber-700 p-5">
@@ -199,8 +245,12 @@ export function Settings() {
                     : settings.subtitleBackground === 'solid'
                       ? 'rgba(0,0,0,0.92)'
                       : 'rgba(0,0,0,0.55)',
-                textShadow:
-                  settings.subtitleBackground === 'none'
+                fontFamily: SUBTITLE_FONTS[settings.subtitleFont] || undefined,
+                // Mirrors `subtitleCss`: an explicit outline wins, and the
+                // softer shadow is only there when nothing is behind the text.
+                textShadow: settings.subtitleOutline
+                  ? '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 4px rgba(0,0,0,0.9)'
+                  : settings.subtitleBackground === 'none'
                     ? '0 1px 3px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.8)'
                     : undefined,
               }}

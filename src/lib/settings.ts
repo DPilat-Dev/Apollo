@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { migrateMotion, type MotionPreference } from './motion'
+import type { SubtitleFont } from './subtitleStyle'
 
 export interface Settings {
   /** Ceiling handed to the server, in bits/sec. 0 means "no cap". */
@@ -28,6 +29,16 @@ export interface Settings {
   assTypesetting: boolean
   subtitleColor: string
   subtitleBackground: 'none' | 'subtle' | 'solid'
+  /*
+    A face, chosen from a fixed list rather than typed. This string is written
+    into a stylesheet, and a free-text font name is a way to write other things
+    into one — the same reason `subtitleColor` is validated as a hex triple.
+  */
+  subtitleFont: SubtitleFont
+  /** How far above the bottom of the picture the dialogue sits, in percent. */
+  subtitlePosition: number
+  /** An outline around each glyph, for light text on a light frame. */
+  subtitleOutline: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -43,6 +54,11 @@ export const DEFAULT_SETTINGS: Settings = {
   assTypesetting: true,
   subtitleColor: '#ffffff',
   subtitleBackground: 'subtle',
+  subtitleFont: 'default',
+  // Matches what Jellyfin already writes onto every converted cue, so the
+  // default changes nothing about where subtitles have always appeared.
+  subtitlePosition: 10,
+  subtitleOutline: false,
 }
 
 export const BITRATE_OPTIONS = [

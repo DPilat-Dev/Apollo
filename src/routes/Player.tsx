@@ -42,6 +42,9 @@ import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
 import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
+import { browserCanRenderPgs, pgsTrackFor } from '../lib/pgsSubtitles'
+import { subtitleSizeStatus } from '../lib/subtitleStyle'
+import { usePgsSubtitles } from '../lib/usePgsSubtitles'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { Scrubber } from '../components/Scrubber'
 import { ChapterList } from '../components/ChapterList'
@@ -896,6 +899,7 @@ export function Player() {
     textTrackIndex,
     itemKey: item?.Id,
     reloadKey: plan,
+    positionFromBottom: settings.subtitlePosition,
   })
   const offsetStatus = subtitleOffsetStatus({ textTrackIndex, burnedSubIndex })
 
@@ -947,6 +951,56 @@ export function Player() {
     subtitleOffsetMs: subtitleOffset.offsetMs,
     sizePercent: settings.subtitleSize,
     reloadKey: plan,
+  })
+
+  /*
+    PGS is a picture, so there is no WebVTT to fall back to and never was: the
+    server used to re-encode the whole video to paint these into the frames.
+    Declaring the format in the device profile makes it hand over the bitmap
+    stream instead, and libpgs draws it on a canvas over the video — no
+    re-encode, no reload, and switching tracks is immediate.
+  */
+  const pgsLayerRef = useRef<HTMLDivElement>(null)
+  const pgsTrack = useMemo(
+    () =>
+      pgsTrackFor({
+        subtitles: plan?.subtitles,
+        textTrackIndex,
+        burnedSubIndex,
+        supported: browserCanRenderPgs(),
+      }),
+    [plan, textTrackIndex, burnedSubIndex],
+  )
+
+  const { active: pgsActive } = usePgsSubtitles({
+    videoRef,
+    layerRef: pgsLayerRef,
+    track: pgsTrack,
+    startOffsetSeconds: plan?.startOffsetSeconds ?? 0,
+    subtitleOffsetMs: subtitleOffset.offsetMs,
+    aspect,
+    reloadKey: plan,
+    /*
+      The one path back to the old behaviour. If the stream will not come down
+      or the worker will not start, the server can still burn it in — slower,
+      but it has never failed. Better that than a viewer who chose a subtitle
+      track and got nothing.
+    */
+    onFailed: (index) => {
+      setTextTrackIndex(null)
+      reloadFrom(() => setBurnedSubIndex(index))
+    },
+  })
+
+  /*
+    Size multiplies a font size — through `::cue` for text, and by rewriting an
+    ASS script's own sizes. Neither reaches a bitmap, so for PGS and for
+    anything the server burned in the control could not do what it offered.
+  */
+  const sizeStatus = subtitleSizeStatus({
+    textTrackIndex,
+    burnedSubIndex,
+    pictureTrack: pgsTrack != null,
   })
 
   /*
@@ -1166,6 +1220,29 @@ export function Player() {
         Pointer-events off: every gesture in this player is on the <video>.
       */}
       <div ref={assLayerRef} className="pointer-events-none absolute inset-0" aria-hidden />
+
+      {/* The same arrangement for PGS. A separate box because the two
+          renderers own their canvases independently and a track change can
+          swap one without touching the other. */}
+      <div ref={pgsLayerRef} className="pointer-events-none absolute inset-0" aria-hidden />
+
+      {/*
+        A PGS track is a few megabytes of pictures and arrives while the video
+        keeps playing, so there is a gap where a viewer has chosen subtitles
+        and nothing has appeared. Small and low, in the band subtitles occupy,
+        rather than an overlay: the film is playing and covering it would be a
+        worse answer than the wait.
+      */}
+      {pgsTrack && !pgsActive && !failure && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
+          <span
+            className="rounded-full bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/80 backdrop-blur"
+            role="status"
+          >
+            Loading subtitles…
+          </span>
+        </div>
+      )}
 
       {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/70 px-8 text-center">
@@ -1562,19 +1639,23 @@ export function Player() {
                           key={s.index}
                           active={(burnedSubIndex ?? textTrackIndex) === s.index}
                           onClick={() => {
-                            if (s.url) {
-                              // Text track: swap client-side, no reload needed.
+                            /*
+                              Anything Apollo can draw itself — a WebVTT
+                              conversion, or a PGS bitmap stream — swaps
+                              client-side with no reload. Only what is left
+                              (VOBSUB) goes back to the server.
+                            */
+                            if (s.url || s.pgsUrl) {
                               if (burnedSubIndex != null)
                                 reloadFrom(() => setBurnedSubIndex(undefined))
                               setTextTrackIndex(s.index)
                             } else {
-                              // Image-based: the server has to burn it in.
                               setTextTrackIndex(null)
                               reloadFrom(() => setBurnedSubIndex(s.index))
                             }
                             setMenu('none')
                           }}
-                          hint={s.url ? undefined : 'burn-in'}
+                          hint={s.url || s.pgsUrl ? undefined : 'burn-in'}
                         >
                           {s.label}
                         </MenuItem>
@@ -1642,7 +1723,12 @@ export function Player() {
                       </MenuGroup>
                     )}
 
-                    <MenuGroup title="Subtitle size">
+                    {sizeStatus.kind !== 'off' && (
+                      <MenuGroup title="Subtitle size">
+                        {sizeStatus.kind === 'fixed' ? (
+                          <MenuEmpty>{sizeStatus.reason}</MenuEmpty>
+                        ) : (
+                          <>
                       <div className="flex items-center gap-2 px-3 py-1.5">
                         <StepButton
                           label="Smaller subtitles"
@@ -1682,7 +1768,10 @@ export function Player() {
                           subtitle file.
                         </MenuEmpty>
                       )}
-                    </MenuGroup>
+                          </>
+                        )}
+                      </MenuGroup>
+                    )}
 
                     <MenuGroup title="Audio">
                       {plan?.audio.length === 0 && <MenuEmpty>No audio tracks</MenuEmpty>}

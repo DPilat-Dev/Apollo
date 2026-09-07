@@ -5,6 +5,7 @@ import { FALLBACK_FONT_LIST_PATH, assStreamPath, fallbackFontPath } from './assS
 import { blobToBase64, canEditUserImage } from './userImages'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
+import { PGS_SUBTITLE_PROFILE } from './pgsSubtitles'
 import type {
   ActivityLogEntry,
   AuthenticationInfo,
@@ -1778,6 +1779,15 @@ export function deviceProfile() {
       { Format: 'ass', Method: 'External' },
       { Format: 'ssa', Method: 'External' },
       { Format: 'subrip', Method: 'External' },
+      /*
+        Declaring this is what stops the server re-encoding the video to paint
+        PGS into the frames. Without it the same track comes back as
+        `DeliveryMethod: Encode` with direct play refused; with it, as a file.
+        Kept in step with the renderer through `PGS_SUBTITLE_PROFILE` — telling
+        the server a format is handled when nothing here can draw it would
+        leave a viewer with neither subtitles nor a burn-in to fall back to.
+      */
+      PGS_SUBTITLE_PROFILE,
     ],
   }
 }

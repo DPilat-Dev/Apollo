@@ -6,6 +6,7 @@ import {
   type CueTiming,
 } from './subtitleOffset'
 import { cleanCues, placeCues } from './subtitleText'
+import { subtitleLinePercent } from './subtitleStyle'
 
 /**
  * The offset control, wired to the live cues of the showing text track.
@@ -30,6 +31,7 @@ export function useSubtitleOffset({
   textTrackIndex,
   itemKey,
   reloadKey,
+  positionFromBottom,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>
   textTrackIndex: number | null
@@ -41,10 +43,20 @@ export function useSubtitleOffset({
    * the offset would be left applied to cues that no longer exist.
    */
   reloadKey: unknown
+  /** How far above the bottom dialogue sits, in percent. See subtitleStyle. */
+  positionFromBottom: number
 }) {
   const [offsetMs, setOffsetMs] = useState(0)
   const baselineRef = useRef<CueTiming[] | null>(null)
   const baselineForRef = useRef<TextTrack | null>(null)
+
+  /*
+    Through a ref: this is read once, at the moment cues are placed. As a
+    dependency it would tear down the load watcher and re-place every cue each
+    time the slider moved a step.
+  */
+  const positionRef = useRef(positionFromBottom)
+  positionRef.current = positionFromBottom
 
   /*
     Reset per track and per item, rather than remembering an offset.
@@ -96,7 +108,7 @@ export function useSubtitleOffset({
         Both are idempotent for the poll's sake: once the tag is gone there is
         nothing left to place, and the cue keeps the position it was given.
       */
-      placeCues(track.cues)
+      placeCues(track.cues, subtitleLinePercent(positionRef.current))
       cleanCues(track.cues)
 
       const result = syncCueOffset(track.cues, baselineRef.current, offsetMs)
