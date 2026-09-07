@@ -343,26 +343,24 @@ input[type='range'].scrubber::-moz-range-track {
 }
 
 /*
-  Off-screen cards cost nothing to keep.
+  There is no `content-visibility` on cards, and this note is why.
 
-  A library grid is paged in as you scroll and every card stays in the DOM — a
-  real library reached 12,142 nodes and 415 decoded images by the bottom, and
-  the browser was laying out and painting all of them on every frame. On a
-  throttled phone that showed as a 42ms 95th-percentile frame with a 222ms
-  worst.
+  It was added to skip layout and paint for off-screen cards in a long grid,
+  and it worked: heap over a full scroll of one library fell from 28 MB to
+  19 MB. It also broke the thing cards do.
 
-  `content-visibility: auto` lets the browser skip layout, paint and image
-  decoding for anything outside the viewport while leaving it in the DOM — so
-  Ctrl-F, tab order, screen readers and the scrollbar all still see the whole
-  grid. That is the part a windowing library gives up.
+  `content-visibility: auto` implies paint containment, which clips an element
+  to its own box, and layout containment, which makes it a stacking context. A
+  card grows 9% on hover and lifts above its neighbours with `z-30`; contained,
+  it was cut off mid-image and could not rise above anything.
 
-  The intrinsic height is what the scrollbar uses for a card it has not drawn.
-  `auto` means "remember what it measured last time", so the guess is only used
-  once per card and the page height stops moving after the first pass. Height
-  only: the width of a grid item comes from its column, and claiming an
-  intrinsic width would fight the grid for it.
+  Applying it only where nothing overflows — `@media (hover: none)` — would
+  have kept the saving on phones, except that the saving was not there:
+  measured on a throttled phone the heap was 20 MB with it and 20 MB without.
+  The 9 MB was a desktop number, on the one platform that has the hover it
+  breaks.
+
+  Skipping off-screen work in that grid is still worth doing. It needs
+  windowing, where the card that is drawn is not contained at all.
 */
-@utility card-offscreen {
-  content-visibility: auto;
-  contain-intrinsic-height: auto 15rem;
-}
+
