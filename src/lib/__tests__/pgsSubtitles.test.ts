@@ -17,6 +17,7 @@ const track = (over: Partial<SubtitleTrack> = {}): SubtitleTrack => ({
   label: 'English (PGS)',
   codec: 'pgssub',
   isDefault: false,
+  isForced: false,
   pgsUrl: 'https://server/Videos/i/s/Subtitles/3/0/Stream.pgssub',
   ...over,
 })

@@ -5,6 +5,7 @@ import {
   encodeSettings,
   LOCAL_KEYS,
   mergeFromServer,
+  reconcile,
   SETTINGS_BAG_KEY,
   SYNCED_KEYS,
   syncedPartChanged,
@@ -148,5 +149,52 @@ describe('sharing the bag with other clients', () => {
 
   it('is quiet when the bag holds only other clients\' keys', () => {
     expect(decodeSettings({ chromecastVersion: 'stable', tvhome: '' })).toBeNull()
+  })
+})
+
+describe('reconcile', () => {
+  const base = DEFAULT_SETTINGS
+  const changed = { ...DEFAULT_SETTINGS, subtitleSize: 180 }
+
+  it('takes the server’s copy when this device has not changed anything', () => {
+    // The case the feature exists for: arriving at a second device.
+    const out = reconcile({ local: base, remote: { subtitleSize: 220 }, lastSynced: base })
+    expect(out.settings.subtitleSize).toBe(220)
+    expect(out.push).toBe(false)
+  })
+
+  it('keeps a local change the server has not heard about yet', () => {
+    // Change a setting, reload inside the debounce. The old rule did not just
+    // lose the change — it applied the older copy over it.
+    const out = reconcile({ local: changed, remote: { subtitleSize: 100 }, lastSynced: base })
+    expect(out.settings.subtitleSize).toBe(180)
+    expect(out.push).toBe(true)
+  })
+
+  it('pushes this device’s settings when the server has none', () => {
+    // First sign-in: these become the account's, rather than being reset.
+    const out = reconcile({ local: changed, remote: null, lastSynced: null })
+    expect(out.settings).toEqual(changed)
+    expect(out.push).toBe(true)
+  })
+
+  it('lets the server win on a first run when it has something to say', () => {
+    // No agreed state yet, but nothing locally changed either — a fresh
+    // browser signing in to an account that already has settings.
+    const out = reconcile({ local: base, remote: { subtitleSize: 145 }, lastSynced: null })
+    expect(out.settings.subtitleSize).toBe(145)
+    expect(out.push).toBe(false)
+  })
+
+  it('ignores a device-only difference when deciding who is newer', () => {
+    // Changing the bitrate cap is not a reason to overrule the server.
+    const out = reconcile({
+      local: { ...base, maxBitrate: 999 },
+      remote: { subtitleSize: 220 },
+      lastSynced: base,
+    })
+    expect(out.settings.subtitleSize).toBe(220)
+    expect(out.settings.maxBitrate).toBe(999)
+    expect(out.push).toBe(false)
   })
 })

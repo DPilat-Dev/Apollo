@@ -91,6 +91,12 @@ export interface SubtitleTrack {
   /** As the server names it: `ass`, `subrip`, `pgssub`… */
   codec?: string
   isDefault: boolean
+  /**
+   * Only the lines a viewer of the original language still needs — signs, and
+   * dialogue in a third language. Not what someone asking for subtitles in
+   * their own language is after, which is why the two are told apart.
+   */
+  isForced: boolean
 }
 
 /**
@@ -193,6 +199,7 @@ export function subtitleTracks(
         language: s.Language ?? undefined,
         codec,
         isDefault: Boolean(s.IsDefault),
+        isForced: Boolean(s.IsForced),
         url: canExtract
           ? api.authedUrl(
               `/Videos/${itemId}/${source.Id}/Subtitles/${index}/0/Stream.vtt`,

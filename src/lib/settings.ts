@@ -9,6 +9,12 @@ export interface Settings {
   autoplayNext: boolean
   /** Turn on the default subtitle track automatically when one exists. */
   subtitlesDefault: boolean
+  /**
+   * The language to turn on automatically, as an ISO code, or empty for no
+   * preference. Setting one implies wanting subtitles — see
+   * `subtitleLanguage.ts`.
+   */
+  subtitleLanguage: string
   /*
     Whether to animate. Three-way rather than a switch so the operating
     system's own reduced-motion preference can be the default — see `motion.ts`.
@@ -48,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxBitrate: 0,
   autoplayNext: true,
   subtitlesDefault: false,
+  subtitleLanguage: '',
   motion: 'system',
   theme: 'dark',
   jellyseerrEnabled: true,
