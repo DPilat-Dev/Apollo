@@ -15,6 +15,20 @@ import { useReducedMotion } from '../lib/useReducedMotion'
  * finished and worth another go — shuffled per visit, so the set changes rather
  * than showing the same titles forever.
  */
+/*
+  The hero's height, named once because two things need it and they must agree.
+
+  While the queries behind the billboard are in flight there is nothing to show,
+  and this used to render a 96px spacer. When the data landed the header grew to
+  roughly 750px and threw everything below it 660px down the page — measured at
+  0.44 of the home page's 0.50 layout-shift score, arriving 166ms in, which is
+  late enough to be watched happening.
+
+  Reserving the same box means the rows are laid out once, in the place they
+  will stay.
+*/
+const HERO_HEIGHT = 'h-[68vh] min-h-[30rem] w-full sm:h-[84vh]'
+
 export function Billboard({ items }: { items: BaseItemDto[] }) {
   const api = useApi()
   const navigate = useNavigate()
@@ -29,7 +43,10 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
     return () => clearInterval(t)
   }, [pool.length, reduceMotion])
 
-  if (pool.length === 0) return <div className="h-24" />
+  // Same box as the real thing, holding the space open rather than filling it:
+  // a skeleton here would be a large bright rectangle on what is usually a
+  // sub-second wait.
+  if (pool.length === 0) return <div className={HERO_HEIGHT} aria-hidden />
 
   // The hero spans the viewport, so ask for what is actually on screen rather
   // than a fixed 1920 that is too small on a wide display and wasteful on a phone.
@@ -49,7 +66,7 @@ export function Billboard({ items }: { items: BaseItemDto[] }) {
       : null
 
   return (
-    <header className="relative h-[68vh] min-h-[30rem] w-full sm:h-[84vh]">
+    <header className={`relative ${HERO_HEIGHT}`}>
       {pool.map((candidate, i) => {
         const src = api.heroBackdropUrl(candidate, heroWidth)
         if (!src) return null
