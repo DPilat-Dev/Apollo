@@ -2,7 +2,8 @@ import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react
 import { Suspense, useEffect, useState } from 'react'
 import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { useAuth } from './lib/auth'
+import { useApi, useAuth } from './lib/auth'
+import { useSettingsSync } from './lib/useSettingsSync'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
 import { useScrollRestoration } from './lib/useScrollRestoration'
@@ -107,9 +108,17 @@ function BrowseLayout() {
 
 export default function App() {
   const { session } = useAuth()
+  const api = useApi()
   const { helpOpen, closeHelp } = useGlobalShortcuts(Boolean(session))
   // Keeps the server's custom CSS applied across every signed-in screen.
   useBranding(session?.server)
+
+  /*
+    Settings that describe the viewer rather than this device follow the
+    account, through Jellyfin's own per-user preference store. Which ones, and
+    what happens when the two copies disagree, is `settingsSync.ts`.
+  */
+  useSettingsSync(session ? api : null, session?.userId)
 
   /*
     Published once, here, so stylesheets answer the same question the

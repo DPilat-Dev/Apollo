@@ -36,6 +36,7 @@ import type {
   UserDto,
   UserPolicy,
   VirtualFolderInfo,
+  DisplayPreferencesDto,
 } from '@jellyfin/sdk/lib/generated-client/models'
 
 export const CLIENT_NAME = 'Apollo'
@@ -1365,6 +1366,32 @@ export class JellyfinApi {
 
   quickConnectEnabled() {
     return this.request<boolean>('/QuickConnect/Enabled')
+  }
+
+  /*
+    ── Settings that follow the account ──────────────────────────────────────
+
+    Jellyfin keeps a per-user, per-client bag of preferences here. `client` is
+    ours to name and scopes the bag, so nothing written by jellyfin-web or any
+    other client is at risk — and nothing here is read by them.
+
+    The whole DTO is sent back on write because the route replaces rather than
+    patches; the read that precedes it is what keeps any field we do not use
+    from being blanked.
+  */
+  displayPreferences(id: string, client: string) {
+    return this.request<DisplayPreferencesDto>(`/DisplayPreferences/${encodeURIComponent(id)}`, {
+      query: { userId: this.userId, client },
+    })
+  }
+
+  saveDisplayPreferences(id: string, client: string, dto: DisplayPreferencesDto) {
+    return this.request<void>(`/DisplayPreferences/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      query: { userId: this.userId, client },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    })
   }
 
   // ------------------------------------------------------- item metadata
