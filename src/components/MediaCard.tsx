@@ -88,7 +88,7 @@ export const MediaCard = memo(function MediaCard({
 
   return (
     <div
-      className={`group/card card-offscreen relative shrink-0 ${
+      className={`group/card relative shrink-0 ${
         isLandscape ? 'w-[17rem] sm:w-[21rem]' : 'w-[9.5rem] sm:w-[11.5rem]'
       }`}
     >
