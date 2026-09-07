@@ -18,6 +18,7 @@ const track = (over: Partial<SubtitleTrack> = {}): SubtitleTrack => ({
   index: 2,
   label: 'English',
   isDefault: false,
+  isForced: false,
   codec: 'ass',
   url: 'http://s/Videos/i/m/Subtitles/2/0/Stream.vtt',
   assUrl: 'http://s/Videos/i/m/Subtitles/2/0/Stream.ass',

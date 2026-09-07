@@ -26,6 +26,7 @@ import { DEFAULT_SETTINGS, type Settings } from './settings'
 export const SYNCED_KEYS = [
   'autoplayNext',
   'subtitlesDefault',
+  'subtitleLanguage',
   'autoSkipIntros',
   'jellyseerrEnabled',
   'requestAllSeasons',
@@ -137,4 +138,63 @@ export function mergeFromServer(local: Settings, remote: Partial<Settings> | nul
 /** Whether a change is worth a request. */
 export function syncedPartChanged(a: Settings, b: Settings): boolean {
   return SYNCED_KEYS.some((key) => a[key] !== b[key])
+}
+
+/**
+ * What this device should do when it hears from the server.
+ *
+ * The naive rule — the server always wins on load — loses work. Change a
+ * setting and reload within the debounce and the change is not merely
+ * unsent: the pull applies the older copy over it, so it is actively undone.
+ *
+ * Fixed by remembering the last state both sides agreed on. If the local
+ * settings have moved since then, they are newer than anything the server can
+ * offer and are pushed instead. Only when local has not moved does the remote
+ * copy apply — which is the case this whole feature exists for, arriving at a
+ * second device.
+ *
+ * A tab closed before the push simply pushes on the next load, so nothing has
+ * to survive the page going away.
+ */
+export function reconcile({
+  local,
+  remote,
+  lastSynced,
+}: {
+  local: Settings
+  remote: Partial<Settings> | null
+  /** The state both sides last agreed on, or null on a first run. */
+  lastSynced: Settings | null
+}): { settings: Settings; push: boolean } {
+  const localHasChanges = lastSynced != null && syncedPartChanged(lastSynced, local)
+  if (localHasChanges) return { settings: local, push: true }
+
+  const merged = mergeFromServer(local, remote)
+  /*
+    Nothing stored yet: this device's settings become the account's, which is
+    what makes the first sign-in on a second device inherit rather than reset.
+  */
+  if (!remote) return { settings: merged, push: true }
+  return { settings: merged, push: false }
+}
+
+const SYNCED_SNAPSHOT_KEY = 'apollo.settings.synced'
+
+/** The last state the server and this device agreed on. */
+export function readLastSynced(): Settings | null {
+  try {
+    const raw = localStorage.getItem(SYNCED_SNAPSHOT_KEY)
+    return raw ? (JSON.parse(raw) as Settings) : null
+  } catch {
+    return null
+  }
+}
+
+export function writeLastSynced(settings: Settings) {
+  try {
+    localStorage.setItem(SYNCED_SNAPSHOT_KEY, JSON.stringify(settings))
+  } catch {
+    // A full or unavailable store costs correctness on the next reload only,
+    // and there is nothing useful to do about it here.
+  }
 }

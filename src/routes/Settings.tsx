@@ -17,6 +17,7 @@ import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { MOTION_LABELS, MOTION_PREFERENCES, type MotionPreference } from '../lib/motion'
 import { THEME_LABELS, THEME_PREFERENCES, type ThemePreference } from '../lib/theme'
+import { useCultures } from '../lib/queries'
 import {
   SUBTITLE_FONT_LABELS,
   SUBTITLE_FONTS,
@@ -32,7 +33,30 @@ const SUBTITLE_COLORS = [
 ]
 
 
+/**
+ * The languages the server knows, as a list a person can pick from.
+ *
+ * Filed under the three-letter code because that is what Jellyfin reports on a
+ * media stream, so a preference and a track are named the same way. Entries
+ * without one are dropped: they could never match anything.
+ */
+function languageOptions(cultures: { DisplayName?: string | null; ThreeLetterISOLanguageName?: string | null }[] | undefined) {
+  const seen = new Set<string>()
+  return (cultures ?? [])
+    .flatMap((c) => {
+      const value = c.ThreeLetterISOLanguageName ?? ''
+      const label = c.DisplayName ?? value
+      if (!value || seen.has(value)) return []
+      seen.add(value)
+      return [{ value, label }]
+    })
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 export function Settings() {
+  // The server's own language list, so a preference is named the way a media
+  // stream is. Cached forever — it does not change while Apollo is open.
+  const cultures = useCultures()
   useDocumentTitle(pageTitle('Settings'))
   const { session, signOut, switchUser } = useAuth()
   const settings = useSettings()
@@ -118,10 +142,28 @@ export function Settings() {
           hint="Roll straight into the following episode when one finishes."
           checked={settings.autoplayNext}
         />
+        <Row
+          label="Subtitle language"
+          hint="Turned on automatically when a title has this language. A full track is preferred over a forced one, which carries only signs."
+        >
+          <select
+            aria-label="Subtitle language"
+            value={settings.subtitleLanguage}
+            onChange={(e) => setSetting('subtitleLanguage', e.target.value)}
+            className="max-w-48 shrink-0 rounded-lg border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35 focus-visible:border-white/60"
+          >
+            <option value="">No preference</option>
+            {languageOptions(cultures.data).map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </Row>
         <Toggle
           name="subtitlesDefault"
           label="Subtitles on by default"
-          hint="Turns on the default subtitle track whenever a title has one."
+          hint="For titles with no track in the language above: turns on whichever track the file calls its default."
           checked={settings.subtitlesDefault}
         />
         <Toggle

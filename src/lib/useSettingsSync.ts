@@ -1,13 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { JellyfinApi } from './api'
 import { applySettings, currentSettings, useSettings, type Settings } from './settings'
 import {
   decodeSettings,
   encodeSettings,
-  mergeFromServer,
+  readLastSynced,
+  reconcile,
   SYNC_CLIENT,
   SYNC_PREFERENCES_ID,
   syncedPartChanged,
+  writeLastSynced,
 } from './settingsSync'
 
 /**
@@ -39,34 +41,53 @@ export function useSettingsSync(api: JellyfinApi | null | undefined, userId: str
     Nothing is pushed until the pull has finished. Otherwise the first render
     would send this device's defaults up and overwrite the very settings it is
     about to ask for.
+
+    State rather than a ref, and that matters: the push effect below reads this
+    on the way in and returns early while it is false. A ref would never wake it
+    again, so a change made before the pull landed — or carried over from a
+    previous visit — would sit unsent until something else happened to move a
+    setting.
   */
-  const pulled = useRef(false)
+  const [pulled, setPulled] = useState(false)
   const lastPushed = useRef<Settings | null>(null)
+  /** The other clients' entries in the shared bag, as last seen. */
+  const otherPrefs = useRef<Record<string, string | null>>({})
 
   useEffect(() => {
     if (!api || !userId) return
-    pulled.current = false
+    setPulled(false)
     let cancelled = false
 
     const pull = async () => {
       const prefs = await api.displayPreferences(SYNC_PREFERENCES_ID, SYNC_CLIENT)
       if (cancelled) return
-      const remote = decodeSettings(prefs?.CustomPrefs ?? null)
-      const merged = mergeFromServer(currentSettings(), remote)
-      if (merged !== currentSettings()) applySettings(merged)
-      lastPushed.current = merged
-      pulled.current = true
+      otherPrefs.current = prefs?.CustomPrefs ?? {}
+
+      const { settings: next, push } = reconcile({
+        local: currentSettings(),
+        remote: decodeSettings(prefs?.CustomPrefs ?? null),
+        lastSynced: readLastSynced(),
+      })
+      if (next !== currentSettings()) applySettings(next)
+      /*
+        `lastPushed` decides whether the effect below sends anything. Leaving it
+        unset when the local copy is the newer one is what makes an unsent
+        change go out on the next load instead of being lost.
+      */
+      lastPushed.current = push ? null : next
+      if (!push) writeLastSynced(next)
     }
 
-    pull().catch(() => {
-      // An older server, a user with no preferences yet, or no network. Local
-      // settings keep working; pushing is still allowed, which is what creates
-      // the record the first time.
-      if (!cancelled) {
-        lastPushed.current = currentSettings()
-        pulled.current = true
-      }
-    })
+    pull()
+      .catch(() => {
+        // An older server, a user with no preferences yet, or no network.
+        // Local settings keep working, and pushing is still allowed — that is
+        // what creates the record the first time.
+        if (!cancelled) lastPushed.current = null
+      })
+      .finally(() => {
+        if (!cancelled) setPulled(true)
+      })
 
     return () => {
       cancelled = true
@@ -74,11 +95,11 @@ export function useSettingsSync(api: JellyfinApi | null | undefined, userId: str
   }, [api, userId])
 
   useEffect(() => {
-    if (!api || !userId || !pulled.current) return
+    if (!api || !userId || !pulled) return
     const previous = lastPushed.current
     if (previous && !syncedPartChanged(previous, settings)) return
 
-    const timer = setTimeout(() => {
+    const push = () => {
       const snapshot = currentSettings()
       lastPushed.current = snapshot
       /*
@@ -89,17 +110,25 @@ export function useSettingsSync(api: JellyfinApi | null | undefined, userId: str
       void api
         .displayPreferences(SYNC_PREFERENCES_ID, SYNC_CLIENT)
         .catch(() => null)
-        .then((existing) =>
-          api.saveDisplayPreferences(SYNC_PREFERENCES_ID, SYNC_CLIENT, {
-            ...(existing ?? {}),
-            Id: SYNC_PREFERENCES_ID,
-            Client: SYNC_CLIENT,
-            CustomPrefs: { ...(existing?.CustomPrefs ?? {}), ...encodeSettings(snapshot) },
-          }),
-        )
+        .then((existing) => {
+          if (existing?.CustomPrefs) otherPrefs.current = existing.CustomPrefs
+          return api
+            .saveDisplayPreferences(SYNC_PREFERENCES_ID, SYNC_CLIENT, {
+              ...(existing ?? {}),
+              Id: SYNC_PREFERENCES_ID,
+              Client: SYNC_CLIENT,
+              CustomPrefs: { ...(existing?.CustomPrefs ?? {}), ...encodeSettings(snapshot) },
+            })
+            // Only once the server has it: an agreement neither side reached
+            // would let the next load discard a change that never arrived.
+            .then(() => writeLastSynced(snapshot))
+        })
         .catch(() => {})
-    }, PUSH_DELAY_MS)
+    }
+
+    const timer = setTimeout(push, PUSH_DELAY_MS)
+
 
     return () => clearTimeout(timer)
-  }, [api, userId, settings])
+  }, [api, userId, settings, pulled])
 }

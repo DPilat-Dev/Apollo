@@ -43,6 +43,7 @@ import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
 import { browserCanRenderPgs, pgsTrackFor } from '../lib/pgsSubtitles'
+import { pickSubtitleTrack } from '../lib/subtitleLanguage'
 import { subtitleSizeStatus } from '../lib/subtitleStyle'
 import { usePgsSubtitles } from '../lib/usePgsSubtitles'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
@@ -883,12 +884,20 @@ export function Player() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
-  // Honour "subtitles on by default", unless the detail page already chose.
+  /*
+    Turn on the subtitles this viewer asked for, unless the detail page already
+    chose a track. Which one — and whether any — is `pickSubtitleTrack`, which
+    knows about languages, forced tracks and the formats Apollo can actually
+    draw.
+  */
   useEffect(() => {
-    if (!plan || !settings.subtitlesDefault || requestedSub != null) return
-    const preferred =
-      plan.subtitles.find((s) => s.isDefault && s.url) ?? plan.subtitles.find((s) => s.url)
-    if (preferred) setTextTrackIndex(preferred.index)
+    if (!plan || requestedSub != null) return
+    const chosen = pickSubtitleTrack({
+      subtitles: plan.subtitles,
+      preferredLanguage: settings.subtitleLanguage,
+      onByDefault: settings.subtitlesDefault,
+    })
+    if (chosen != null) setTextTrackIndex(chosen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
