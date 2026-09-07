@@ -105,6 +105,24 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
   listeners.forEach((fn) => fn())
 }
 
+/**
+ * Replace the whole snapshot at once.
+ *
+ * For settings arriving from the server: applying them one `setSetting` at a
+ * time would notify every subscriber a dozen times and, worse, each write would
+ * look like a local change and be sent straight back.
+ */
+export function applySettings(next: Settings) {
+  snapshot = next
+  localStorage.setItem(KEY, JSON.stringify(snapshot))
+  listeners.forEach((fn) => fn())
+}
+
+/** Read once, outside React — for the sync layer's own comparisons. */
+export function currentSettings(): Settings {
+  return snapshot
+}
+
 export function resetSettings() {
   snapshot = DEFAULT_SETTINGS
   localStorage.removeItem(KEY)
