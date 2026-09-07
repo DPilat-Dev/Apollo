@@ -43,6 +43,7 @@ import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
 import { browserCanRenderPgs, pgsTrackFor } from '../lib/pgsSubtitles'
+import { subtitleSizeStatus } from '../lib/subtitleStyle'
 import { usePgsSubtitles } from '../lib/usePgsSubtitles'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { Scrubber } from '../components/Scrubber'
@@ -992,6 +993,17 @@ export function Player() {
   })
 
   /*
+    Size multiplies a font size — through `::cue` for text, and by rewriting an
+    ASS script's own sizes. Neither reaches a bitmap, so for PGS and for
+    anything the server burned in the control could not do what it offered.
+  */
+  const sizeStatus = subtitleSizeStatus({
+    textTrackIndex,
+    burnedSubIndex,
+    pictureTrack: pgsTrack != null,
+  })
+
+  /*
     Apply the chosen subtitle track to the <track> elements React rendered.
 
     `assActive` is in here because the two renderers must never both be on:
@@ -1711,7 +1723,12 @@ export function Player() {
                       </MenuGroup>
                     )}
 
-                    <MenuGroup title="Subtitle size">
+                    {sizeStatus.kind !== 'off' && (
+                      <MenuGroup title="Subtitle size">
+                        {sizeStatus.kind === 'fixed' ? (
+                          <MenuEmpty>{sizeStatus.reason}</MenuEmpty>
+                        ) : (
+                          <>
                       <div className="flex items-center gap-2 px-3 py-1.5">
                         <StepButton
                           label="Smaller subtitles"
@@ -1751,7 +1768,10 @@ export function Player() {
                           subtitle file.
                         </MenuEmpty>
                       )}
-                    </MenuGroup>
+                          </>
+                        )}
+                      </MenuGroup>
+                    )}
 
                     <MenuGroup title="Audio">
                       {plan?.audio.length === 0 && <MenuEmpty>No audio tracks</MenuEmpty>}

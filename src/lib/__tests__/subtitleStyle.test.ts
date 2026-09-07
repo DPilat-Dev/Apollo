@@ -8,6 +8,7 @@ import {
   safeColor,
   subtitleCss,
   subtitleLinePercent,
+  subtitleSizeStatus,
 } from '../subtitleStyle'
 
 const base = {
@@ -150,5 +151,40 @@ describe('isSubtitleFont', () => {
     for (const f of Object.keys(SUBTITLE_FONTS)) {
       expect(SUBTITLE_FONT_LABELS[f as keyof typeof SUBTITLE_FONTS]).toBeTruthy()
     }
+  })
+})
+
+describe('subtitleSizeStatus', () => {
+  const at = (over = {}) =>
+    subtitleSizeStatus({ textTrackIndex: 2, burnedSubIndex: undefined, pictureTrack: false, ...over })
+
+  it('is adjustable for text, which is the case it was built for', () => {
+    expect(at().kind).toBe('adjustable')
+  })
+
+  it('is fixed for a picture drawn here, and says why', () => {
+    // PGS is decoded at the size it was authored. The − and + buttons had no
+    // effect at all, which is worse than not offering them.
+    const s = at({ pictureTrack: true })
+    expect(s.kind).toBe('fixed')
+    expect(s.kind === 'fixed' && s.reason).toMatch(/pictures rather than text/)
+  })
+
+  it('is fixed for a picture burned in by the server', () => {
+    const s = at({ burnedSubIndex: 4, textTrackIndex: null })
+    expect(s.kind).toBe('fixed')
+    expect(s.kind === 'fixed' && s.reason).toMatch(/Burned into the picture/)
+  })
+
+  it('reports burned-in ahead of anything else', () => {
+    // Once the server has painted them on, nothing about the chosen track
+    // changes the answer.
+    expect(at({ burnedSubIndex: 4, pictureTrack: false }).kind).toBe('fixed')
+  })
+
+  it('is off with no subtitles showing', () => {
+    // Nothing to size, and nothing to explain either — the control should not
+    // be there at all.
+    expect(at({ textTrackIndex: null }).kind).toBe('off')
   })
 })

@@ -150,3 +150,47 @@ export function applySubtitleCss(css: string | null) {
   }
   style.textContent = css
 }
+
+/**
+ * Whether the size control means anything for what is currently on screen.
+ *
+ * It changes a font size — through `::cue` for text tracks, and by rewriting
+ * the script's own sizes for ASS. Neither reaches a picture. PGS and VOBSUB
+ * are bitmaps decoded at the size they were authored, so the control was
+ * sitting there offering to do something it cannot do, and the − and + buttons
+ * simply had no effect.
+ *
+ * Said rather than hidden, where there is a reason to say it. A control that
+ * vanishes leaves someone hunting for it; the same shape as the delay control,
+ * which already explains itself when subtitles are burned in.
+ */
+export type SubtitleSizeStatus =
+  | { kind: 'off' }
+  | { kind: 'adjustable' }
+  | { kind: 'fixed'; reason: string }
+
+export function subtitleSizeStatus({
+  textTrackIndex,
+  burnedSubIndex,
+  pictureTrack,
+}: {
+  textTrackIndex: number | null
+  burnedSubIndex: number | undefined
+  /** The chosen track is a bitmap Apollo draws itself, rather than text. */
+  pictureTrack: boolean
+}): SubtitleSizeStatus {
+  if (burnedSubIndex != null) {
+    return {
+      kind: 'fixed',
+      reason: 'Burned into the picture by the server, so its size is fixed.',
+    }
+  }
+  if (textTrackIndex == null) return { kind: 'off' }
+  if (pictureTrack) {
+    return {
+      kind: 'fixed',
+      reason: 'These subtitles are pictures rather than text, so their size is fixed.',
+    }
+  }
+  return { kind: 'adjustable' }
+}
