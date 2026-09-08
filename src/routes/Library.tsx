@@ -1,3 +1,4 @@
+import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useEffect, useMemo, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
@@ -8,6 +9,7 @@ import { useViews } from '../lib/queries'
 import { browsableTypes } from '../lib/collections'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { WindowedGrid } from '../components/WindowedGrid'
 import {
   NO_FILTERS,
   filterCacheKey,
@@ -21,12 +23,28 @@ import {
 
 const PAGE_SIZE = 60
 
+const GRID_CLASS =
+  'grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8'
+
+/*
+  Defined once, outside any render. `WindowedGrid` is memoised, and a new
+  function here on every render would defeat that — the grid would rebuild
+  whenever the page re-rendered for reasons of its own.
+*/
+const renderCard = (item: BaseItemDto) => (
+  <div key={item.Id} className="[&>div]:w-full">
+    <MediaCard item={item} />
+  </div>
+)
+
 export function Library() {
   const { viewId } = useParams<{ viewId: string }>()
   const [params, setParams] = useSearchParams()
   const api = useApi()
   const { data: views, isPending: viewsPending } = useViews()
   const sentinel = useRef<HTMLDivElement>(null)
+  // Declared before `items` exists: the count is passed in below, and hooks
+  // cannot be ordered around data.
 
   const view = views?.find((v) => v.Id === viewId)
   const itemTypes = browsableTypes(view?.CollectionType)
@@ -143,19 +161,19 @@ export function Library() {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-        {showSkeleton
-          ? Array.from({ length: 24 }, (_, i) => (
-              <div key={i} className="w-full">
-                <div className="skeleton aspect-2/3 rounded-lg" />
-              </div>
-            ))
-          : items.map((item) => (
-              <div key={item.Id} className="[&>div]:w-full">
-                <MediaCard item={item} />
-              </div>
-            ))}
-      </div>
+      {showSkeleton ? (
+        <div className={GRID_CLASS}>
+          {Array.from({ length: 24 }, (_, i) => (
+            <div key={i} className="w-full">
+              <div className="skeleton aspect-2/3 rounded-lg" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <WindowedGrid items={items} className={GRID_CLASS}>
+          {renderCard}
+        </WindowedGrid>
+      )}
 
       {!showSkeleton && items.length === 0 && (
         <div className="py-24 text-center">
