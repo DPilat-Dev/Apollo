@@ -21,6 +21,7 @@ import { collectionInView } from '../lib/boxSets'
 import { useCanManageCollections, useRemoveFromCollection } from '../lib/queries'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { WindowedGrid } from '../components/WindowedGrid'
 
 const PAGE_SIZE = 60
 
@@ -63,6 +64,9 @@ export interface BrowseProps {
    */
   fallbackPersonId?: string
 }
+
+const GRID_CLASS =
+  'grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8'
 
 export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const [params, setParams] = useSearchParams()
@@ -195,12 +199,15 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-        {query.isLoading
-          ? Array.from({ length: 18 }, (_, i) => (
-              <div key={i} className="skeleton aspect-2/3 rounded-lg" />
-            ))
-          : items.map((item) => (
+      {query.isLoading ? (
+        <div className={GRID_CLASS}>
+          {Array.from({ length: 18 }, (_, i) => (
+            <div key={i} className="skeleton aspect-2/3 rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <WindowedGrid items={items} className={GRID_CLASS}>
+          {(item) => (
               <div key={item.Id} className="[&>div]:w-full">
                 <MediaCard
                   item={item}
@@ -216,8 +223,9 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
                   }
                 />
               </div>
-            ))}
-      </div>
+          )}
+        </WindowedGrid>
+      )}
 
       {!query.isLoading && items.length === 0 && (
         <div className="py-24 text-center">
