@@ -2,7 +2,7 @@ import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react
 import { Suspense, useEffect, useState } from 'react'
 import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { useApi, useAuth } from './lib/auth'
+import { useAuth } from './lib/auth'
 import { useSettingsSync } from './lib/useSettingsSync'
 import { useQueryPersistence } from './lib/useQueryPersistence'
 import { useBranding } from './lib/branding'
@@ -109,8 +109,13 @@ function BrowseLayout() {
 }
 
 export default function App() {
-  const { session } = useAuth()
-  const api = useApi()
+  /*
+    `api` from the context, not `useApi()`. That helper throws when there is no
+    session — it is for screens behind the auth gate, and this component is
+    above it. Calling it here crashed the sign-in screen for anyone signed out,
+    which is every new browser and every reload after a sign-out.
+  */
+  const { session, api } = useAuth()
   const { helpOpen, closeHelp } = useGlobalShortcuts(Boolean(session))
   // Keeps the server's custom CSS applied across every signed-in screen.
   useBranding(session?.server)
@@ -120,7 +125,7 @@ export default function App() {
     account, through Jellyfin's own per-user preference store. Which ones, and
     what happens when the two copies disagree, is `settingsSync.ts`.
   */
-  useSettingsSync(session ? api : null, session?.userId)
+  useSettingsSync(api, session?.userId)
 
   /*
     The query cache, kept across reloads so opening Apollo shows shelves and
