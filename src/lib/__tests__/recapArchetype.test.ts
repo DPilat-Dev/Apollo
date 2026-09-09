@@ -140,3 +140,55 @@ describe('viewerBadges', () => {
     expect(viewerBadges(s).length).toBeLessThanOrEqual(3)
   })
 })
+
+describe('anime against everything else that is drawn', () => {
+  // Jellyfin tags anime with both genres — 271 of 300 series in the library
+  // this was written against carry `Anime` and `Animation` — so the counts
+  // overlap and the comparison is anime against what is left.
+  const drawn = (animation: number, anime: number, itemCount = 100) =>
+    stats({ itemCount, topGenres: [genre('Animation', animation), genre('Anime', anime)] })
+
+  it('calls a year of anime a weeb, not a cartoon adult', () => {
+    // The whole point: 80 animated things, 75 of them anime.
+    expect(viewerArchetype(drawn(80, 75))?.id).toBe('weeb')
+  })
+
+  it('still calls western cartoons cartoons', () => {
+    // The library this was built against: 912 animated, no anime at all.
+    expect(viewerArchetype(drawn(80, 0))?.id).toBe('cartoon-adult')
+  })
+
+  it('gives a tie to the weeb', () => {
+    expect(viewerArchetype(drawn(80, 40))?.id).toBe('weeb')
+  })
+
+  it('calls a mostly-cartoons year a cartoon year even with some anime in it', () => {
+    expect(viewerArchetype(drawn(80, 20))?.id).toBe('cartoon-adult')
+  })
+
+  it('handles anime tagged without Animation at all', () => {
+    // Twenty-five of those three hundred series carry `Anime` and nothing else.
+    expect(viewerArchetype(drawn(0, 60))?.id).toBe('weeb')
+  })
+
+  it('never reports a year as more than fully animated', () => {
+    // Adding the two counts did exactly that, because every anime carries both.
+    const a = viewerArchetype(drawn(80, 78))
+    const b = viewerArchetype(drawn(90, 0))
+    for (const found of [a, b]) {
+      const pct = Number(found?.blurb.match(/(\d+)%/)?.[1] ?? 0)
+      expect(pct).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('says what it counted, when there is something to compare', () => {
+    expect(viewerArchetype(drawn(80, 75))?.blurb).toContain('75 of them were anime')
+    expect(viewerArchetype(drawn(80, 75))?.blurb).toContain('5 that were merely cartoons')
+  })
+
+  it('does not label a handful of anime in a live-action year', () => {
+    // Twelve anime out of a thousand is not a weeb, however lopsided the
+    // animated slice is.
+    expect(viewerArchetype(drawn(12, 12, 1000))?.id).not.toBe('weeb')
+  })
+})

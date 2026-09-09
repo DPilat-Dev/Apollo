@@ -38,6 +38,30 @@ function genreShare(stats: RecapStats, pattern: RegExp): { share: number; count:
   return { share: count / stats.itemCount, count }
 }
 
+/**
+ * How much of the year was animated, and how much of *that* was anime.
+ *
+ * Jellyfin tags anime with both genres — 271 of 300 series in the library this
+ * was written against carry `Anime` and `Animation` — so the two counts
+ * overlap almost entirely and cannot be added. Summing them reported a year as
+ * more than 100% animated; the union is the larger of the two.
+ *
+ * What is left after the anime is taken out is everything else that was drawn:
+ * Western cartoons, mostly. Comparing the two is what decides whether a year of
+ * cartoons was a year of anime.
+ */
+function animationSplit(stats: RecapStats): { share: number; anime: number; other: number } {
+  const animation = genreShare(stats, /^animation$/i).count
+  const anime = genreShare(stats, /^anime$/i).count
+  const animated = Math.max(animation, anime)
+  return {
+    share: stats.itemCount > 0 ? animated / stats.itemCount : 0,
+    anime,
+    // Not negative, for the few series tagged `Anime` and nothing else.
+    other: Math.max(0, animated - anime),
+  }
+}
+
 interface Rule {
   id: string
   title: string
@@ -65,8 +89,21 @@ const RULES: Rule[] = [
   {
     id: 'weeb',
     title: 'Card-carrying weeb',
-    blurb: (s) => `${genreShare(s, /^anime$/i).count} of them were anime. Subs or dubs, no judgement.`,
-    test: (s) => genreShare(s, /^anime$/i).share >= 0.35 && s.itemCount >= 20,
+    blurb: (s) => {
+      const { anime, other } = animationSplit(s)
+      return other > 0
+        ? `${anime} of them were anime, against ${other} that were merely cartoons. Subs or dubs, no judgement.`
+        : `${anime} of them were anime. Subs or dubs, no judgement.`
+    },
+    /*
+      A drawn year that is more anime than not. The comparison does the work,
+      so the bar for anime alone is low — what matters is which kind of
+      animation won, not how much of the year was animated.
+    */
+    test: (s) => {
+      const { share, anime, other } = animationSplit(s)
+      return share >= 0.35 && anime >= 10 && anime >= other
+    },
   },
   {
     id: 'horror',
@@ -101,9 +138,13 @@ const RULES: Rule[] = [
   {
     id: 'cartoon-adult',
     title: 'Certified cartoon adult',
+    // The union, not the sum: anime carries both genres, and adding them
+    // reported a year as more than 100% animated.
     blurb: (s) =>
-      `${Math.round(genreShare(s, /^(animation|anime)$/i).share * 100)}% animated, and not a single one of them was for children.`,
-    test: (s) => genreShare(s, /^(animation|anime)$/i).share >= 0.55 && s.itemCount >= 20,
+      `${Math.round(animationSplit(s).share * 100)}% animated, and not a single one of them was for children.`,
+    // Only once the year has failed to be an anime year, which is checked
+    // above — so this is the cartoons that are not anime.
+    test: (s) => animationSplit(s).share >= 0.55 && s.itemCount >= 20,
   },
   {
     id: 'comfort',
