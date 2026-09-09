@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { PLAYED_QUERY_KEYS } from './bulkPlayed'
 import type { JellyfinApi } from './api'
 import type { StreamPlan } from './playback'
 import { secondsToTicks } from './format'
@@ -75,14 +77,36 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
     }
   }, [itemId, plan])
 
+  const queryClient = useQueryClient()
+
   const report = useCallback(() => {
     const payload = body()
     if (payload) void api.reportProgress(payload).catch(() => {})
   }, [api, body])
 
+  /*
+    Telling the rest of the app that this item has moved.
+
+    Everything on the home page comes from a cache — Continue Watching, Next
+    Up, the rows — and none of it had any reason to believe watching something
+    changed it. So the position was saved correctly, the server knew it, and
+    the shelf went on showing the time remaining from before, until a reload
+    happened to fetch it again. That is the whole of "it does not save unless I
+    refresh": it did save, and nothing asked again.
+
+    Marked stale rather than refetched: the queries that are mounted refresh
+    themselves, and the ones that are not wait until something needs them.
+  */
+  const refreshShelves = useCallback(() => {
+    for (const key of PLAYED_QUERY_KEYS) {
+      void queryClient.invalidateQueries({ queryKey: [key] })
+    }
+  }, [queryClient])
+
   useEffect(() => {
     const payload = body()
     if (!payload) return
+
 
     void api.reportStart(payload).catch(() => {})
     const timer = setInterval(report, REPORT_INTERVAL_MS)
@@ -103,9 +127,16 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onHidden)
       const last = body()
-      if (last) void api.reportStopped(last).catch(() => {})
+      if (last) {
+        // The stop report first, so the refresh below asks for a position the
+        // server has already been told about.
+        void api
+          .reportStopped(last)
+          .catch(() => {})
+          .finally(refreshShelves)
+      }
     }
-  }, [api, body, report])
+  }, [api, body, report, refreshShelves])
 
   /*
     Pausing is someone stopping to do something else, and often the last thing
@@ -116,5 +147,10 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
     report()
   }, [paused, report])
 
-  return { reportNow: report }
+  return {
+    reportNow: () => {
+      report()
+      refreshShelves()
+    },
+  }
 }
