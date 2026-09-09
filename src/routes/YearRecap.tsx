@@ -1,12 +1,18 @@
 import { useEffect, useMemo } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
 import { useCountUp } from '../lib/useCountUp'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { useReducedMotion } from '../lib/useReducedMotion'
 import { viewerArchetype, viewerBadges } from '../lib/recapArchetype'
+import {
+  chunkIds,
+  genresBySeries,
+  seriesIdsFrom,
+  withSeriesGenres,
+} from '../lib/recapSeriesGenres'
 import {
   ESTIMATE_CAVEAT,
   formatEstimatedTime,
@@ -54,6 +60,8 @@ export function YearRecap() {
   })
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+  /** The walk is done, so the set of shows to look up will not grow again. */
+  const settled = !query.isLoading && !hasNextPage && !isFetchingNextPage
 
   /*
     Unlike the history list there is nothing to scroll towards — a total is
@@ -64,9 +72,40 @@ export function YearRecap() {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const items = useMemo(
+  const played = useMemo(
     () => query.data?.pages.flatMap((page) => page.Items ?? []) ?? [],
     [query.data],
+  )
+
+  /*
+    Genres live on a show, not on its episodes — `Anime` is on Hunter x Hunter
+    and on none of its episodes — so counting what was played counts almost
+    nothing. The shows are looked up once and their genres folded in; there are
+    far fewer shows than episodes, so it is a request or two for the year.
+
+    Disabled until the walk is done, or it would fire again for every page.
+  */
+  const seriesIds = useMemo(() => (settled ? seriesIdsFrom(played) : []), [played, settled])
+  const seriesQuery = useQuery({
+    /*
+      The ids themselves, not how many there are: two different sets of the
+      same size would share a cache entry and one year would be described with
+      another's genres.
+    */
+    queryKey: ['recapSeriesGenres', api.userId, year, [...seriesIds].sort()],
+    enabled: seriesIds.length > 0,
+    staleTime: 30 * 60 * 1000,
+    queryFn: async () => {
+      const pages = await Promise.all(
+        chunkIds(seriesIds).map((ids) => api.items({ ids, fields: ['Genres'], limit: ids.length })),
+      )
+      return pages.flatMap((page) => page.Items ?? [])
+    },
+  })
+
+  const items = useMemo(
+    () => withSeriesGenres(played, genresBySeries(seriesQuery.data ?? [])),
+    [played, seriesQuery.data],
   )
   // No timezone or locale given, so both are this browser's — the year has to
   // break where the viewer's new year broke, not where UTC's did.
