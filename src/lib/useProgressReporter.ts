@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { PLAYED_QUERY_KEYS } from './bulkPlayed'
 import type { JellyfinApi } from './api'
 import type { StreamPlan } from './playback'
 import { secondsToTicks } from './format'
@@ -11,51 +13,144 @@ interface Args {
   plan: StreamPlan | null
   /** Absolute position in the media, already adjusted for transcode offsets. */
   positionSeconds: () => number
-  isPaused: () => boolean
+  /** Read as a value, not a getter: a change in it is worth a report. */
+  paused: boolean
 }
 
 /**
- * Keeps the server's "continue watching" state in sync: one start report, a
- * heartbeat while playing, and a stop report on unmount or tab close.
+ * Keeps the server's "continue watching" state in sync.
+ *
+ * ── Why there are four moments, not one ────────────────────────────────────
+ *
+ * A stop report on unmount is the obvious design and it loses people's places.
+ * It only runs when React unmounts the player, and the two ways a viewer
+ * actually leaves do not always do that: closing the tab tears the page down
+ * without running cleanups, and until the fix alongside this one, the back
+ * arrow could leave by loading a whole new document when the player had been
+ * opened directly.
+ *
+ * So the position is reported when it changes in a way worth recording:
+ *
+ *   on start        so the server knows what is playing
+ *   every 10s       while it plays
+ *   on pause        immediately, rather than up to ten seconds later
+ *   on hidden       switching tabs, switching apps, locking the phone
+ *   on unmount      leaving the player inside the app
+ *
+ * `visibilitychange` is the one that does the heavy lifting for "I left": it
+ * fires while the page is still alive, so an ordinary request works.
+ *
+ * ── What is deliberately not here ──────────────────────────────────────────
+ *
+ * There was a `sendBeacon` on `pagehide`, and it never worked. A beacon may
+ * only send CORS-safelisted content types without a preflight, and it cannot
+ * preflight; Jellyfin answers anything but `application/json` with 415. So the
+ * beacon was silently dropped on every page it ever ran on. Removed rather
+ * than left as a comforting no-op.
  */
-export function useProgressReporter({ api, itemId, plan, positionSeconds, isPaused }: Args) {
-  // Held in refs so the effect below can stay keyed only on the stream identity.
+export function useProgressReporter({ api, itemId, plan, positionSeconds, paused }: Args): {
+  /**
+   * Report where the viewer is, now.
+   *
+   * For the moment of leaving. An unmount is too late to read a position:
+   * React has removed the <video> by then, and the reporter falls back to
+   * whatever last rendered — which after a skip is the position before it.
+   */
+  reportNow: () => void
+} {
+  // Held in refs so the effects below stay keyed on the stream identity.
   const posRef = useRef(positionSeconds)
-  const pausedRef = useRef(isPaused)
+  const pausedRef = useRef(paused)
   posRef.current = positionSeconds
-  pausedRef.current = isPaused
+  pausedRef.current = paused
 
-  useEffect(() => {
-    if (!itemId || !plan) return
-
-    const base = () => ({
+  const body = useCallback(() => {
+    if (!itemId || !plan) return null
+    return {
       ItemId: itemId,
       MediaSourceId: plan.mediaSource.Id,
       PlaySessionId: plan.playSessionId,
       PlayMethod: plan.playMethod,
       PositionTicks: secondsToTicks(posRef.current()),
-      IsPaused: pausedRef.current(),
+      IsPaused: pausedRef.current,
       CanSeek: true,
-    })
-
-    void api.reportStart(base()).catch(() => {})
-
-    const timer = setInterval(() => {
-      void api.reportProgress(base()).catch(() => {})
-    }, REPORT_INTERVAL_MS)
-
-    // sendBeacon survives the page teardown that a normal fetch would not.
-    const beaconStop = () => {
-      const url = api.url('/Sessions/Playing/Stopped', { api_key: api.session.token })
-      const body = new Blob([JSON.stringify(base())], { type: 'application/json' })
-      navigator.sendBeacon(url, body)
     }
-    window.addEventListener('pagehide', beaconStop)
+  }, [itemId, plan])
+
+  const queryClient = useQueryClient()
+
+  const report = useCallback(() => {
+    const payload = body()
+    if (payload) void api.reportProgress(payload).catch(() => {})
+  }, [api, body])
+
+  /*
+    Telling the rest of the app that this item has moved.
+
+    Everything on the home page comes from a cache — Continue Watching, Next
+    Up, the rows — and none of it had any reason to believe watching something
+    changed it. So the position was saved correctly, the server knew it, and
+    the shelf went on showing the time remaining from before, until a reload
+    happened to fetch it again. That is the whole of "it does not save unless I
+    refresh": it did save, and nothing asked again.
+
+    Marked stale rather than refetched: the queries that are mounted refresh
+    themselves, and the ones that are not wait until something needs them.
+  */
+  const refreshShelves = useCallback(() => {
+    for (const key of PLAYED_QUERY_KEYS) {
+      void queryClient.invalidateQueries({ queryKey: [key] })
+    }
+  }, [queryClient])
+
+  useEffect(() => {
+    const payload = body()
+    if (!payload) return
+
+
+    void api.reportStart(payload).catch(() => {})
+    const timer = setInterval(report, REPORT_INTERVAL_MS)
+
+    /*
+      The page going away while it is still alive enough to ask. Covers
+      switching tabs, switching apps and locking a phone — and on mobile this
+      is frequently the last event a page gets, since a browser being
+      backgrounded may never come back.
+    */
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') report()
+    }
+    document.addEventListener('visibilitychange', onHidden)
+
 
     return () => {
       clearInterval(timer)
-      window.removeEventListener('pagehide', beaconStop)
-      void api.reportStopped(base()).catch(() => {})
+      document.removeEventListener('visibilitychange', onHidden)
+      const last = body()
+      if (last) {
+        // The stop report first, so the refresh below asks for a position the
+        // server has already been told about.
+        void api
+          .reportStopped(last)
+          .catch(() => {})
+          .finally(refreshShelves)
+      }
     }
-  }, [api, itemId, plan])
+  }, [api, body, report, refreshShelves])
+
+  /*
+    Pausing is someone stopping to do something else, and often the last thing
+    they do before leaving. Waiting up to ten seconds to record where they got
+    to is the difference between resuming in the right place and not.
+  */
+  useEffect(() => {
+    report()
+  }, [paused, report])
+
+  return {
+    reportNow: () => {
+      report()
+      refreshShelves()
+    },
+  }
 }

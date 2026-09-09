@@ -87,6 +87,7 @@ import {
 import { useDismissOnEscape } from '../lib/useDismissOnEscape'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { backDestination } from '../lib/leavePlayer'
 
 const IDLE_MS = 3000
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
@@ -105,6 +106,7 @@ export function Player() {
   const [search] = useSearchParams()
   const api = useApi()
   const navigate = useNavigate()
+
   const settings = useSettings()
   // Clamped centrally: the Settings slider has its own bounds, and a second
   // control that did not share them could take the size somewhere the first
@@ -275,13 +277,57 @@ export function Player() {
     ? ticksToSeconds(item.RunTimeTicks)
     : duration + offset
 
-  useProgressReporter({
+  /*
+    Read from the element, not from React state.
+
+    `absoluteTime` is only as fresh as the last `timeupdate` that made it
+    through a render, and a seek does not wait for either. Skipping forward and
+    leaving straight away reported the position from before the skip — 0s while
+    the video sat at 1291s — so the server was told, correctly and uselessly,
+    where the viewer had been rather than where they were.
+
+    The element always knows. State stays the fallback for the moment after
+    unmount, when React has already taken the <video> away.
+  */
+  const livePosition = useCallback(
+    () => (videoRef.current?.currentTime ?? currentTime) + offset,
+    [currentTime, offset],
+  )
+
+  const { reportNow: reportPositionNow } = useProgressReporter({
     api,
     itemId: item?.Id ?? undefined,
     plan,
-    positionSeconds: () => absoluteTime,
-    isPaused: () => paused,
+    positionSeconds: livePosition,
+    paused,
   })
+
+  /*
+    Leaving the player, without leaving the app.
+
+    `navigate(-1)` is right when there is somewhere of ours to go back to. When
+    there is not — the video was opened directly, or refreshed on — it loads a
+    new document instead, and a document being torn down does not run React's
+    cleanups, so the stop report that records the viewer's position never
+    happens. Going home instead is a client-side navigation, which unmounts the
+    player properly.
+  */
+  const leavePlayer = useCallback(() => {
+    /*
+      Report before navigating, not after.
+
+      An unmount is a bad moment to read a position: React has already removed
+      the <video>, so the reporter falls back to whatever last rendered — which
+      after a skip is where the viewer was, not where they are. Here the
+      element is still on the page and still knows.
+    */
+    reportPositionNow()
+    // Split rather than passed through: react-router's `navigate` is
+    // overloaded on the argument's type, and a `-1 | '/'` union fits neither.
+    const destination = backDestination(window.history.state)
+    if (destination === -1) navigate(-1)
+    else navigate(destination, { replace: true })
+  }, [navigate, reportPositionNow])
 
   /*
     Sleep timer. Firing pauses and nothing else — no navigation, no unmount —
@@ -411,6 +457,10 @@ export function Player() {
       const b = video.buffered
       setBuffered(b.length ? b.end(b.length - 1) : 0)
     }
+    // `timeupdate` does not fire while a seek is in flight, so without this the
+    // clock and everything derived from it stay where they were until playback
+    // resumes.
+    const onSeeked = () => setCurrentTime(video.currentTime)
     const onDuration = () => setDuration(video.duration || 0)
     const onPlay = () => setPaused(false)
     const onPause = () => setPaused(true)
@@ -423,6 +473,7 @@ export function Player() {
     const onError = () => setError('This file could not be played.')
 
     video.addEventListener('timeupdate', onTime)
+    video.addEventListener('seeked', onSeeked)
     video.addEventListener('progress', onTime)
     video.addEventListener('durationchange', onDuration)
     video.addEventListener('play', onPlay)
@@ -434,6 +485,7 @@ export function Player() {
 
     return () => {
       video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('seeked', onSeeked)
       video.removeEventListener('progress', onTime)
       video.removeEventListener('durationchange', onDuration)
       video.removeEventListener('play', onPlay)
@@ -1410,7 +1462,7 @@ export function Player() {
         <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-16 pt-4 sm:px-8">
           <div className="flex items-start gap-4">
             <button
-              onClick={() => navigate(-1)}
+              onClick={leavePlayer}
               aria-label="Back"
               className="rounded-full p-2 transition hover:bg-white/10"
             >
