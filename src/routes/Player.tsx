@@ -87,6 +87,7 @@ import {
 import { useDismissOnEscape } from '../lib/useDismissOnEscape'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { backDestination } from '../lib/leavePlayer'
 
 const IDLE_MS = 3000
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
@@ -105,6 +106,24 @@ export function Player() {
   const [search] = useSearchParams()
   const api = useApi()
   const navigate = useNavigate()
+
+  /*
+    Leaving the player, without leaving the app.
+
+    `navigate(-1)` is right when there is somewhere of ours to go back to. When
+    there is not — the video was opened directly, or refreshed on — it loads a
+    new document instead, and a document being torn down does not run React's
+    cleanups, so the stop report that records the viewer's position never
+    happens. Going home instead is a client-side navigation, which unmounts the
+    player properly.
+  */
+  const leavePlayer = useCallback(() => {
+    // Split rather than passed through: react-router's `navigate` is
+    // overloaded on the argument's type, and a `-1 | '/'` union fits neither.
+    const destination = backDestination(window.history.state)
+    if (destination === -1) navigate(-1)
+    else navigate(destination, { replace: true })
+  }, [navigate])
   const settings = useSettings()
   // Clamped centrally: the Settings slider has its own bounds, and a second
   // control that did not share them could take the size somewhere the first
@@ -280,7 +299,7 @@ export function Player() {
     itemId: item?.Id ?? undefined,
     plan,
     positionSeconds: () => absoluteTime,
-    isPaused: () => paused,
+    paused,
   })
 
   /*
@@ -1410,7 +1429,7 @@ export function Player() {
         <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-16 pt-4 sm:px-8">
           <div className="flex items-start gap-4">
             <button
-              onClick={() => navigate(-1)}
+              onClick={leavePlayer}
               aria-label="Back"
               className="rounded-full p-2 transition hover:bg-white/10"
             >
