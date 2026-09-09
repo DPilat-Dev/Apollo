@@ -46,7 +46,16 @@ interface Args {
  * beacon was silently dropped on every page it ever ran on. Removed rather
  * than left as a comforting no-op.
  */
-export function useProgressReporter({ api, itemId, plan, positionSeconds, paused }: Args) {
+export function useProgressReporter({ api, itemId, plan, positionSeconds, paused }: Args): {
+  /**
+   * Report where the viewer is, now.
+   *
+   * For the moment of leaving. An unmount is too late to read a position:
+   * React has removed the <video> by then, and the reporter falls back to
+   * whatever last rendered — which after a skip is the position before it.
+   */
+  reportNow: () => void
+} {
   // Held in refs so the effects below stay keyed on the stream identity.
   const posRef = useRef(positionSeconds)
   const pausedRef = useRef(paused)
@@ -106,4 +115,6 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
   useEffect(() => {
     report()
   }, [paused, report])
+
+  return { reportNow: report }
 }
