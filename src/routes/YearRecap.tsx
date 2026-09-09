@@ -6,6 +6,7 @@ import { useCountUp } from '../lib/useCountUp'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { useReducedMotion } from '../lib/useReducedMotion'
+import { viewerArchetype, viewerBadges } from '../lib/recapArchetype'
 import {
   ESTIMATE_CAVEAT,
   formatEstimatedTime,
@@ -74,6 +75,7 @@ export function YearRecap() {
     [items, year],
   )
 
+
   // Out of season the page does not exist, the same as the link to it. Someone
   // arriving on the URL in June is not shown a stale ceremony.
   if (!season) return <Navigate to="/" replace />
@@ -134,6 +136,13 @@ export function YearRecap() {
 }
 
 function Recap({ stats }: { stats: RecapStats }) {
+  // The same preference the tiles use for their count-ups, so the whole page
+  // is still or moving together.
+  const reduceMotion = useReducedMotion()
+  // The reading of the year, worked out once from the same numbers the tiles
+  // above are made of.
+  const archetype = useMemo(() => viewerArchetype(stats), [stats])
+  const badges = useMemo(() => viewerBadges(stats), [stats])
   return (
     <div className="space-y-10">
       <section className="rounded-xl border border-white/10 bg-ink-soft/50 p-6 sm:p-8">
@@ -169,6 +178,36 @@ function Recap({ stats }: { stats: RecapStats }) {
         <Tile value={stats.episodeCount} label={stats.episodeCount === 1 ? 'episode' : 'episodes'} delay={160} />
         <Tile value={stats.seriesCount} label={stats.seriesCount === 1 ? 'show' : 'shows'} delay={240} />
       </section>
+
+      {/*
+        The joke at the end of the numbers. After the tiles, because it is a
+        reading of them rather than another one — and only when the year gave
+        it something to go on. See `recapArchetype.ts`.
+      */}
+      {archetype && (
+        <section
+          className="rounded-xl border border-accent/25 bg-accent/5 p-6"
+          style={rise(reduceMotion, 320)}
+        >
+          <p className="text-xs uppercase tracking-wider text-accent">This year you were</p>
+          <p className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">{archetype.title}</p>
+          <p className="mt-2 max-w-prose text-sm text-white/60">{archetype.blurb}</p>
+
+          {badges.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {badges.map((badge) => (
+                <span
+                  key={badge.id}
+                  className="rounded-full border border-white/15 bg-ink-soft/60 px-3 py-1.5 text-xs"
+                >
+                  <span className="font-semibold">{badge.title}</span>
+                  <span className="text-white/45"> · {badge.blurb}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {stats.busiestDay && (
         <section className="rounded-xl border border-white/10 bg-ink-soft/50 p-6">
