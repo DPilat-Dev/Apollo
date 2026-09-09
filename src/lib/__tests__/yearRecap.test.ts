@@ -4,6 +4,7 @@ import {
   ESTIMATE_CAVEAT,
   RECAP_STORY_HREF,
   RECAP_MAX_ITEMS,
+  RECAP_PAGE_SIZE,
   TOP_N,
   formatEstimatedTime,
   habitsFromDays,
@@ -675,5 +676,51 @@ describe('summariseYear — posters', () => {
   it('never invents one for a genre, which is a word and not a thing', () => {
     const stats = summariseYear([episode({ Genres: ['Comedy'] })], 2026, { timeZone: 'UTC' })
     expect(stats.topGenres[0].poster).toBeUndefined()
+  })
+})
+
+describe('how far the walk goes', () => {
+  it('stops at the ceiling however big a page is', () => {
+    // The ceiling used to be written as ten pages, so raising the page size
+    // would have quietly raised it too — from 2,000 items to 10,000.
+    expect(RECAP_MAX_ITEMS).toBe(2000)
+    const loaded = Array.from({ length: RECAP_MAX_ITEMS }, (_, i) => movie(`m${i}`, null))
+    expect(nextRecapPage(loaded, { year: 2025, total: 99_999 })).toBeUndefined()
+  })
+
+  it('asks for few enough pages that they are not the expense', () => {
+    // Eight round trips, each waiting for the last to arrive and for React to
+    // render, is what made this page sit empty for three and a half seconds.
+    expect(Math.ceil(RECAP_MAX_ITEMS / RECAP_PAGE_SIZE)).toBeLessThanOrEqual(2)
+  })
+})
+
+describe('a complete year is not called incomplete', () => {
+  const inYear = (id: string, day: string) => ({ ...movie(id, null), UserData: { LastPlayedDate: `${day}T12:00:00.000Z` } })
+
+  it('stops for the year boundary rather than the ceiling when both are reached', () => {
+    // At 200 items a page the boundary was crossed on the seventh page, well
+    // short of the ceiling. At 1000 the second page reaches both at once, and
+    // whichever is checked first decides what the viewer is told.
+    const loaded = [
+      ...Array.from({ length: RECAP_MAX_ITEMS - 1 }, (_, i) => inYear(`a${i}`, '2025-06-01')),
+      inYear('older', '2024-12-30'),
+    ]
+    expect(nextRecapPage(loaded, { year: 2025, total: 99_999 })).toBeUndefined()
+  })
+
+  it('does not claim the totals are understated when the year was reached', () => {
+    const items = [
+      ...Array.from({ length: RECAP_MAX_ITEMS - 1 }, (_, i) => inYear(`a${i}`, '2025-06-01')),
+      inYear('older', '2024-12-30'),
+    ]
+    expect(summariseYear(items, 2025, { timeZone: 'UTC' }).truncated).toBe(false)
+  })
+
+  it('still says so when it really did run out of room', () => {
+    // Every item is inside the year, so there is no way to know what came
+    // before — which is exactly what the warning is for.
+    const items = Array.from({ length: RECAP_MAX_ITEMS }, (_, i) => inYear(`a${i}`, '2025-06-01'))
+    expect(summariseYear(items, 2025, { timeZone: 'UTC' }).truncated).toBe(true)
   })
 })

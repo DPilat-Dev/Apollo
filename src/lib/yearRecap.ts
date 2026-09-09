@@ -39,21 +39,38 @@ export const RECAP_STORY_HREF = '/recap/story'
 export const TOP_N = 5
 
 /**
- * A bigger page than the history list uses, because nothing is rendered per
- * page here — the whole year is one screen of totals, so the cost is requests
- * rather than DOM.
+ * A much bigger page than the history list uses, because nothing is rendered
+ * per page here — the whole year is one screen of totals, so the cost is
+ * requests rather than DOM.
+ *
+ * It was 200, which meant eight requests for a real year of viewing. They
+ * cannot be made in parallel: each page's contents decide whether another is
+ * needed, so every one waits for the last to arrive *and* for React to render
+ * before the next is asked for. Measured on that library, the page sat empty
+ * for 3.6 seconds and then arrived all at once.
+ *
+ * Measured against the same server, one request at a time:
+ *
+ *     200 items   161ms          ten of them, in series   1143ms
+ *    1000 items   214ms
+ *    2000 items   354ms
+ *
+ * A page five times the size costs a third more. The round trips were the
+ * whole expense, so there are one or two of them now instead of eight.
  */
-export const RECAP_PAGE_SIZE = 200
+export const RECAP_PAGE_SIZE = 1000
 
 /**
  * Where the walk stops regardless of what it has found.
  *
  * The early exit depends on reading a date. A library whose LastPlayedDate is
  * missing or unparseable throughout never crosses the start of the year, and
- * without a ceiling that walks every played item on the server. Ten requests
- * is far past a plausible year of viewing.
+ * without a ceiling that walks every played item on the server. Two thousand
+ * is far past a plausible year of viewing — and it is written as a number
+ * rather than a multiple of the page size, so changing the page size cannot
+ * quietly change how far the walk goes.
  */
-export const RECAP_MAX_ITEMS = RECAP_PAGE_SIZE * 10
+export const RECAP_MAX_ITEMS = 2000
 
 /**
  * The sentence the page must carry next to the headline number.
@@ -216,20 +233,45 @@ export function recapButton(opts: {
  * before the target year, the descending sort guarantees the rest is older
  * too. The cap and the server's own total are the other two ways out.
  */
+/**
+ * Whether the walk has reached back past the start of the year.
+ *
+ * The only honest way to know a year is complete: the history is ordered by
+ * when it was played, so an item from an earlier year means everything after
+ * it is older still.
+ */
+export function crossedYearBoundary(
+  items: readonly BaseItemDto[],
+  year: number,
+  timeZone?: string,
+): boolean {
+  return items.some((item) => {
+    const played = playedYear(item, timeZone)
+    return played !== null && played < year
+  })
+}
+
 export function nextRecapPage(
   loadedItems: readonly BaseItemDto[],
   opts: { year: number; total: number; timeZone?: string },
 ): number | undefined {
   const loaded = loadedItems.length
+
+  /*
+    The year boundary is checked first, and that ordering is load-bearing.
+
+    Checked after the ceiling, a walk that had genuinely reached the end of the
+    year stopped for the ceiling's reason instead — and the page then told the
+    viewer their totals were understated when they were complete. It only
+    showed up when the page size changed: at 200 items the boundary was crossed
+    on the seventh page, comfortably short of the ceiling; at 1000 the second
+    page reached both at once, and the ceiling won.
+  */
+  if (crossedYearBoundary(loadedItems, opts.year, opts.timeZone)) return undefined
   if (loaded >= RECAP_MAX_ITEMS) return undefined
   if (loaded >= opts.total) return undefined
 
-  const crossed = loadedItems.some((item) => {
-    const played = playedYear(item, opts.timeZone)
-    return played !== null && played < opts.year
-  })
-
-  return crossed ? undefined : loaded
+  return loaded
 }
 
 /** Enough of an item for `coverUrl` to find its poster, and nothing more. */
@@ -424,7 +466,12 @@ export function summariseYear(
       : null,
     months,
     habits: habitsFromDays(days),
-    truncated: items.length >= RECAP_MAX_ITEMS,
+    /*
+      Only when the walk ran out of room *without* reaching the start of the
+      year. Counting items alone said "your totals are higher" to anyone whose
+      complete year happened to land on the ceiling.
+    */
+    truncated: items.length >= RECAP_MAX_ITEMS && !crossedYearBoundary(items, year, timeZone),
   }
 }
 
