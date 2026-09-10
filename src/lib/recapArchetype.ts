@@ -62,6 +62,16 @@ function animationSplit(stats: RecapStats): { share: number; anime: number; othe
   }
 }
 
+/**
+ * How much of the year was a single series.
+ *
+ * A strict fraction — episodes of the top show over every item watched — which
+ * is what lets it be shown as a percentage where `genreShare` cannot.
+ */
+function topShowShare(stats: RecapStats): number {
+  return (stats.topShows[0]?.count ?? 0) / Math.max(1, stats.itemCount)
+}
+
 interface Rule {
   id: string
   title: string
@@ -85,6 +95,24 @@ const RULES: Rule[] = [
     // Deliberately the lowest bar on the list. Nobody watches 40% of a year of
     // this; showing up at all is the joke.
     test: (s) => genreShare(s, /^(adult|ecchi|harem|hentai)$/i).count >= 5,
+  },
+  {
+    id: 'one-show',
+    title: 'Same show, all year',
+    /*
+      Safe to print as a percentage, unlike the genre shares above: a show's
+      count is episodes of that one series against every item watched, so it is
+      a fraction of the year in the strict sense and cannot exceed 100%.
+    */
+    blurb: (s) =>
+      `${s.topShows[0]?.label ?? 'One show'} was ${Math.round(topShowShare(s) * 100)}% of everything you watched. That is not a habit, it is a relationship.`,
+    /*
+      Above the genre rules on purpose. Seven items in ten being one series is
+      both rarer than any taste and more personal than one — it names the show
+      rather than the category, which is the more interesting thing to be told.
+      The `comfort` rule below is the same observation at a third the volume.
+    */
+    test: (s) => topShowShare(s) >= 0.7 && s.itemCount >= 30,
   },
   {
     id: 'weeb',
@@ -159,6 +187,12 @@ const RULES: Rule[] = [
     test: (s) => genreShare(s, /^comedy$/i).share >= 0.55 && s.itemCount >= 20,
   },
   {
+    id: 'cinema',
+    title: 'Films person',
+    blurb: (s) => `${s.movieCount} films. You sit through the credits, don't you.`,
+    test: (s) => s.movieCount >= 12 && s.movieCount / Math.max(1, s.itemCount) >= 0.5,
+  },
+  {
     id: 'marathon',
     title: 'Went the distance',
     blurb: (s) => `${s.habits.longestStreak} days in a row without missing one.`,
@@ -170,13 +204,12 @@ const RULES: Rule[] = [
     blurb: (s) => `${s.seriesCount} different shows. How many did you finish?`,
     test: (s) => s.seriesCount >= 25,
   },
-  {
-    id: 'cinema',
-    title: 'Films person',
-    blurb: (s) => `${s.movieCount} films. You sit through the credits, don't you.`,
-    test: (s) => s.movieCount >= 12 && s.movieCount / Math.max(1, s.itemCount) >= 0.5,
-  },
 ]
+
+/** Badges an archetype already says, and so must not be shown beneath it. */
+const COVERS: Record<string, readonly string[]> = {
+  'one-show': ['comfort'],
+}
 
 /** The one label for the year, or null when there is not enough to go on. */
 export function viewerArchetype(stats: RecapStats | null | undefined): Archetype | null {
@@ -235,13 +268,25 @@ export function viewerBadges(stats: RecapStats | null | undefined, limit = 3): A
       blurb: `${stats.topShows[0]!.count} episodes of the same thing.`,
     })
   }
-  if (stats.episodeCount > 0 && stats.movieCount === 0) {
+  /*
+    One film in twelve months is the same story as none — it is a year of
+    television either way, and the single film is the detail that makes it
+    funnier rather than a reason to stay quiet.
+  */
+  if (stats.episodeCount > 0 && stats.movieCount <= 1) {
     candidates.push({
       id: 'no-films',
       title: 'Not a films year',
-      blurb: 'Zero films. Not one.',
+      blurb: stats.movieCount === 0 ? 'Zero films. Not one.' : 'One film. The whole year.',
     })
   }
 
-  return candidates.filter((b) => b.id !== headline?.id).slice(0, limit)
+  /*
+    A headline suppresses more than the badge sharing its id. 'Same show, all
+    year' and 'One show, mostly' are one observation at two volumes, and the
+    point of dropping the headline's own badge was never the id — it was not
+    telling the same joke twice.
+  */
+  const covered = new Set<string>(headline ? [headline.id, ...(COVERS[headline.id] ?? [])] : [])
+  return candidates.filter((b) => !covered.has(b.id)).slice(0, limit)
 }
