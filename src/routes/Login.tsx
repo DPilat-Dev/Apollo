@@ -44,31 +44,6 @@ export function Login() {
   })
   const [server, setServer] = useState(startServer)
 
-  /*
-    And the address this deployment was configured with, which only its own
-    server knows. Asked for once, and only when nothing better is already in
-    the field: a browser that has been here before, or a build with the address
-    compiled in, has nothing to learn from it.
-
-    This is what a private window has to go on. It arrives with no memory, and
-    since releases began shipping a prebuilt client there is nothing compiled
-    in either — so without this it would sit there asking for an address the
-    server could have supplied all along.
-  */
-  useEffect(() => {
-    if (startServer) return
-    let cancelled = false
-    runtimeConfig()
-      .then((config) => {
-        const address = usableServer(config.jellyfinServer)
-        // Only if the viewer has not started typing one themselves.
-        if (!cancelled && address) setServer((current) => current || address)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [startServer])
   const [connected, setConnected] = useState<{
     name: string
     version: string
@@ -84,6 +59,12 @@ export function Login() {
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingServer, setEditingServer] = useState(!startServer)
+  /*
+    Whether the viewer has typed in the address box. The address the server
+    reports can land mid-keystroke, and replacing what someone is halfway
+    through typing is worse than never having filled the box in at all.
+  */
+  const typedServer = useRef(false)
   const passwordRef = useRef<HTMLInputElement>(null)
   /*
     Keyed on the *verified* address, never the input field. Watching the field
@@ -178,6 +159,37 @@ export function Login() {
     if (startServer) void connect(startServer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /*
+    And the same for an address that only this deployment's own server knows.
+
+    This is the path a private window takes: no memory of signing in here, and
+    since releases began shipping a prebuilt client, nothing compiled in
+    either. So the address has to be fetched — which means it arrives after the
+    effect above has already looked, found an empty string and done nothing.
+    Connecting is therefore this effect's job too. Filling the box and stopping
+    there only moves the same manual step later, which is what it did.
+
+    Not run at all when the box was already populated, and abandoned if the
+    viewer starts typing an address of their own while the request is in
+    flight.
+  */
+  useEffect(() => {
+    if (startServer) return
+    let cancelled = false
+    runtimeConfig()
+      .then((config) => {
+        const address = usableServer(config.jellyfinServer)
+        if (cancelled || !address || typedServer.current) return
+        setServer(address)
+        void connect(address)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startServer])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -278,7 +290,10 @@ export function Login() {
                   <div className="flex gap-2">
                     <input
                       value={server}
-                      onChange={(e) => setServer(e.target.value)}
+                      onChange={(e) => {
+                        typedServer.current = true
+                        setServer(e.target.value)
+                      }}
                       onKeyDown={(e) => {
                         // Enter should connect, not submit a form we can't fill yet.
                         if (e.key === 'Enter' && !connected) {
