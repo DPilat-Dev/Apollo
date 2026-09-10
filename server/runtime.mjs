@@ -19,6 +19,21 @@ const CONFIG_PATH =
 
 const DEFAULTS = {
   jellyseerrTarget: process.env.VITE_JELLYSEERR_TARGET ?? '',
+  /*
+    The Jellyfin address, served to the browser rather than compiled into it.
+
+    It used to be `VITE_JELLYFIN_SERVER`, substituted into the bundle at build
+    time — which worked for exactly as long as every server built its own copy.
+    Once releases started shipping a prebuilt client, that build came from CI,
+    which has no idea what anyone's Jellyfin address is, and installs quietly
+    lost it. Nobody noticed while their browser still remembered the address
+    from before; a private window, or a new device, had nothing to fall back on
+    and asked for it.
+
+    Read from the environment so an existing `.env` still works, and
+    overridable through the config file the dashboard writes.
+  */
+  jellyfinServer: process.env.VITE_JELLYFIN_SERVER ?? '',
 }
 
 let cache = null

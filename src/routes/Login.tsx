@@ -10,6 +10,8 @@ import { DemoNotice } from '../components/DemoNotice'
 import { UserAvatar } from '../components/UserAvatar'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { defaultServer, usableServer } from '../lib/defaultServer'
+import { runtimeConfig } from '../lib/jellyseerr'
 
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
@@ -31,13 +33,42 @@ export function Login() {
   const [remembered] = useState(loadAccounts)
   useDocumentTitle(pageTitle('Sign in'))
   /*
-    A deployment without VITE_JELLYFIN_SERVER used to open on an empty address
-    field, so switching users on a home server meant retyping the hostname —
-    the exact friction the picker exists to remove. Whoever signed in last
-    already told us where the server is.
+    Whoever signed in here last already told us where the server is, and the
+    install itself knows too. Without either, switching users on a home server
+    meant retyping the hostname — the exact friction the picker exists to
+    remove.
   */
-  const startServer = DEFAULT_SERVER || lastUsedServer(remembered) || ''
+  const startServer = defaultServer({
+    remembered: lastUsedServer(remembered),
+    builtIn: DEFAULT_SERVER,
+  })
   const [server, setServer] = useState(startServer)
+
+  /*
+    And the address this deployment was configured with, which only its own
+    server knows. Asked for once, and only when nothing better is already in
+    the field: a browser that has been here before, or a build with the address
+    compiled in, has nothing to learn from it.
+
+    This is what a private window has to go on. It arrives with no memory, and
+    since releases began shipping a prebuilt client there is nothing compiled
+    in either — so without this it would sit there asking for an address the
+    server could have supplied all along.
+  */
+  useEffect(() => {
+    if (startServer) return
+    let cancelled = false
+    runtimeConfig()
+      .then((config) => {
+        const address = usableServer(config.jellyfinServer)
+        // Only if the viewer has not started typing one themselves.
+        if (!cancelled && address) setServer((current) => current || address)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [startServer])
   const [connected, setConnected] = useState<{
     name: string
     version: string

@@ -7,6 +7,7 @@
 #   /opt/apollo/scripts/update.sh --ref v1.0.0 a specific tag or branch
 #   /opt/apollo/scripts/update.sh --force      rebuild even if nothing changed
 #   /opt/apollo/scripts/update.sh --build      build here instead of downloading
+#   /opt/apollo/scripts/update.sh --service    reinstall the systemd unit only
 #
 # Releases by default, deliberately. A server people actually watch things on
 # should not be following every commit on main: that includes work in progress
@@ -43,11 +44,17 @@ OWNER="${OWNER:-apollo}"
 REF="${APOLLO_REF:-}"
 FORCE=0
 BUILD=0
+SERVICE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --edge)    REF="origin/main"; shift ;;
     --force)   FORCE=1; shift ;;
+    # This script runs from a pinned copy of whatever version started, so the
+    # release that first adds a unit-file change cannot apply it — the old copy
+    # is driving. Afterwards the new one is on disk, and this asks it to do that
+    # one thing without a rebuild and a second restart of everyone's stream.
+    --service) SERVICE_ONLY=1; shift ;;
     --build)   BUILD=1; shift ;;
     --ref)     REF="${2:-}"; [[ -n "$REF" ]] || { echo "--ref needs a value" >&2; exit 2; }; shift 2 ;;
     --ref=*)   REF="${1#--ref=}"; shift ;;
@@ -68,6 +75,43 @@ die() { printf '%s\n' "${RED}✗ $*${RESET}" >&2; exit 1; }
 [[ -d "$APP_DIR/.git" ]] || die "$APP_DIR is not a git checkout."
 
 cd "$APP_DIR"
+
+# ── The unit file ─────────────────────────────────────────────────────────
+#
+# systemd reads its own copy under /etc/systemd/system, so a change to the one
+# in this repo reaches nothing until it is installed again. That was fine while
+# the unit never changed; it now carries an EnvironmentFile line without which
+# the server cannot tell a browser where Jellyfin is, so an update that skipped
+# it would fix nothing on an existing install.
+#
+# The port is whatever the installed unit already says — it is the one thing in
+# there chosen per machine, and an update must not reset it.
+sync_unit() {
+  UNIT=/etc/systemd/system/${SERVICE}.service
+  if [[ -f "$UNIT" && -f "$APP_DIR/apollo.service" ]]; then
+    installed_port=$(sed -n 's/^Environment=PORT=\(.*\)$/\1/p' "$UNIT" | head -n 1)
+    rendered=$(mktemp)
+    if [[ -n "$installed_port" ]]; then
+      sed "s/^Environment=PORT=.*/Environment=PORT=${installed_port}/" "$APP_DIR/apollo.service" > "$rendered"
+    else
+      cp "$APP_DIR/apollo.service" "$rendered"
+    fi
+    if ! cmp -s "$rendered" "$UNIT"; then
+      cp "$rendered" "$UNIT"
+      systemctl daemon-reload
+      printf '%s\n' "  ${DIM}service definition updated${RESET}"
+    fi
+    rm -f "$rendered"
+  fi
+}
+
+if [[ $SERVICE_ONLY -eq 1 ]]; then
+  sync_unit
+  systemctl restart "$SERVICE"
+  ok "$SERVICE restarted"
+  exit 0
+fi
+
 
 # Taken from the remote rather than hard-coded, so a fork updates from itself.
 REPO=$(git config --get remote.origin.url 2>/dev/null \
@@ -176,6 +220,8 @@ elif ! fetch_prebuilt "$REF"; then
   printf '%s\n' "  ${DIM}no prebuilt client for $REF; building instead${RESET}"
   build_here
 fi
+
+sync_unit
 
 # Local configuration must survive an update.
 for f in .env apollo.runtime.json; do

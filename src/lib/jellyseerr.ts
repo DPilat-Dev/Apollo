@@ -196,6 +196,8 @@ export function myRequests(take = 20) {
 
 export interface RuntimeConfig {
   jellyseerrTarget: string
+  /** The Jellyfin address this install was configured with. May be absent. */
+  jellyfinServer?: string
 }
 
 /** Served by our own dev/production server, not by Jellyseerr. */
