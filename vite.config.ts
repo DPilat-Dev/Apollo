@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -57,6 +58,17 @@ export default defineConfig({
     format: 'es',
   },
   plugins: [react(), tailwindcss(), apolloRuntime()],
+  test: {
+    /*
+      An agent working in a git worktree leaves a whole second copy of this
+      repo under .claude/, at whatever commit it was cut from. vitest's default
+      globs walk into it and run those tests too, so an abandoned worktree from
+      an old version fails the suite with assertions about a version number
+      that was correct when it was written. Excluding it keeps `vitest run`
+      about this checkout.
+    */
+    exclude: ['node_modules/**', 'dist/**', '.claude/**'],
+  },
   server: {
     host: true,
     port: 5173,

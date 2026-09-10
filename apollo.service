@@ -17,6 +17,10 @@ Type=simple
 User=apollo
 Group=apollo
 WorkingDirectory=/opt/apollo
+# Optional, and the leading '-' is what makes it so: an install that has no
+# .env must still start. It carries the Jellyfin address, which the server now
+# hands to the browser at runtime rather than having it compiled in.
+EnvironmentFile=-/opt/apollo/.env
 Environment=NODE_ENV=production
 Environment=PORT=4173
 ExecStart=/usr/bin/node /opt/apollo/server/index.mjs

@@ -177,6 +177,33 @@ elif ! fetch_prebuilt "$REF"; then
   build_here
 fi
 
+# ── The unit file ─────────────────────────────────────────────────────────
+#
+# systemd reads its own copy under /etc/systemd/system, so a change to the one
+# in this repo reaches nothing until it is installed again. That was fine while
+# the unit never changed; it now carries an EnvironmentFile line without which
+# the server cannot tell a browser where Jellyfin is, so an update that skipped
+# it would fix nothing on an existing install.
+#
+# The port is whatever the installed unit already says — it is the one thing in
+# there chosen per machine, and an update must not reset it.
+UNIT=/etc/systemd/system/${SERVICE}.service
+if [[ -f "$UNIT" && -f "$APP_DIR/apollo.service" ]]; then
+  installed_port=$(sed -n 's/^Environment=PORT=\(.*\)$/\1/p' "$UNIT" | head -n 1)
+  rendered=$(mktemp)
+  if [[ -n "$installed_port" ]]; then
+    sed "s/^Environment=PORT=.*/Environment=PORT=${installed_port}/" "$APP_DIR/apollo.service" > "$rendered"
+  else
+    cp "$APP_DIR/apollo.service" "$rendered"
+  fi
+  if ! cmp -s "$rendered" "$UNIT"; then
+    cp "$rendered" "$UNIT"
+    systemctl daemon-reload
+    printf '%s\n' "  ${DIM}service definition updated${RESET}"
+  fi
+  rm -f "$rendered"
+fi
+
 # Local configuration must survive an update.
 for f in .env apollo.runtime.json; do
   [[ -e "$f" ]] && printf '%s\n' "  ${DIM}kept $f${RESET}"
