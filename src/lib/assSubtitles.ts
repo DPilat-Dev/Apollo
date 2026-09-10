@@ -166,11 +166,10 @@ export function assTrackFor({
     The viewer's choice, separate from whether the browser can do it at all.
 
     Worth having for three reasons that have nothing to do with each other: it
-    is two megabytes of WebAssembly nobody should be made to fetch, the canvas
-    is laid out for the player's Fit aspect and so cannot follow a cropped
-    picture under Fill or Stretch, and a weak device may simply do better with
-    plain text. Off, an ASS track falls back to the same cleaned-up `<track>`
-    path SubRip uses.
+    is two megabytes of WebAssembly nobody should be made to fetch, a weak
+    device may simply do better with plain text, and some people would rather
+    read a plain line than someone's typesetting. Off, an ASS track falls back
+    to the same cleaned-up `<track>` path SubRip uses.
   */
   enabled: boolean
 }): SubtitleTrack | null {
@@ -178,6 +177,72 @@ export function assTrackFor({
   const track = subtitles?.find((s) => s.index === textTrackIndex)
   if (!track?.assUrl || !isAssCodec(track.codec)) return null
   return track
+}
+
+/*
+  ── Following the picture when it is not letterboxed ──────────────────────
+
+  JASSUB lays its canvas out as the video's *contained* box and always has:
+  `_getElementBoundingBox` letterboxes the video's aspect inside the element,
+  full stop, with no notion that the element might be showing the picture some
+  other way. Under the player's Fit that is exactly right, and it is why ASS
+  looked correct for as long as nobody touched the aspect control.
+
+  Under Fill the browser crops the picture to cover the element, and under
+  Stretch it distorts it to fill. In both, the picture on screen no longer sits
+  where JASSUB put the canvas, so a sign pinned to a character's face landed in
+  the wrong part of the frame and the subtitles sat inside a letterbox that was
+  no longer there.
+
+  The rescue is that all three boxes share a centre. Contain, cover and fill
+  are each centred on the element, so the map from the box JASSUB drew to the
+  box the picture actually occupies is a scale about that shared centre — one
+  CSS transform, applied to a canvas whose position, size and redraw JASSUB
+  goes on owning entirely. Trying instead to overwrite the geometry it writes
+  means racing its own resize observer on every window change.
+*/
+
+/** No transform. Its own object so a caller cannot mutate a shared one. */
+const UNSCALED = () => ({ x: 1, y: 1 })
+
+/**
+ * How to scale JASSUB's letterboxed canvas onto the picture the viewer sees.
+ *
+ * Fit needs nothing — that is the box JASSUB already drew. Fill is a uniform
+ * scale, because covering only ever grows the contained box by the same factor
+ * on both axes. Stretch grows exactly one axis: the other is already the
+ * element's own edge, and scaling it too would push the subtitles off screen
+ * in the one mode where nothing is supposed to be cropped.
+ *
+ * Anything without usable dimensions returns no transform rather than a guess.
+ * Metadata arrives after the element does, so zero and NaN are both ordinary
+ * states here, not faults — and a wrong scale is worse than the letterboxed
+ * layout it would replace.
+ */
+export function assAspectScale(
+  aspect: string,
+  dims: {
+    elementWidth: number
+    elementHeight: number
+    videoWidth: number
+    videoHeight: number
+  },
+): { x: number; y: number } {
+  if (aspect !== 'fill' && aspect !== 'stretch') return UNSCALED()
+
+  const element = dims.elementWidth / dims.elementHeight
+  const video = dims.videoWidth / dims.videoHeight
+  if (!Number.isFinite(element) || !Number.isFinite(video) || element <= 0 || video <= 0) {
+    return UNSCALED()
+  }
+
+  if (aspect === 'stretch') {
+    // The wider of the two is the axis JASSUB shrank to preserve the ratio.
+    return element > video ? { x: element / video, y: 1 } : { x: 1, y: video / element }
+  }
+  // Exactly one of these is above 1, and it is the factor that covers.
+  const scale = Math.max(element / video, video / element)
+  return { x: scale, y: scale }
 }
 
 /*

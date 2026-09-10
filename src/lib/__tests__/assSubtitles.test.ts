@@ -3,6 +3,7 @@ import {
   ASS_STREAM_FORMAT,
   FALLBACK_FONT_LIST_PATH,
   MAX_FALLBACK_FONTS,
+  assAspectScale,
   assRenderTimeOffset,
   assStreamPath,
   assTrackFor,
@@ -438,5 +439,71 @@ describe('assTrackFor respects the setting', () => {
 
   it('is still off when the browser cannot, whatever the setting says', () => {
     expect(assTrackFor(args({ enabled: true, supported: false }))).toBeNull()
+  })
+})
+
+describe('assAspectScale', () => {
+  // 16:9 window, 2.39:1 film. JASSUB draws a letterboxed 1920x803 canvas.
+  const scope = { elementWidth: 1920, elementHeight: 1080, videoWidth: 2390, videoHeight: 1000 }
+  // 16:9 window, 4:3 material. Pillarboxed the other way.
+  const academy = { elementWidth: 1920, elementHeight: 1080, videoWidth: 1440, videoHeight: 1080 }
+
+  it('leaves the letterboxed layout alone under Fit', () => {
+    expect(assAspectScale('fit', scope)).toEqual({ x: 1, y: 1 })
+    expect(assAspectScale('fit', academy)).toEqual({ x: 1, y: 1 })
+  })
+
+  it('grows both axes equally under Fill, since covering is uniform', () => {
+    const wide = assAspectScale('fill', scope)
+    expect(wide.x).toBeCloseTo(2.39 / (16 / 9), 6)
+    expect(wide.y).toBeCloseTo(wide.x, 12)
+
+    const tall = assAspectScale('fill', academy)
+    expect(tall.x).toBeCloseTo(16 / 9 / (4 / 3), 6)
+    expect(tall.y).toBeCloseTo(tall.x, 12)
+  })
+
+  it('grows only the letterboxed axis under Stretch', () => {
+    /*
+      The other axis is already the element's own edge. Scaling it as well
+      would push the subtitles past the frame in the one mode where nothing is
+      meant to be cropped — which is the bug this would be if Fill's uniform
+      scale were reused here.
+    */
+    expect(assAspectScale('stretch', scope)).toEqual({ x: 1, y: (2.39 / (16 / 9)) * 1 })
+    const tall = assAspectScale('stretch', academy)
+    expect(tall.y).toBe(1)
+    expect(tall.x).toBeCloseTo(16 / 9 / (4 / 3), 6)
+  })
+
+  it('does nothing when the element already matches the picture', () => {
+    const square = { elementWidth: 100, elementHeight: 100, videoWidth: 50, videoHeight: 50 }
+    expect(assAspectScale('fill', square)).toEqual({ x: 1, y: 1 })
+    expect(assAspectScale('stretch', square)).toEqual({ x: 1, y: 1 })
+  })
+
+  it('asks for no transform before the dimensions are known', () => {
+    /*
+      Ordinary states, not faults: an element is laid out before metadata
+      arrives, and a transcode reports its size later still. A guess here would
+      replace a correct letterboxed layout with a wrong one.
+    */
+    const none = { x: 1, y: 1 }
+    expect(assAspectScale('fill', { ...scope, videoWidth: 0, videoHeight: 0 })).toEqual(none)
+    expect(assAspectScale('fill', { ...scope, elementHeight: 0 })).toEqual(none)
+    expect(assAspectScale('stretch', { ...scope, videoHeight: 0 })).toEqual(none)
+    expect(assAspectScale('fill', { ...scope, videoWidth: Number.NaN })).toEqual(none)
+    expect(assAspectScale('fill', { ...scope, elementWidth: -1920 })).toEqual(none)
+  })
+
+  it('treats an unknown mode as Fit rather than guessing', () => {
+    expect(assAspectScale('', scope)).toEqual({ x: 1, y: 1 })
+    expect(assAspectScale('cover', scope)).toEqual({ x: 1, y: 1 })
+  })
+
+  it('hands back a fresh object, never a shared one', () => {
+    const a = assAspectScale('fit', scope)
+    a.x = 99
+    expect(assAspectScale('fit', scope)).toEqual({ x: 1, y: 1 })
   })
 })
