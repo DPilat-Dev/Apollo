@@ -62,6 +62,19 @@ describe('defaultServer', () => {
     expect(defaultServer({})).toBe(BUILT_IN_SERVER)
   })
 
+  /*
+    An install with no VITE_JELLYFIN_SERVER set gets an empty string from
+    /__apollo/config, and that must stay empty rather than becoming something
+    the sign-in screen tries to connect to. The screen only auto-connects to a
+    non-empty answer, so this is the guard that keeps a deployment that has not
+    configured an address from reaching for one.
+  */
+  it('reports nothing when the install has no address configured', () => {
+    expect(usableServer('')).toBe('')
+    expect(defaultServer({ fromRuntime: '', builtIn: '' })).toBe('')
+    expect(defaultServer({ remembered: null, fromRuntime: undefined, builtIn: '' })).toBe('')
+  })
+
   it('skips a remembered value that is not usable', () => {
     expect(defaultServer({ remembered: 'nonsense', fromRuntime: 'http://runtime:8096' })).toBe(
       'http://runtime:8096',
