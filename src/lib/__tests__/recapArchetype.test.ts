@@ -67,6 +67,46 @@ describe('viewerArchetype', () => {
     expect(viewerArchetype(s)?.blurb).toContain('American Dad!')
   })
 
+  it('calls out a year that was overwhelmingly one series', () => {
+    const s = stats({ topShows: [{ key: 's1', label: 'One Piece', count: 80 }] })
+    const a = viewerArchetype(s)
+    expect(a?.id).toBe('one-show')
+    expect(a?.blurb).toContain('One Piece')
+    expect(a?.blurb).toContain('80%')
+  })
+
+  it('leaves a merely favourite show to the quieter label', () => {
+    // 69% is a comfort watcher; 70% is the whole year.
+    const s = stats({ topShows: [{ key: 's1', label: 'One Piece', count: 69 }] })
+    expect(viewerArchetype(s)?.id).toBe('comfort')
+  })
+
+  it('names the show rather than the genre when one series ran the year', () => {
+    // Both are true. Which series it was is the more interesting of the two.
+    const s = stats({
+      topShows: [{ key: 's1', label: 'One Piece', count: 80 }],
+      topGenres: [genre('Anime', 90), genre('Animation', 90)],
+    })
+    expect(viewerArchetype(s)?.id).toBe('one-show')
+  })
+
+  it('calls a year of films a year of films, not a streak', () => {
+    /*
+      Watching on fourteen consecutive evenings is what anyone does over a
+      fortnight off, and it used to outrank the fact that four items in five
+      were films — the rarer and more particular thing about the year.
+    */
+    const s = stats({
+      itemCount: 25,
+      movieCount: 20,
+      episodeCount: 5,
+      seriesCount: 2,
+      topShows: [{ key: 's1', label: 'A Show', count: 3 }],
+      habits: { ...stats().habits, longestStreak: 20 },
+    })
+    expect(viewerArchetype(s)?.id).toBe('cinema')
+  })
+
   it('falls back to the shape of the year when the taste says nothing', () => {
     const s = stats({ seriesCount: 40, topGenres: [genre('Drama', 10)] })
     expect(viewerArchetype(s)?.id).toBe('sampler')
@@ -117,6 +157,29 @@ describe('viewerBadges', () => {
     const headline = viewerArchetype(s)
     expect(headline?.id).toBe('comfort')
     expect(viewerBadges(s).map((b) => b.id)).not.toContain('comfort')
+  })
+
+  it('does not repeat the headline in different words', () => {
+    /*
+      'Same show, all year' and 'One show, mostly' share no id, and the filter
+      was on the id — so the loudest card and the quietest badge said the same
+      thing about the same series, one under the other.
+    */
+    const s = stats({ topShows: [{ key: 's1', label: 'One Piece', count: 80 }] })
+    expect(viewerArchetype(s)?.id).toBe('one-show')
+    expect(viewerBadges(s).map((b) => b.id)).not.toContain('comfort')
+  })
+
+  it('counts a single film as a year without films', () => {
+    const one = stats({ movieCount: 1, episodeCount: 99 })
+    const badge = viewerBadges(one).find((b) => b.id === 'no-films')
+    expect(badge?.blurb).toBe('One film. The whole year.')
+    expect(viewerBadges(stats({ movieCount: 0 })).find((b) => b.id === 'no-films')?.blurb).toBe(
+      'Zero films. Not one.',
+    )
+    expect(viewerBadges(stats({ movieCount: 2, episodeCount: 98 })).map((b) => b.id)).not.toContain(
+      'no-films',
+    )
   })
 
   it('reports a day that swallowed the year', () => {
