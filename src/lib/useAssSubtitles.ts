@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { JellyfinApi } from './api'
 import type { SubtitleTrack } from './playback'
 import type { AssRenderer } from './assRenderer'
-import { assRenderTimeOffset, pickFallbackFonts, scaleAssFontSizes } from './assSubtitles'
+import {
+  assAspectScale,
+  assRenderTimeOffset,
+  pickFallbackFonts,
+  scaleAssFontSizes,
+} from './assSubtitles'
 
 /**
  * Starting libass for one track, and — far more importantly — getting out of
@@ -30,6 +35,7 @@ export function useAssSubtitles({
   startOffsetSeconds,
   subtitleOffsetMs,
   sizePercent,
+  aspect,
   reloadKey,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>
@@ -44,11 +50,15 @@ export function useAssSubtitles({
   startOffsetSeconds: number
   subtitleOffsetMs: number
   sizePercent: number
+  /** How the video element is showing the picture: fit, fill or stretch. */
+  aspect: string
   /** Changes whenever the stream is rebuilt, as it does for `useSubtitleOffset`. */
   reloadKey: unknown
 }): { active: boolean } {
   const [active, setActive] = useState(false)
   const rendererRef = useRef<AssRenderer | null>(null)
+  /** JASSUB's canvas, kept so the aspect effect below can transform it. */
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   /** The file as the server sent it, so a size change re-scales from the original. */
   const contentRef = useRef<string | null>(null)
 
@@ -105,7 +115,14 @@ export function useAssSubtitles({
       // <video> underneath. A canvas that ate pointer events would break
       // every one of them.
       canvas.style.pointerEvents = 'none'
+      /*
+        The scale applied for Fill and Stretch is about the canvas's own
+        centre, which is where JASSUB centres it. Named rather than left to the
+        default so it survives anyone reaching for `transform` here later.
+      */
+      canvas.style.transformOrigin = 'center'
       layer.appendChild(canvas)
+      canvasRef.current = canvas
 
       // Read once, not either side of the await: somebody pressing + while the
       // worker boots would otherwise have the size recorded as applied when it
@@ -139,6 +156,7 @@ export function useAssSubtitles({
 
     return () => {
       cancelled = true
+      canvasRef.current = null
       rendererRef.current?.destroy()
       rendererRef.current = null
       contentRef.current = null
@@ -149,6 +167,46 @@ export function useAssSubtitles({
     // `wanted` rather than `track`: the object is rebuilt on every render of
     // the plan, and depending on it would restart libass continuously.
   }, [videoRef, layerRef, api, wanted, itemId, mediaSourceId, reloadKey])
+
+  /*
+    Following the picture under Fill and Stretch.
+    See `assAspectScale` for why this is a transform rather than a layout.
+
+    Recomputed on three things because all three move the answer: the viewer
+    changing the mode, the element changing shape (a window resize, entering
+    fullscreen, a phone turning), and the video reporting dimensions — which
+    for a transcode arrives well after the element exists, and again whenever
+    the stream is rebuilt at a different resolution.
+  */
+  useEffect(() => {
+    const video = videoRef.current
+    const layer = layerRef.current
+    if (!active || !video || !layer) return
+
+    const apply = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const { x, y } = assAspectScale(aspect, {
+        elementWidth: layer.clientWidth,
+        elementHeight: layer.clientHeight,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      })
+      // Cleared rather than set to scale(1, 1): an identity transform still
+      // promotes the canvas to its own layer on some compositors, and this is
+      // the case that runs for everyone who never touches the aspect control.
+      canvas.style.transform = x === 1 && y === 1 ? '' : `scale(${x}, ${y})`
+    }
+
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(layer)
+    video.addEventListener('resize', apply)
+    return () => {
+      observer.disconnect()
+      video.removeEventListener('resize', apply)
+    }
+  }, [active, aspect, videoRef, layerRef])
 
   // Subtitle delay, on the path where there are no cues to shift.
   useEffect(() => {

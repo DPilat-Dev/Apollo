@@ -1011,6 +1011,7 @@ export function Player() {
     startOffsetSeconds: plan?.startOffsetSeconds ?? 0,
     subtitleOffsetMs: subtitleOffset.offsetMs,
     sizePercent: settings.subtitleSize,
+    aspect,
     reloadKey: plan,
   })
 
@@ -1280,7 +1281,11 @@ export function Player() {
         renderer computes from the video's own offsets land where it expects.
         Pointer-events off: every gesture in this player is on the <video>.
       */}
-      <div ref={assLayerRef} className="pointer-events-none absolute inset-0" aria-hidden />
+      <div
+        ref={assLayerRef}
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        aria-hidden
+      />
 
       {/* The same arrangement for PGS. A separate box because the two
           renderers own their canvases independently and a track change can
