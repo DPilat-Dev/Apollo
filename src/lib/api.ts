@@ -199,10 +199,32 @@ export class ApiError extends Error {
 // number[] is here for /Items' `years`, which takes a list rather than a range.
 type Query = Record<string, string | number | boolean | string[] | number[] | undefined | null>
 
+/*
+  Lists that have to be sent as repeated parameters rather than one comma
+  separated value.
+
+  Most of Jellyfin's list parameters — `fields`, `includeItemTypes`, `sortBy` —
+  bind from a comma separated string, which is why that is the default here.
+  A parameter typed as an array of *enums* does not: it binds through
+  `Enum.TryParse`, which reads a comma separated string as flags syntax. So
+  `Intro,Outro` parses, by accident, into a value that happens to be
+  representable and answers 200, while `Intro,Outro,Recap` is not and answers
+  400 — which is how a malformed request passed for a working one until every
+  segment type was asked for at once.
+
+  Verified against 10.11.8: the five types Apollo wants are a 400 comma
+  separated and a 200 repeated.
+*/
+const REPEATED_QUERY_KEYS = new Set(['includeSegmentTypes'])
+
 export function buildUrl(server: string, path: string, query: Query = {}): string {
   const url = new URL(path.replace(/^\//, ''), `${server}/`)
   for (const [k, v] of Object.entries(query)) {
     if (v === undefined || v === null || v === '') continue
+    if (Array.isArray(v) && REPEATED_QUERY_KEYS.has(k)) {
+      for (const one of v) url.searchParams.append(k, String(one))
+      continue
+    }
     url.searchParams.set(k, Array.isArray(v) ? v.join(',') : String(v))
   }
   return url.toString()

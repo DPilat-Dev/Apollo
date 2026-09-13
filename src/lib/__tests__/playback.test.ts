@@ -5,7 +5,7 @@ import type {
   MediaStream,
 } from '@jellyfin/sdk/lib/generated-client/models'
 import { JellyfinApi } from '../api'
-import { pickPlayableEpisode, subtitleTracks } from '../playback'
+import { pickPlayableEpisode, subtitleTracks, withoutBurnedInSubtitles } from '../playback'
 
 const TICK = 10_000_000
 const ep = (id: string, opts: { played?: boolean; pct?: number } = {}): BaseItemDto =>
@@ -94,5 +94,44 @@ describe('subtitleTracks', () => {
     ]))
     expect(t.url).toBeUndefined()
     expect(t.assUrl).toBeUndefined()
+  })
+})
+
+describe('withoutBurnedInSubtitles', () => {
+  const base =
+    'http://jf:8096/videos/abc/master.m3u8?MediaSourceId=abc&VideoCodec=h264&AudioStreamIndex=1'
+
+  it('switches off a burn-in the viewer never asked for', () => {
+    /*
+      Naming no subtitle stream means "the file's default" to Jellyfin, not
+      "none" — so a file whose default track is a bitmap came back with a
+      transcode that re-encoded it into the picture, on a viewer who had
+      subtitles off and no way to turn them off again.
+    */
+    const out = new URL(
+      withoutBurnedInSubtitles(`${base}&SubtitleStreamIndex=2&SubtitleMethod=Encode`),
+    )
+    expect(out.searchParams.get('SubtitleStreamIndex')).toBe('-1')
+    expect(out.searchParams.has('SubtitleMethod')).toBe(false)
+  })
+
+  it('leaves everything else about the transcode alone', () => {
+    const out = new URL(
+      withoutBurnedInSubtitles(`${base}&SubtitleStreamIndex=2&SubtitleMethod=Encode`),
+    )
+    expect(out.searchParams.get('MediaSourceId')).toBe('abc')
+    expect(out.searchParams.get('VideoCodec')).toBe('h264')
+    expect(out.searchParams.get('AudioStreamIndex')).toBe('1')
+    expect(out.pathname).toBe('/videos/abc/master.m3u8')
+  })
+
+  it('does not touch a transcode that was never going to burn anything in', () => {
+    // The common case: no default subtitle, so the server names no stream.
+    expect(withoutBurnedInSubtitles(base)).toBe(base)
+  })
+
+  it('hands back anything it cannot parse, rather than breaking playback', () => {
+    expect(withoutBurnedInSubtitles('not a url')).toBe('not a url')
+    expect(withoutBurnedInSubtitles('')).toBe('')
   })
 })
