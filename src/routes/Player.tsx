@@ -931,7 +931,13 @@ export function Player() {
     seededSubRef.current = plan.mediaSource.Id ?? undefined
     const track = plan.subtitles.find((s) => s.index === requestedSub)
     if (!track) return
-    if (track.url) setTextTrackIndex(track.index)
+    /*
+      `pgsUrl` as well as `url`: a PGS track is drawn here like any other, and
+      testing `url` alone sent a deep link to one back to the server to be
+      burned into the picture — a transcode, a reload, and no way to switch it
+      off again, for a track the menu would have swapped to instantly.
+    */
+    if (track.url || track.pgsUrl) setTextTrackIndex(track.index)
     else setBurnedSubIndex(track.index)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])

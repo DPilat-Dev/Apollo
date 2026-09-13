@@ -100,6 +100,42 @@ export interface SubtitleTrack {
 }
 
 /**
+ * The same transcode, with the server's uninvited burn-in switched off.
+ *
+ * A `PlaybackInfo` request that names no subtitle stream does not mean "no
+ * subtitles" to Jellyfin — it means "use the file's default", and it will build
+ * a transcode that burns that default into the picture. For a file whose
+ * default track is a bitmap the result is subtitles nobody asked for, on a
+ * viewer who had them switched off, with no way back: choosing Off sends
+ * another request that names no stream, and the server defaults again.
+ *
+ * `SubtitleStreamIndex: -1` in the request body does not help — 10.11.8 ignores
+ * it and burns the default in anyway, which is why this happens out here on the
+ * URL the server handed back rather than in the question that produced it.
+ * Measured against 10.11.8: the same frame of the same episode carries
+ * "No, no, wait. Please, please." before this and a clean picture after.
+ *
+ * `SubtitleMethod` goes with it. Leaving `Encode` next to an index of -1 is a
+ * combination nothing was asked to make sense of, and the pair is what the
+ * server writes when it does want a burn-in.
+ */
+export function withoutBurnedInSubtitles(url: string): string {
+  try {
+    const next = new URL(url)
+    // Absent on a transcode of a file with no default subtitle, which is most
+    // of them — nothing to switch off, and nothing to rewrite.
+    if (!next.searchParams.has('SubtitleStreamIndex')) return url
+    next.searchParams.set('SubtitleStreamIndex', '-1')
+    next.searchParams.delete('SubtitleMethod')
+    return next.toString()
+  } catch {
+    // A URL that will not parse is one this cannot improve. Handing it back
+    // untouched leaves playback exactly as it was rather than breaking it.
+    return url
+  }
+}
+
+/**
  * Asks the server how to play an item, then mirrors jellyfin-web's resolution
  * order: direct play > direct stream > transcode.
  */
@@ -159,7 +195,13 @@ export async function resolveStream(
 
   if (source.SupportsTranscoding && source.TranscodingUrl) {
     // TranscodingUrl is server-relative and already carries its own auth + params.
-    const url = new URL(source.TranscodingUrl.replace(/^\//, ''), `${api.server}/`).toString()
+    const built = new URL(source.TranscodingUrl.replace(/^\//, ''), `${api.server}/`).toString()
+    /*
+      Nobody asked for a burned-in track, so make sure there is not one. The
+      server picks the file's default whenever the request names no stream, and
+      for a bitmap track that means re-encoding it into the picture.
+    */
+    const url = opts.subtitleStreamIndex == null ? withoutBurnedInSubtitles(built) : built
     const isHls = source.TranscodingSubProtocol?.toLowerCase() === 'hls'
     return {
       ...base,
