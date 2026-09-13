@@ -46,6 +46,7 @@ import { browserCanRenderPgs, pgsTrackFor } from '../lib/pgsSubtitles'
 import { pickSubtitleTrack } from '../lib/subtitleLanguage'
 import { subtitleSizeStatus } from '../lib/subtitleStyle'
 import { usePgsSubtitles } from '../lib/usePgsSubtitles'
+import { PGS_PREPARING_AFTER_MS, pgsWaitMessage } from '../lib/pgsLoading'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { Scrubber } from '../components/Scrubber'
 import { ChapterList } from '../components/ChapterList'
@@ -1040,7 +1041,7 @@ export function Player() {
     [plan, textTrackIndex, burnedSubIndex],
   )
 
-  const { active: pgsActive } = usePgsSubtitles({
+  const { active: pgsActive, preparing: pgsPreparing } = usePgsSubtitles({
     videoRef,
     layerRef: pgsLayerRef,
     track: pgsTrack,
@@ -1311,7 +1312,7 @@ export function Player() {
             className="rounded-full bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/80 backdrop-blur"
             role="status"
           >
-            Loading subtitles…
+            {pgsWaitMessage(pgsPreparing ? PGS_PREPARING_AFTER_MS : 0)}
           </span>
         </div>
       )}
