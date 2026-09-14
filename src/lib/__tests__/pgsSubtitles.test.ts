@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { SubtitleTrack } from '../playback'
 import {
+  EXTRACTION_BUDGET_SECONDS,
+  EXTRACTION_SECONDS_PER_GB,
   browserCanRenderPgs,
   canRenderPgs,
+  extractionSeconds,
+  pgsDelivery,
+  subtitleNeedsBurnIn,
   isPgsCodec,
   PGS_STREAM_FORMAT,
   PGS_SUBTITLE_PROFILE,
@@ -186,5 +191,77 @@ describe('pgsRenderTimeOffset', () => {
 
   it('is zero when nothing applies', () => {
     expect(pgsRenderTimeOffset({})).toBe(0)
+  })
+})
+
+describe('where a PGS track gets rendered', () => {
+  const GB = 1e9
+
+  it('estimates the extraction from the container, not the codec', () => {
+    /*
+      Measured against 10.11.8 across all three formats: a 0.37 GB SubRip took
+      4.3 s, a 1.47 GB ASS took 12.6 s, a 5.74 GB PGS took 48.8 s. The rate is
+      the same to within a few percent every time, because what the server is
+      doing is reading the whole container.
+    */
+    expect(extractionSeconds(1 * GB)).toBeCloseTo(EXTRACTION_SECONDS_PER_GB, 5)
+    expect(extractionSeconds(5.74 * GB)).toBeCloseTo(49.4, 0)
+    expect(extractionSeconds(30.8 * GB)).toBeCloseTo(265, 0)
+  })
+
+  it('says nothing when the size is not known', () => {
+    for (const bad of [undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(extractionSeconds(bad)).toBeNull()
+    }
+  })
+
+  it('draws an episode here and burns a remux in', () => {
+    // The files these numbers came from: a 1 GB episode, and the 30.8 GB
+    // Imitation Game remux that took four and a half minutes to extract.
+    expect(pgsDelivery(1.03 * GB)).toBe('render')
+    expect(pgsDelivery(30.8 * GB)).toBe('burn-in')
+    expect(pgsDelivery(73.9 * GB)).toBe('burn-in')
+  })
+
+  it('puts the line where thirty seconds of extraction falls', () => {
+    const edge = (EXTRACTION_BUDGET_SECONDS / EXTRACTION_SECONDS_PER_GB) * GB
+    expect(pgsDelivery(edge * 0.99)).toBe('render')
+    expect(pgsDelivery(edge * 1.01)).toBe('burn-in')
+  })
+
+  it('draws it here when the size is missing, rather than imposing a re-encode', () => {
+    // The old behaviour, and the safer guess: burning in costs a transcode and
+    // a reload, which is a worse thing to do on the strength of a missing field
+    // than a wait the renderer now sits through gracefully.
+    expect(pgsDelivery(undefined)).toBe('render')
+    expect(pgsDelivery(0)).toBe('render')
+  })
+})
+
+describe('subtitleNeedsBurnIn', () => {
+  const track = (over: Partial<SubtitleTrack>): SubtitleTrack =>
+    ({ index: 2, label: 'English', isDefault: false, isForced: false, ...over }) as SubtitleTrack
+  const GB = 1e9
+
+  it('never burns in something already converted to WebVTT', () => {
+    // Size is irrelevant here: the conversion is small and already made.
+    expect(subtitleNeedsBurnIn(track({ url: '/x.vtt' }), 73.9 * GB)).toBe(false)
+  })
+
+  it('always burns in a picture format it cannot draw', () => {
+    // VOBSUB: no url, no pgsUrl. Nothing here can render it at any size.
+    expect(subtitleNeedsBurnIn(track({ codec: 'DVDSUB' }), 0.5 * GB)).toBe(true)
+  })
+
+  it('decides a PGS track on the size of its file', () => {
+    const pgs = (size: number) =>
+      subtitleNeedsBurnIn(track({ codec: 'PGSSUB', pgsUrl: '/x.sup' }), size)
+    expect(pgs(1.03 * GB)).toBe(false)
+    expect(pgs(30.8 * GB)).toBe(true)
+  })
+
+  it('answers for nothing at all without throwing', () => {
+    expect(subtitleNeedsBurnIn(null, 1 * GB)).toBe(false)
+    expect(subtitleNeedsBurnIn(undefined, 1 * GB)).toBe(false)
   })
 })
