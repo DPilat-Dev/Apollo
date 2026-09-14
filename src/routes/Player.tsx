@@ -943,8 +943,25 @@ export function Player() {
     knows about languages, forced tracks and the formats Apollo can actually
     draw.
   */
+  /*
+    Once per file, and the guard is not a nicety.
+
+    This picks a track for somebody who has not picked one, and it runs on
+    every new plan. That was harmless while the only thing it could do was set
+    `textTrackIndex`, which the plan does not depend on. It can now ask for a
+    burn-in, and the plan *does* depend on that — so choosing a track in the
+    menu produced a new plan, which re-ran this, which put the preferred track
+    back, which produced another plan. The subtitle appeared not to change at
+    all, because it changed twice.
+
+    Keyed on the media source rather than the item so a different version of
+    the same film still gets a choice made for it.
+  */
+  const autoPickedRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (!plan || requestedSub != null) return
+    if (autoPickedRef.current === plan.mediaSource.Id) return
+    autoPickedRef.current = plan.mediaSource.Id ?? undefined
     const chosen = pickSubtitleTrack({
       subtitles: plan.subtitles,
       preferredLanguage: settings.subtitleLanguage,
