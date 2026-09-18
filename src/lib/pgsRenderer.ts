@@ -20,20 +20,12 @@ export interface PgsSubtitleRenderer {
   destroy(): void
 }
 
-/**
- * How long to wait before deciding the renderer is not coming.
- *
- * A PGS stream is large — 7 MB for a single episode in the library this was
- * built against, and larger for a film — so this is far more generous than the
- * ten seconds libass gets. It is still bounded: a viewer must not sit in front
- * of a subtitle-less video forever because a fetch quietly stalled.
- */
-const READY_TIMEOUT_MS = 60_000
+import { PGS_RENDER_TIMEOUT_MS } from './pgsLoading'
 
 export async function createPgsRenderer({
   video,
   canvas,
-  url,
+  data,
   timeOffsetSeconds,
   aspect,
 }: {
@@ -44,7 +36,16 @@ export async function createPgsRenderer({
    * reconciles — the same reason the ASS renderer is handed one.
    */
   canvas: HTMLCanvasElement
-  url: string
+  /**
+   * The stream itself, not a URL to it.
+   *
+   * libpgs will happily fetch its own, and that is how this started — but the
+   * fetch is the slow and failure-prone half of starting a PGS track, and
+   * burying it in here left no way to wait sensibly, say what was happening,
+   * or tell a server still extracting from a server that is never going to
+   * answer. `pgsLoading.ts` has the measurements.
+   */
+  data: ArrayBuffer
   timeOffsetSeconds: number
   aspect: 'contain' | 'cover' | 'fill'
 }): Promise<PgsSubtitleRenderer> {
@@ -57,14 +58,18 @@ export async function createPgsRenderer({
   const instance = new PgsRenderer({
     video,
     canvas,
-    subUrl: url,
     workerUrl,
     timeOffset: timeOffsetSeconds,
     aspectRatio: aspect,
   })
 
   try {
-    await withTimeout(instance.ready)
+    /*
+      `ready` first, then the bytes. Built with no `subUrl`, so `ready` is just
+      the worker coming up; `loadFromBuffer` is the parse. Both inside the one
+      timeout, because either can be the thing that never finishes.
+    */
+    await withTimeout(instance.ready.then(() => instance.loadFromBuffer(data)))
   } catch (err) {
     // Disposed before rethrowing: a half-started renderer still holds a worker
     // and may yet paint over the burn-in fallback we are about to fall back to.
@@ -97,7 +102,7 @@ function withTimeout(ready: Promise<void>): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error('The subtitle renderer did not start in time.')),
-      READY_TIMEOUT_MS,
+      PGS_RENDER_TIMEOUT_MS,
     )
     ready.then(resolve, reject).finally(() => clearTimeout(timer))
   })

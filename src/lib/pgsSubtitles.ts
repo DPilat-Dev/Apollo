@@ -86,6 +86,88 @@ export function browserCanRenderPgs(): boolean {
   })
 }
 
+/*
+  ── Drawing it here, or asking the server to burn it in ────────────────────
+
+  Apollo can render a PGS track itself, which is instant to switch, adjustable,
+  and costs the server nothing. Getting hold of it is the problem: the first
+  request for a subtitle stream inside a Matroska file makes Jellyfin extract
+  it, and it sends nothing until that finishes. Measured against 10.11.8, the
+  extraction reads the whole container at a steady rate — the codec makes no
+  difference at all:
+
+    subrip  0.37 GB   4.3 s      ass  0.41 GB   3.6 s      pgssub  1.00 GB   8.7 s
+    subrip  0.86 GB   7.4 s      ass  1.47 GB  12.6 s      pgssub  1.03 GB   8.9 s
+    subrip  4.10 GB  35.1 s                                pgssub  5.74 GB  48.8 s
+
+  About 8.6 seconds per gigabyte, every time. Which means the wait is decided
+  by the file, not the format — and PGS only ever feels slow because PGS only
+  exists in Blu-ray remuxes. Of the 394 items carrying one here, the 297 that
+  extract in under thirty seconds are every last episode; the rest are films,
+  up to 73.9 GB and ten minutes.
+
+  Burn-in has none of that cost. The server overlays the subtitle stream while
+  it encodes, so nothing is extracted and playback starts in seconds. What it
+  costs instead is a re-encode, a reload to change track, and a fixed size.
+
+  So the choice is worth making per file rather than once. It is also the
+  choice jellyfin-web already made: it has this same renderer, behind
+  `subtitlerenderpgs`, and ships it off — every PGS track burns in unless
+  somebody opts in. This keeps the good half of that, for the files where the
+  wait is a few seconds rather than a few minutes.
+*/
+
+/** What the extraction costs, per gigabyte of container. */
+export const EXTRACTION_SECONDS_PER_GB = 8.6
+
+/**
+ * The longest extraction worth waiting through.
+ *
+ * Thirty seconds is roughly a title sequence: long enough that every ordinary
+ * episode stays on the renderer that switches instantly, short enough that
+ * nobody watches a blank lower third while a film is read end to end.
+ */
+export const EXTRACTION_BUDGET_SECONDS = 30
+
+/** How long the server will take to hand this track over, or null if unknown. */
+export function extractionSeconds(sizeBytes: number | null | undefined): number | null {
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0) return null
+  return (sizeBytes / 1e9) * EXTRACTION_SECONDS_PER_GB
+}
+
+/**
+ * Where a PGS track should be rendered.
+ *
+ * An unknown size draws here, which is both the old behaviour and the safer
+ * guess: burning in is a re-encode, and imposing one on the strength of a
+ * missing field would be a worse mistake than a wait that `usePgsSubtitles`
+ * now sits through gracefully.
+ */
+export function pgsDelivery(sizeBytes: number | null | undefined): 'render' | 'burn-in' {
+  const seconds = extractionSeconds(sizeBytes)
+  if (seconds === null) return 'render'
+  return seconds > EXTRACTION_BUDGET_SECONDS ? 'burn-in' : 'render'
+}
+
+/**
+ * Whether choosing this track means going back to the server.
+ *
+ * The menu, the deep link and the automatic selection all have to agree about
+ * this, and they used to answer it three different ways — which is how a
+ * `?subtitle=` link to a PGS track ended up being burned in while the menu
+ * swapped to the same track instantly.
+ */
+export function subtitleNeedsBurnIn(
+  track: Pick<SubtitleTrack, 'url' | 'pgsUrl' | 'codec'> | null | undefined,
+  sizeBytes: number | null | undefined,
+): boolean {
+  if (!track) return false
+  // A WebVTT conversion is small and already made; nothing here applies to it.
+  if (track.url) return false
+  if (!track.pgsUrl) return true
+  return pgsDelivery(sizeBytes) === 'burn-in'
+}
+
 /**
  * The track libpgs should draw, or null to leave it alone.
  *

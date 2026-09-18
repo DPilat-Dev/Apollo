@@ -1554,7 +1554,12 @@ export class JellyfinApi {
       AllowVideoStreamCopy: true,
       AllowAudioStreamCopy: true,
       AutoOpenLiveStream: true,
-      DeviceProfile: deviceProfile(),
+      /*
+        A named subtitle stream means "burn this into the picture". The server
+        will not do that while the profile claims this client renders PGS
+        itself, so that claim is dropped for exactly these requests.
+      */
+      DeviceProfile: deviceProfile({ renderPgs: opts.subtitleStreamIndex == null }),
     }
     if (opts.audioStreamIndex != null) {
       body.AudioStreamIndex = opts.audioStreamIndex
@@ -1723,7 +1728,18 @@ function canPlay(type: string): boolean {
   return el.canPlayType(type) !== ''
 }
 
-export function deviceProfile() {
+export function deviceProfile(opts: { renderPgs?: boolean } = {}) {
+  /*
+    `renderPgs: false` is how a burn-in is actually requested.
+
+    Declaring `pgssub` as External tells the server this client draws picture
+    subtitles itself, and the server believes it: asking for a burn-in with
+    that declaration still in the profile comes back as external delivery, the
+    transcode carries no `SubtitleStreamIndex`, and the viewer gets nothing at
+    all. The declaration has to be withdrawn for the request that wants the
+    frames painted — which is the same lever jellyfin-web pulls, where the
+    whole profile entry sits behind an off-by-default `subtitlerenderpgs`.
+  */
   const supportsHevc =
     canPlay('video/mp4; codecs="hvc1.1.6.L120.90"') ||
     canPlay('video/mp4; codecs="hev1.1.6.L120.90"')
@@ -1836,7 +1852,7 @@ export function deviceProfile() {
         the server a format is handled when nothing here can draw it would
         leave a viewer with neither subtitles nor a burn-in to fall back to.
       */
-      PGS_SUBTITLE_PROFILE,
+      ...(opts.renderPgs === false ? [] : [PGS_SUBTITLE_PROFILE]),
     ],
   }
 }

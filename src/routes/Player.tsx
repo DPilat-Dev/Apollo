@@ -42,10 +42,11 @@ import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
 import { useSubtitleOffset } from '../lib/useSubtitleOffset'
 import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
-import { browserCanRenderPgs, pgsTrackFor } from '../lib/pgsSubtitles'
+import { browserCanRenderPgs, pgsTrackFor, subtitleNeedsBurnIn } from '../lib/pgsSubtitles'
 import { pickSubtitleTrack } from '../lib/subtitleLanguage'
 import { subtitleSizeStatus } from '../lib/subtitleStyle'
 import { usePgsSubtitles } from '../lib/usePgsSubtitles'
+import { PGS_PREPARING_AFTER_MS, pgsWaitMessage } from '../lib/pgsLoading'
 import { SyncPlayMenu } from '../components/SyncPlayMenu'
 import { Scrubber } from '../components/Scrubber'
 import { ChapterList } from '../components/ChapterList'
@@ -931,14 +932,8 @@ export function Player() {
     seededSubRef.current = plan.mediaSource.Id ?? undefined
     const track = plan.subtitles.find((s) => s.index === requestedSub)
     if (!track) return
-    /*
-      `pgsUrl` as well as `url`: a PGS track is drawn here like any other, and
-      testing `url` alone sent a deep link to one back to the server to be
-      burned into the picture — a transcode, a reload, and no way to switch it
-      off again, for a track the menu would have swapped to instantly.
-    */
-    if (track.url || track.pgsUrl) setTextTrackIndex(track.index)
-    else setBurnedSubIndex(track.index)
+    if (subtitleNeedsBurnIn(track, plan.mediaSource.Size)) setBurnedSubIndex(track.index)
+    else setTextTrackIndex(track.index)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
@@ -948,14 +943,41 @@ export function Player() {
     knows about languages, forced tracks and the formats Apollo can actually
     draw.
   */
+  /*
+    Once per file, and the guard is not a nicety.
+
+    This picks a track for somebody who has not picked one, and it runs on
+    every new plan. That was harmless while the only thing it could do was set
+    `textTrackIndex`, which the plan does not depend on. It can now ask for a
+    burn-in, and the plan *does* depend on that — so choosing a track in the
+    menu produced a new plan, which re-ran this, which put the preferred track
+    back, which produced another plan. The subtitle appeared not to change at
+    all, because it changed twice.
+
+    Keyed on the media source rather than the item so a different version of
+    the same film still gets a choice made for it.
+  */
+  const autoPickedRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (!plan || requestedSub != null) return
+    if (autoPickedRef.current === plan.mediaSource.Id) return
+    autoPickedRef.current = plan.mediaSource.Id ?? undefined
     const chosen = pickSubtitleTrack({
       subtitles: plan.subtitles,
       preferredLanguage: settings.subtitleLanguage,
       onByDefault: settings.subtitlesDefault,
     })
-    if (chosen != null) setTextTrackIndex(chosen)
+    if (chosen == null) return
+    /*
+      Through the same question the menu and the deep link ask. A track chosen
+      for somebody rather than by them still has to be a track that appears:
+      picked silently and then left waiting minutes on an extraction is the
+      version of this nobody would have reported, because it looks like the
+      file simply having no subtitles.
+    */
+    const track = plan.subtitles.find((t) => t.index === chosen)
+    if (subtitleNeedsBurnIn(track, plan.mediaSource.Size)) setBurnedSubIndex(chosen)
+    else setTextTrackIndex(chosen)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan])
 
@@ -1040,7 +1062,7 @@ export function Player() {
     [plan, textTrackIndex, burnedSubIndex],
   )
 
-  const { active: pgsActive } = usePgsSubtitles({
+  const { active: pgsActive, preparing: pgsPreparing } = usePgsSubtitles({
     videoRef,
     layerRef: pgsLayerRef,
     track: pgsTrack,
@@ -1311,7 +1333,7 @@ export function Player() {
             className="rounded-full bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/80 backdrop-blur"
             role="status"
           >
-            Loading subtitles…
+            {pgsWaitMessage(pgsPreparing ? PGS_PREPARING_AFTER_MS : 0)}
           </span>
         </div>
       )}
@@ -1712,22 +1734,23 @@ export function Player() {
                           active={(burnedSubIndex ?? textTrackIndex) === s.index}
                           onClick={() => {
                             /*
-                              Anything Apollo can draw itself — a WebVTT
-                              conversion, or a PGS bitmap stream — swaps
-                              client-side with no reload. Only what is left
-                              (VOBSUB) goes back to the server.
+                              Anything Apollo can draw itself swaps client-side
+                              with no reload. What is left goes back to the
+                              server: VOBSUB always, and a PGS track out of a
+                              file too big to extract in reasonable time —
+                              `subtitleNeedsBurnIn` has the measurements.
                             */
-                            if (s.url || s.pgsUrl) {
+                            if (subtitleNeedsBurnIn(s, plan?.mediaSource.Size)) {
+                              setTextTrackIndex(null)
+                              reloadFrom(() => setBurnedSubIndex(s.index))
+                            } else {
                               if (burnedSubIndex != null)
                                 reloadFrom(() => setBurnedSubIndex(undefined))
                               setTextTrackIndex(s.index)
-                            } else {
-                              setTextTrackIndex(null)
-                              reloadFrom(() => setBurnedSubIndex(s.index))
                             }
                             setMenu('none')
                           }}
-                          hint={s.url || s.pgsUrl ? undefined : 'burn-in'}
+                          hint={subtitleNeedsBurnIn(s, plan?.mediaSource.Size) ? 'burn-in' : undefined}
                         >
                           {s.label}
                         </MenuItem>
