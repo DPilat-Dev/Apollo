@@ -147,3 +147,95 @@ describe('canonicalLanguage', () => {
     expect(languagesMatch('epo', 'eo')).toBe(false)
   })
 })
+
+describe('a choice this viewer already made', () => {
+  const subs: SubtitleTrack[] = [
+    { index: 1, label: 'English', language: 'eng', url: '/1.vtt' },
+    { index: 2, label: 'Japanese', language: 'jpn', url: '/2.vtt', isDefault: true },
+  ] as SubtitleTrack[]
+
+  it('outranks the language in Settings', () => {
+    /*
+      The settings answer "what do you usually want"; this answers "what do you
+      want here", given by the same person about the same programme. Without
+      this, picking English on a show came back as Japanese every episode,
+      which is the whole of "it is not remembering what I selected".
+    */
+    expect(
+      pickSubtitleTrack({
+        subtitles: subs,
+        preferredLanguage: 'jpn',
+        onByDefault: true,
+        remembered: { kind: 'language', language: 'eng' },
+      }),
+    ).toBe(1)
+  })
+
+  it('outranks the default-track switch, including to mean off', () => {
+    expect(
+      pickSubtitleTrack({
+        subtitles: subs,
+        preferredLanguage: '',
+        onByDefault: true,
+        remembered: { kind: 'off' },
+      }),
+    ).toBeNull()
+  })
+
+  it('falls back to the settings when this file has not got that language', () => {
+    // A dubbed episode in a run of subtitled ones, or later seasons ripped
+    // differently. Silence would be a worse answer than the usual one.
+    expect(
+      pickSubtitleTrack({
+        subtitles: subs,
+        preferredLanguage: 'jpn',
+        onByDefault: false,
+        remembered: { kind: 'language', language: 'fra' },
+      }),
+    ).toBe(2)
+  })
+
+  it('changes nothing when there is no memory', () => {
+    const settingsOnly = { subtitles: subs, preferredLanguage: 'jpn', onByDefault: false }
+    expect(pickSubtitleTrack(settingsOnly)).toBe(2)
+    expect(pickSubtitleTrack({ ...settingsOnly, remembered: null })).toBe(2)
+    expect(pickSubtitleTrack({ ...settingsOnly, remembered: undefined })).toBe(2)
+  })
+
+  it('still will not choose a track this client cannot put on screen', () => {
+    // The remembered language resolves only among tracks that can actually be
+    // shown; a format with neither a conversion nor a bitmap stream is not a
+    // candidate however fondly it is remembered.
+    const unusable: SubtitleTrack[] = [
+      { index: 1, label: 'English', language: 'eng', codec: 'DVDSUB' },
+    ] as SubtitleTrack[]
+    expect(
+      pickSubtitleTrack({
+        subtitles: unusable,
+        preferredLanguage: '',
+        onByDefault: true,
+        remembered: { kind: 'language', language: 'eng' },
+      }),
+    ).toBeNull()
+  })
+
+  it('picks the best of several tracks in the remembered language', () => {
+    const many: SubtitleTrack[] = [
+      { index: 1, label: 'English', language: 'eng', url: '/1.vtt' },
+      { index: 2, label: 'English forced', language: 'eng', url: '/2.vtt', isForced: true },
+    ] as SubtitleTrack[]
+    /*
+      Same scoring as every other path: the full track beats the forced one.
+      Someone who asked for English wants the dialogue, not just the signs —
+      and a memory of "English" is that same request, made earlier.
+    */
+    expect(
+      pickSubtitleTrack({
+        subtitles: many,
+        preferredLanguage: '',
+        onByDefault: false,
+        remembered: { kind: 'language', language: 'eng' },
+      }),
+    ).toBe(1)
+  })
+})
