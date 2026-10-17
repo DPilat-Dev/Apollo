@@ -40,6 +40,7 @@ import type {
 } from '@jellyfin/sdk/lib/generated-client/models'
 
 export const CLIENT_NAME = 'Apollo'
+import { reportSessionExpired } from './sessionExpiry'
 /**
  * Sent on every request and recorded by the server against the session, so a
  * wrong value here is what the admin dashboard and the Devices list show.
@@ -188,12 +189,38 @@ export class ApiError extends Error {
   readonly status: number
   /** Raw response body — Jellyfin puts the real reason here on 4xx/5xx. */
   readonly detail: string
+  /**
+   * Whether `message` describes the transport rather than the problem.
+   *
+   * `GET /UserItems/Resume failed (401)` is the right thing to put in a log
+   * and the wrong thing to put in front of someone waiting for their
+   * Continue Watching row. Marking it lets `errorText` choose the sentence
+   * the screen already has instead, without losing the technical one for the
+   * places — the player, the dashboard — that genuinely want it.
+   */
+  readonly technical: boolean
 
-  constructor(message: string, status: number, detail = '') {
+  constructor(message: string, status: number, detail = '', technical = false) {
     super(detail ? `${message}: ${detail}` : message)
     this.status = status
     this.detail = detail
+    this.technical = technical
   }
+}
+
+/**
+ * What to put in front of a person when a request fails.
+ *
+ * Every call site already carries a sentence written for its own screen —
+ * "This row couldn't load.", "Your history couldn't load." They were simply
+ * unreachable: the guard was `err instanceof Error ? err.message : fallback`,
+ * and an `ApiError` is an `Error`, so the fallback never ran and the raw
+ * method-and-path string won every time.
+ */
+export function errorText(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.technical ? fallback : err.message
+  if (err instanceof Error && err.message) return err.message
+  return fallback
 }
 
 // number[] is here for /Items' `years`, which takes a list rather than a range.
@@ -292,10 +319,12 @@ export class JellyfinApi {
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
+      if (res.status === 401) reportSessionExpired()
       throw new ApiError(
         `${rest.method ?? 'GET'} ${path} failed (${res.status})`,
         res.status,
         detail.slice(0, 400),
+        true,
       )
     }
     if (res.status === 204 || res.headers.get('content-length') === '0') {
@@ -755,6 +784,7 @@ export class JellyfinApi {
       headers: { Authorization: authHeader(this.session.token) },
     })
     if (!res.ok) {
+      if (res.status === 401) reportSessionExpired()
       throw new ApiError(`Could not read the subtitle file (${res.status})`, res.status)
     }
     return res.text()
@@ -1148,7 +1178,10 @@ export class JellyfinApi {
     const res = await fetch(this.url('/System/Logs/Log', { name }), {
       headers: { Authorization: authHeader(this.session.token) },
     })
-    if (!res.ok) throw new ApiError(`Could not read ${name} (${res.status})`, res.status)
+    if (!res.ok) {
+      if (res.status === 401) reportSessionExpired()
+      throw new ApiError(`Could not read ${name} (${res.status})`, res.status)
+    }
     return res.text()
   }
 

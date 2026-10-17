@@ -21,6 +21,7 @@ import {
   summariseDay,
   type HistoryFilter,
 } from '../lib/watchHistory'
+import { errorText } from '../lib/api'
 
 /**
  * What this account has watched, newest first.
@@ -89,7 +90,7 @@ export function History() {
       {query.isError && items.length === 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
           <p className="text-sm text-white/55">
-            {query.error instanceof Error ? query.error.message : "Your history couldn't load."}
+            {errorText(query.error, "Your history couldn't load.")}
           </p>
           <button
             onClick={() => void query.refetch()}

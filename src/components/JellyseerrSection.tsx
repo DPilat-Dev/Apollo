@@ -5,6 +5,7 @@ import {
   useJellyseerrSignIn,
   useJellyseerrSignOut,
 } from '../lib/queries'
+import { errorText } from '../lib/api'
 
 /**
  * Connects this browser to Jellyseerr.
@@ -84,7 +85,7 @@ export function JellyseerrSection() {
             {
               onSuccess: () => setPassword(''),
               onError: (err) =>
-                setError(err instanceof Error ? err.message : 'Could not sign in to Jellyseerr.'),
+                setError(errorText(err, 'Could not sign in to Jellyseerr.')),
             },
           )
         }}

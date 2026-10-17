@@ -12,6 +12,7 @@ import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { defaultServer, usableServer } from '../lib/defaultServer'
 import { runtimeConfig } from '../lib/jellyseerr'
+import { takeSessionExpiredNotice } from '../lib/sessionExpiry'
 
 const DEFAULT_SERVER = import.meta.env.VITE_JELLYFIN_SERVER ?? ''
 
@@ -58,6 +59,12 @@ export function Login() {
   const [busy, setBusy] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /*
+    Why the sign-in screen is showing, when it was not asked for. Read once,
+    at mount: it belongs to the redirect that caused it, not to everybody who
+    later signs out on purpose and comes back.
+  */
+  const [sessionEnded] = useState(() => takeSessionExpiredNotice())
   const [editingServer, setEditingServer] = useState(!startServer)
   /*
     Whether the viewer has typed in the address box. The address the server
@@ -379,6 +386,16 @@ export function Login() {
                     className="w-full rounded-lg border border-white/15 bg-white/5 px-3.5 py-2.5 text-sm outline-none transition focus:border-accent/70 focus:bg-white/8"
                   />
                 </Field>
+              )}
+
+              {sessionEnded && !error && (
+                <p
+                  role="status"
+                  className="rounded-lg border border-white/15 bg-white/5 px-3.5 py-2.5 text-xs text-white/70"
+                >
+                  Your session ended — the server stopped accepting it. Signing in again will
+                  pick up where you left off.
+                </p>
               )}
 
               {error && (

@@ -6,6 +6,7 @@ import { CardSkeleton } from '../components/MediaCard'
 import { PlusIcon } from '../components/icons'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { errorText } from '../lib/api'
 
 /** Every playlist this user can see, plus a way to start a new one. */
 export function Playlists() {
@@ -33,7 +34,7 @@ export function Playlists() {
             {
               onSuccess: () => setName(''),
               onError: (err) =>
-                setFailed(err instanceof Error ? err.message : 'Could not create that playlist.'),
+                setFailed(errorText(err, 'Could not create that playlist.')),
             },
           )
         }}
@@ -59,7 +60,7 @@ export function Playlists() {
 
       {error && (
         <p className="text-sm text-white/55">
-          {error instanceof Error ? error.message : 'Playlists could not be loaded.'}
+          {errorText(error, 'Playlists could not be loaded.')}
         </p>
       )}
 

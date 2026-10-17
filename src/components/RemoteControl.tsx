@@ -5,6 +5,7 @@ import { useApi } from '../lib/auth'
 import { displayTitle } from '../lib/format'
 import { CastIcon, PauseIcon, PlayIcon, NextTrackIcon } from './icons'
 import { useDismissOnEscape } from '../lib/useDismissOnEscape'
+import { errorText } from '../lib/api'
 
 /**
  * Plays something on another device signed in to the same server.
@@ -54,7 +55,7 @@ export function RemoteControl({
   const run = (fn: () => Promise<unknown>) => {
     setError(null)
     void fn().catch((e) =>
-      setError(e instanceof Error ? e.message : 'That device did not accept the command.'),
+      setError(errorText(e, 'That device did not accept the command.')),
     )
   }
 

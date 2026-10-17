@@ -10,6 +10,7 @@ import {
 import { useJellyseerrSearch, useJellyseerrSession, useRequestMedia } from '../lib/queries'
 import { useSettings } from '../lib/settings'
 import { PlusIcon, CheckIcon } from './icons'
+import { errorText } from '../lib/api'
 
 /**
  * The "we don't have it" half of search. Sits under the library results,
@@ -118,7 +119,7 @@ function RequestCard({ result }: { result: SeerrResult }) {
         onSuccess: () => setState('done'),
         onError: (e) => {
           setState('error')
-          setMessage(e instanceof Error ? e.message : 'Request failed.')
+          setMessage(errorText(e, 'Request failed.'))
         },
       },
     )

@@ -27,6 +27,7 @@ import {
   type RecapCount,
   type RecapStats,
 } from '../lib/yearRecap'
+import { errorText } from '../lib/api'
 
 /**
  * The year, totalled up.
@@ -140,7 +141,7 @@ export function YearRecap() {
       {query.isError && items.length === 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
           <p className="text-sm text-white/55">
-            {query.error instanceof Error ? query.error.message : "Your year couldn't load."}
+            {errorText(query.error, "Your year couldn't load.")}
           </p>
           <button
             onClick={() => void query.refetch()}
