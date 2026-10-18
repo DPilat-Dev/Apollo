@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { chapterAt, type Chapter } from '../lib/chapters'
 import { formatTimecode } from '../lib/format'
+import { durationKnown, scrubberKeySeek } from '../lib/scrubber'
 import type { trickplaySprite } from '../lib/trickplay'
 
 /**
@@ -15,6 +16,7 @@ export function Scrubber({
   duration,
   buffered,
   onSeek,
+  onActivity,
   chapters,
   ranges,
   preview,
@@ -23,6 +25,15 @@ export function Scrubber({
   duration: number
   buffered: number
   onSeek: (seconds: number) => void
+  /**
+   * Called for the keys this bar handles itself.
+   *
+   * Those keys are stopped before they reach the player's window handler, and
+   * that handler is also what keeps the chrome on screen — so without this, the
+   * one control whose keys do not bubble would be the one control that lets the
+   * chrome fade out from under it.
+   */
+  onActivity?: () => void
   /** Chapters, drawn as divisions and named in the hover preview. */
   chapters?: Chapter[]
   /** Skip ranges, shaded so intros and credits are visible before you reach them. */
@@ -32,6 +43,18 @@ export function Scrubber({
 }) {
   const [hoverX, setHoverX] = useState<number | null>(null)
   const [dragX, setDragX] = useState<number | null>(null)
+  /*
+    The position as last *put* there, rather than as it currently is.
+
+    `aria-valuenow` and `aria-valuetext` are read from this while the bar is
+    merely focused. A focused `role="slider"` whose value changes is announced
+    every time it does, and `current` advances about once a second all through
+    playback — so NVDA read a timecode over the film, continuously, for as long
+    as the bar held focus. Set on focus, on a key seek and at the end of a drag,
+    which are the three moments the viewer has actually moved it; null while
+    unfocused, where nothing is listening and the live value is the honest one.
+  */
+  const [held, setHeld] = useState<number | null>(null)
   const trackRef = useRef<HTMLDivElement>(null)
 
   /*
@@ -73,7 +96,11 @@ export function Scrubber({
     setDragX(null)
     // A mouse still hovers after letting go; a finger does not.
     if (e.pointerType !== 'mouse') setHoverX(null)
-    if (duration > 0) onSeek(secondsAt(x))
+    if (duration > 0) {
+      const seconds = secondsAt(x)
+      setHeld(seconds)
+      onSeek(seconds)
+    }
   }
 
   const dragging = dragX != null
@@ -84,8 +111,59 @@ export function Scrubber({
 
   const hoverSeconds = hoverX != null && duration > 0 ? secondsAt(hoverX) : null
 
+  /*
+    Everything below this point was pointer-only: a stack of divs on pointer
+    events, with no role, no value and no way to reach it with Tab — in a
+    player where every other control has an `aria-label` and the volume slider
+    even has an `aria-valuetext`. The seek bar is the one control the film
+    cannot be watched without.
+
+    The value is announced as a timecode rather than as a count of seconds,
+    because "4231" is not a position in a film. `aria-valuenow` still carries
+    the number, since that is what assistive technology does arithmetic on.
+  */
+  const known = durationKnown(duration)
+  const announced = dragging ? shown : (held ?? current)
+
   return (
-    <div ref={trackRef} className="group/track relative h-6 cursor-pointer">
+    <div
+      ref={trackRef}
+      role="slider"
+      /* The conventional name for this control. "Seek" named the action
+         instead, and the action is what `role="slider"` already conveys — a
+         label is for what the thing is. */
+      aria-label="Playback position"
+      tabIndex={0}
+      aria-valuemin={0}
+      aria-valuemax={known ? Math.round(duration) : 0}
+      aria-valuenow={Math.round(Math.min(Math.max(announced, 0), known ? duration : 0))}
+      aria-valuetext={
+        known
+          ? `${formatTimecode(announced)} of ${formatTimecode(duration)}`
+          : 'Position not available yet'
+      }
+      onFocus={() => setHeld(current)}
+      onBlur={() => setHeld(null)}
+      onKeyDown={(e) => {
+        const target = scrubberKeySeek(e.key, { current: shown, duration }, { shift: e.shiftKey })
+        if (target == null) return
+        /*
+          Up and Down are the only keys taken off the player's window handler,
+          which reads them as the volume — so a slider that promises four arrow
+          keys delivered two, and the other two moved the sound without saying
+          so. Everything else is left to bubble: that handler is what seeks on
+          Left and Right, and what keeps this chrome on screen on any keypress.
+        */
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.stopPropagation()
+          onActivity?.()
+        }
+        e.preventDefault()
+        setHeld(target)
+        onSeek(target)
+      }}
+      className="group/track relative h-6 cursor-pointer"
+    >
       {/*
         The hit surface, taller than the bar it controls. Twenty-four pixels is
         a comfortable mouse target and a miserable thumb one; this reaches out

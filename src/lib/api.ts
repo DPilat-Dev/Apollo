@@ -155,10 +155,67 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
 }
 
-export function normalizeServer(url: string): string {
+/**
+ * The scheme of the page Apollo is being served from, where there is one.
+ *
+ * Not `location.protocol` inline: it is the default argument of the two pure
+ * functions below, which are tested in node, where there is no `location` at
+ * all. Unexported for the same reason nothing outside this module wants it —
+ * the question callers actually have is one of those two.
+ */
+function pageProtocol(): string {
+  return typeof location === 'undefined' ? 'http:' : location.protocol
+}
+
+/**
+ * A typed address, turned into an origin.
+ *
+ * The scheme is the part worth explaining. A bare `jellyfin.lan` used to
+ * become `http://jellyfin.lan` always — including when Apollo itself was
+ * being served over TLS, where a browser blocks a plain-HTTP request outright
+ * as mixed content. The request never leaves, `fetch` rejects with the same
+ * bare TypeError it uses for a dead host, and the viewer was told "Could not
+ * reach that server. Check the address…" about an address that was correct.
+ *
+ * So a bare hostname inherits the page's own scheme, which is the one that can
+ * actually be fetched. An address typed with a scheme is left exactly as
+ * typed — someone who writes `http://` on an HTTPS page has said something
+ * specific, and `unreachableMessage` is where that gets explained rather than
+ * silently rewritten.
+ */
+export function normalizeServer(url: string, protocol: string = pageProtocol()): string {
   let u = url.trim().replace(/\/+$/, '')
-  if (!/^https?:\/\//i.test(u)) u = `http://${u}`
+  if (!/^https?:\/\//i.test(u)) {
+    u = `${protocol === 'https:' ? 'https:' : 'http:'}//${u}`
+  }
   return u
+}
+
+/**
+ * Whether the browser will refuse this request before making it.
+ *
+ * An HTTPS page may not fetch an HTTP origin. There is nothing wrong with the
+ * address and nothing wrong with the server; the combination is simply not
+ * allowed, and saying "check the address" about it sends people to look at the
+ * one thing that is not the problem.
+ *
+ * Test seam: `unreachableMessage` is the only caller, and this is exported so
+ * the rule can be checked on its own rather than through the sentence.
+ */
+export function mixedContentBlocked(server: string, protocol: string = pageProtocol()): boolean {
+  return protocol === 'https:' && /^http:\/\//i.test(server.trim())
+}
+
+/** Why a sign-in request never got an answer. */
+export function unreachableMessage(server: string, protocol: string = pageProtocol()): string {
+  if (mixedContentBlocked(server, protocol)) {
+    return (
+      'Apollo is being served over HTTPS, so the browser blocks this request to a plain http:// ' +
+      'address before it is made. Use an https:// address for the server, or open Apollo over ' +
+      'http:// as well.'
+    )
+  }
+  return 'Could not reach that server. Check the address, and that it is running and reachable from this device.'
 }
 
 /**
@@ -341,10 +398,19 @@ export class JellyfinApi {
    *
    * `activeWithinSeconds` keeps the list to things plausibly still on — a
    * phone that was used yesterday is not somewhere you want to start playback.
+   *
+   * `controllableByUserId` is the part that matters on a shared server. Without
+   * it `/Sessions` answers with every session the caller may *see*, and the
+   * filtering here only ever removed this device — so on a family server the
+   * picker listed "Living Room TV — Emma — Euphoria S01E03" and offered to
+   * pause it. With it the server applies its own permission check instead:
+   * sessions belonging to other accounts are returned only to someone holding
+   * EnableRemoteControlOfOtherUsers, which is the question Apollo should be
+   * asking rather than answering for itself.
    */
   async controllableSessions(activeWithinSeconds = 600): Promise<SessionInfoDto[]> {
     const sessions = await this.requestArray<SessionInfoDto>('/Sessions', {
-      query: { activeWithinSeconds },
+      query: { activeWithinSeconds, controllableByUserId: this.userId },
     })
     return sessions.filter(
       (s) => s.SupportsRemoteControl && s.DeviceId !== deviceId() && s.Id,
@@ -1693,10 +1759,9 @@ async function reachableFetch(url: string, init?: RequestInit): Promise<Response
   try {
     return await fetch(url, init)
   } catch {
-    throw new ApiError(
-      'Could not reach that server. Check the address, and that it is running and reachable from this device.',
-      0,
-    )
+    // The one case worth naming is mixed content, because it is the one where
+    // the address is right and nothing about it needs checking.
+    throw new ApiError(unreachableMessage(url), 0)
   }
 }
 

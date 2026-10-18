@@ -3,7 +3,7 @@ import { useBoxSets } from '../lib/queries'
 import { collectionsSurface } from '../lib/boxSets'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
-import { errorText } from '../lib/api'
+import { LoadFailure } from '../components/LoadFailure'
 
 /**
  * Every collection on the server, as a grid of their own posters.
@@ -23,7 +23,7 @@ export function Collections() {
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
       <div className="mb-6">
         <h1 className="text-2xl font-bold sm:text-4xl">Collections</h1>
-        {surface === 'present' && (
+        {surface === 'ready' && (
           <p className="mt-1 text-sm text-white/45">
             {collections.length} {collections.length === 1 ? 'collection' : 'collections'}
           </p>
@@ -31,27 +31,21 @@ export function Collections() {
       </div>
 
       {surface === 'failed' && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
-          <p className="text-sm text-white/55">
-            {errorText(query.error, "Collections couldn't load.")}
-          </p>
-          <button
-            onClick={() => void query.refetch()}
-            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
-          >
-            Retry
-          </button>
-        </div>
+        <LoadFailure
+          error={query.error}
+          fallback="Collections couldn't load."
+          onRetry={() => void query.refetch()}
+        />
       )}
 
-      {surface === 'absent' && (
+      {surface === 'empty' && (
         <p className="text-sm text-white/45">
           No collections on this server yet. Open any film or show, press the three-dot button and
           choose "Add to collection" to start the first one.
         </p>
       )}
 
-      {(surface === 'pending' || surface === 'present') && (
+      {(surface === 'pending' || surface === 'ready') && (
         <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {surface === 'pending'
             ? Array.from({ length: 12 }, (_, i) => (

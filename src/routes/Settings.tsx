@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { accountsToOffer, loadAccounts } from '../lib/accounts'
 import { useAuth } from '../lib/auth'
@@ -62,6 +62,8 @@ export function Settings() {
   const settings = useSettings()
   const { data: me } = useCurrentUser()
   const isAdmin = useIsAdmin()
+  const [confirmReset, setConfirmReset] = useState(false)
+  const resetId = useId()
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-24 pt-24 sm:px-8 sm:pt-28">
@@ -351,14 +353,76 @@ export function Settings() {
         {me?.Policy?.IsAdministrator != null && (
           <Field label="Role" value={me.Policy.IsAdministrator ? 'Administrator' : 'User'} />
         )}
-        <Row label="Reset preferences" hint="Restores every setting on this page to its default.">
-          <button
-            onClick={resetSettings}
-            className="rounded border border-white/20 px-4 py-2 text-sm transition hover:border-white/50"
+        {/*
+          Asks first, and says what it really does. "Restores every setting on
+          this page" reads as device-local, and it is not: the settings that
+          travel with the account are pushed to the server a second and a half
+          later, so this lands on the TV and the phone as well. Nothing else
+          in Apollo changes another device's state from a single unguarded
+          click.
+
+          One ternary, the way the three other danger confirms in the app are
+          written. As two siblings the row's hint and the confirm said the same
+          thing twice over, and the body had none of the border or tint that
+          marks the others as the point of no return.
+        */}
+        {!confirmReset ? (
+          <Row
+            label="Reset preferences"
+            hint="Puts every setting on this page back to its default, here and on your other devices."
           >
-            Reset
-          </button>
-        </Row>
+            <button
+              onClick={() => setConfirmReset(true)}
+              className="rounded border border-white/20 px-4 py-2 text-sm transition hover:border-white/50"
+            >
+              Reset
+            </button>
+          </Row>
+        ) : (
+          <div className="px-4 py-4">
+            {/*
+              Announced and focused: pressing Reset unmounts the button that
+              was pressed, so focus fell to the top of the document and a
+              screen reader was told nothing. This is the last thing on the
+              page, where on a phone it can appear below the fold — `autoFocus`
+              scrolls it into view as well as giving the keyboard somewhere to
+              be.
+            */}
+            <div
+              role="alertdialog"
+              aria-labelledby={`${resetId}-title`}
+              aria-describedby={`${resetId}-body`}
+              className="rounded-lg border border-accent/40 bg-accent/10 p-3"
+            >
+              <p id={`${resetId}-title`} className="text-sm text-white/85">
+                Reset every preference?
+              </p>
+              <p id={`${resetId}-body`} className="mt-1 text-xs text-white/50">
+                Subtitle style, autoplay, theme and the rest go back to their defaults. The ones
+                that follow your account are sent to the server too, so this also resets them on
+                every other device you are signed in on.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  autoFocus
+                  onClick={() => {
+                    setConfirmReset(false)
+                    resetSettings()
+                  }}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
+                >
+                  Yes, reset everything
+                </button>
+                <button
+                  onClick={() => setConfirmReset(false)}
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </Section>
     </div>
   )

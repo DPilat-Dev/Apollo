@@ -80,3 +80,30 @@ export function ratingStars(item: BaseItemDto): string | null {
   return typeof r === 'number' ? r.toFixed(1) : null
 }
 
+
+/**
+ * A card's accessible name: the title, and then whatever its badges say.
+ *
+ * The badges are the whole reason a card is worth looking at twice — a series
+ * with three episodes left, a film already watched, a film with twenty minutes
+ * to go — and `aria-label={displayTitle(item)}` threw all three away, so those
+ * announced identically as "Dune, button". The tray inside the tile cannot be
+ * read instead: it is `visibility: hidden` until the card is focused or hovered,
+ * which is exactly what keeps it out of the accessibility tree.
+ *
+ * `remainingLabel` is only included for the cards that show it, because the
+ * number exists for anything part-watched and saying "1h 12m left" about a film
+ * in a library grid is a fact nobody asked for.
+ */
+export function cardLabel(item: BaseItemDto, opts: { showProgress?: boolean } = {}): string {
+  const parts = [displayTitle(item)]
+
+  const unwatched = item.UserData?.UnplayedItemCount
+  if (unwatched) parts.push(`${unwatched} unwatched`)
+  else if (item.UserData?.Played) parts.push('watched')
+
+  const left = opts.showProgress && playedFraction(item) > 0 ? remainingLabel(item) : null
+  if (left) parts.push(left)
+
+  return parts.join(', ')
+}

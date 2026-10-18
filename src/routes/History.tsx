@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
@@ -21,7 +21,9 @@ import {
   summariseDay,
   type HistoryFilter,
 } from '../lib/watchHistory'
-import { errorText } from '../lib/api'
+import { LoadFailure } from '../components/LoadFailure'
+import { pagesSettling } from '../lib/pageWalk'
+import { usePageOnScroll, usePagesToEnd } from '../lib/usePageWalk'
 
 /**
  * What this account has watched, newest first.
@@ -56,20 +58,10 @@ export function History() {
   const [filter, setFilter] = useState<HistoryFilter>('all')
   const shown = useMemo(() => filterHistory(days, filter), [days, filter])
 
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el) return
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && query.hasNextPage && !query.isFetchingNextPage) {
-          void query.fetchNextPage()
-        }
-      },
-      { rootMargin: '800px' },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [query])
+  // The walk backwards through the history, which stops on a refused page and
+  // waits for the button below — see `usePageWalk`.
+  const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
+  usePageOnScroll(sentinel, query)
 
   const capped = !query.hasNextPage && items.length > 0 && items.length < total
 
@@ -88,17 +80,11 @@ export function History() {
       </div>
 
       {query.isError && items.length === 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
-          <p className="text-sm text-white/55">
-            {errorText(query.error, "Your history couldn't load.")}
-          </p>
-          <button
-            onClick={() => void query.refetch()}
-            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
-          >
-            Retry
-          </button>
-        </div>
+        <LoadFailure
+          error={query.error}
+          fallback="Your history couldn't load."
+          onRetry={() => void query.refetch()}
+        />
       )}
 
       {!query.isLoading && !query.isError && items.length > 0 && (
@@ -175,6 +161,19 @@ export function History() {
       )}
 
       <div ref={sentinel} className="h-10" />
+
+      {/* The days already listed are correct — only the walk backwards stopped.
+          The panel stays put while the retry runs, so `busy` is the only sign
+          the press landed. */}
+      {isFetchNextPageError && (
+        <LoadFailure
+          error={query.error}
+          fallback="Couldn't load any more history."
+          label="Try again"
+          busy={isFetchingNextPage}
+          onRetry={() => void fetchNextPage()}
+        />
+      )}
     </div>
   )
 }
@@ -258,12 +257,10 @@ function ActivityHeatmap() {
       }),
   })
 
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
-  useEffect(() => {
-    // Runs itself to the edge: a year is wrong until the last page is in, and
-    // there is nothing to scroll towards up here.
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  // Runs itself to the edge: a year is wrong until the last page is in, and
+  // there is nothing to scroll towards up here.
+  const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
+  usePagesToEnd(query)
 
   const counts = useMemo(() => {
     const map = new Map<string, number>()
@@ -278,7 +275,9 @@ function ActivityHeatmap() {
     return map
   }, [query.data])
 
-  const settling = query.isLoading || hasNextPage || isFetchingNextPage
+  // Which of the three things the caption can say. The refused case is handled
+  // before this below, so what is left for `settling` here is the ordinary wait.
+  const settling = pagesSettling(query)
   const map = useMemo(() => buildHeatmap(counts, { today }), [counts, today])
 
   /*
@@ -304,13 +303,33 @@ function ActivityHeatmap() {
 
   return (
     <section className="mb-6">
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-white/70">The last year</h2>
-        <p className="text-xs text-white/35">
-          {settling
-            ? 'Counting…'
-            : `${map.totalDays} ${map.totalDays === 1 ? 'day' : 'days'} with something on`}
-        </p>
+        {isFetchNextPageError ? (
+          /*
+            A control of its own rather than a word inside the caption. It is
+            the only way out of a half-counted year, and inheriting the
+            caption's `text-white/35` gave it about 3:1 — under AA, and no
+            better in the light theme, where the token inverts to near-black at
+            the same 35% — inside a hit box of sixteen pixels. The negative
+            margin keeps the padding from moving the heading it sits beside.
+          */
+          <button
+            onClick={() => void fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="-my-1.5 shrink-0 rounded px-2 py-1.5 text-xs text-white/70 underline transition hover:text-white disabled:opacity-60"
+          >
+            {isFetchingNextPage
+              ? 'Counting the rest…'
+              : 'Only part of the year loaded — try again'}
+          </button>
+        ) : (
+          <p className="text-xs text-white/35">
+            {settling
+              ? 'Counting…'
+              : `${map.totalDays} ${map.totalDays === 1 ? 'day' : 'days'} with something on`}
+          </p>
+        )}
       </div>
 
       {/* Scrolls on a narrow screen rather than squeezing 53 columns into it. */}

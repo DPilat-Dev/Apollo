@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JellyfinApi } from './api'
-import { applySettings, currentSettings, useSettings, type Settings } from './settings'
+import {
+  applySettings,
+  currentSettings,
+  readLastSynced,
+  useSettings,
+  writeLastSynced,
+  type Settings,
+} from './settings'
 import {
   decodeSettings,
   encodeSettings,
-  readLastSynced,
   reconcile,
   SYNC_CLIENT,
   SYNC_PREFERENCES_ID,
   syncedPartChanged,
-  writeLastSynced,
 } from './settingsSync'
 
 /**

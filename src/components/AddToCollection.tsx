@@ -57,7 +57,7 @@ export function AddToCollection({ item, onClose }: { item: BaseItemDto; onClose:
               Couldn't load the collections on this server.
             </p>
           )}
-          {surface === 'absent' && (
+          {surface === 'empty' && (
             <p className="px-3 py-3 text-sm text-white/45">
               No collections yet. Name one below and this becomes its first title.
             </p>

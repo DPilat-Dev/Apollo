@@ -1,5 +1,5 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { CardSkeleton, MediaCard } from '../components/MediaCard'
@@ -10,6 +10,8 @@ import { browsableTypes } from '../lib/collections'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { WindowedGrid } from '../components/WindowedGrid'
+import { LoadFailure } from '../components/LoadFailure'
+import { usePageOnScroll } from '../lib/usePageWalk'
 import {
   NO_FILTERS,
   filterCacheKey,
@@ -107,21 +109,10 @@ export function Library() {
     [query.data],
   )
 
-  // Infinite scroll: load the next page when the sentinel nears the viewport.
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el) return
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && query.hasNextPage && !query.isFetchingNextPage) {
-          void query.fetchNextPage()
-        }
-      },
-      { rootMargin: '800px' },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [query])
+  // Infinite scroll: the next page loads as the sentinel nears the viewport,
+  // and stops for good on a refused one — see `usePageWalk`.
+  const { isFetchNextPageError, fetchNextPage } = query
+  usePageOnScroll(sentinel, query)
 
   // The grid query stays disabled until views resolve, and a disabled query
   // reports isLoading false — so the view load has to count as loading too.
@@ -175,7 +166,22 @@ export function Library() {
         </WindowedGrid>
       )}
 
-      {!showSkeleton && items.length === 0 && (
+      {/*
+        A refused /Items request used to print "Nothing here yet." over a
+        library with 27,000 things in it, which is the one sentence guaranteed
+        to send someone looking for the fault in their server. Same reasoning
+        as the rows on Home: a broken request and an empty library have to read
+        differently.
+      */}
+      {!showSkeleton && query.isError && items.length === 0 && (
+        <LoadFailure
+          error={query.error}
+          fallback="This library couldn't load."
+          onRetry={() => void query.refetch()}
+        />
+      )}
+
+      {!showSkeleton && !query.isError && items.length === 0 && (
         <div className="py-24 text-center">
           {/* An empty grid reads as a broken library unless it says otherwise.
               Someone who filtered to unwatched days ago and forgot needs the
@@ -202,6 +208,18 @@ export function Library() {
             <CardSkeleton key={i} />
           ))}
         </div>
+      )}
+
+      {/* The grid above is real, so this is a footnote rather than a failure:
+          part of the library is here and the rest is one press away. */}
+      {isFetchNextPageError && (
+        <LoadFailure
+          error={query.error}
+          fallback="Couldn't load the rest of this library."
+          label="Try again"
+          busy={query.isFetchingNextPage}
+          onRetry={() => void fetchNextPage()}
+        />
       )}
     </div>
   )

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { CardSkeleton, MediaCard, type CardShape } from './MediaCard'
 import { ChevronLeft, ChevronRight } from './icons'
-import { errorText } from '../lib/api'
+import { LoadFailure } from './LoadFailure'
 
 interface Props {
   title: string
@@ -66,19 +66,12 @@ export function Row({
         <h2 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-14 sm:text-lg">
           {title}
         </h2>
-        <div className="mx-4 flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3 sm:mx-14">
-          <p className="text-sm text-white/55">
-            {errorText(error, "This row couldn't load.")}
-          </p>
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
-            >
-              Retry
-            </button>
-          )}
-        </div>
+        <LoadFailure
+          error={error}
+          fallback="This row couldn't load."
+          onRetry={onRetry}
+          className="mx-4 sm:mx-14"
+        />
       </section>
     )
   }

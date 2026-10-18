@@ -134,6 +134,57 @@ export function currentSettings(): Settings {
   return snapshot
 }
 
+/*
+  The state the server and this device last agreed on.
+
+  Here rather than in `settingsSync.ts`, which is where it is read and written:
+  that module is pure — encode, decode, merge, reconcile, every one of them
+  decidable without a store — and this one already owns the localStorage these
+  settings live in. A second key about the same settings belongs beside the
+  first rather than in the module that happens to consult it.
+*/
+const SYNCED_SNAPSHOT_KEY = 'apollo.settings.synced'
+
+export function readLastSynced(): Settings | null {
+  try {
+    const raw = localStorage.getItem(SYNCED_SNAPSHOT_KEY)
+    return raw ? (JSON.parse(raw) as Settings) : null
+  } catch {
+    return null
+  }
+}
+
+export function writeLastSynced(settings: Settings) {
+  try {
+    localStorage.setItem(SYNCED_SNAPSHOT_KEY, JSON.stringify(settings))
+  } catch {
+    // A full or unavailable store costs correctness on the next reload only,
+    // and there is nothing useful to do about it here.
+  }
+}
+
+/**
+ * Back to the defaults — on this device, and for the account.
+ *
+ * The account half is not done here. Changing the snapshot is enough: the push
+ * effect in `useSettingsSync` wakes on it, compares the synced half against
+ * what it last sent and finds every one of those keys different, so the
+ * defaults go up 1.5 seconds later. That is what Settings is promising when it
+ * says "here and on your other devices".
+ *
+ * Which is exactly why the agreed-state snapshot is left where it is. It
+ * records what the server last confirmed, and `reconcile` reads a local copy
+ * that differs from it as "local is newer, push it" — so a reset whose push
+ * fails, or whose tab closes inside the debounce, goes out again on the next
+ * load. Clearing the key would throw that one retry away, and do something
+ * worse than nothing: with no agreement on record, the next load concludes the
+ * server's copy is the only word on the subject and merges it back, silently
+ * undoing the reset.
+ *
+ * Nor does it need clearing for the next account's sake. `auth.tsx` calls
+ * `purgeDeviceState()` before this, and that takes every `apollo.*` key with
+ * it — this one among them.
+ */
 export function resetSettings() {
   snapshot = DEFAULT_SETTINGS
   localStorage.removeItem(KEY)

@@ -12,6 +12,8 @@ import {
   removeFromQueue,
   removeQueueItem,
   shuffleIds,
+  startQueue,
+  queueHead,
   startShuffle,
   type PlayQueue,
 } from '../queue'
@@ -277,5 +279,95 @@ describe('editing the stored queue', () => {
     expect(moveInQueue('a', 'b', 1)).toBeNull()
     expect(removeFromQueue('a', 'b')).toBeNull()
     expect(jumpInQueue('a', 'b')).toBeNull()
+  })
+})
+
+/*
+  A playlist is a list somebody put in an order, so its queue keeps that order.
+  Play on one wrote no queue at all before this, which left the player
+  advancing by series: a playlist of episodes went to the next episode of the
+  *show* — not in the playlist, and usually already watched — and a playlist of
+  films played one film and stopped.
+*/
+describe('startQueue', () => {
+  const ids = ['a', 'b', 'c', 'd']
+
+  it('keeps the order it was given, and is not a shuffle', () => {
+    const q = startQueue('pl1', ids)!
+    expect(q.ids).toEqual(ids)
+    expect(q.shuffled).toBe(false)
+    expect(q.index).toBe(0)
+    expect(queueHead(q)).toBe('a')
+  })
+
+  // Pressing play on the third row plays the third item and then the fourth.
+  // Rotating the list to start there instead would silently drop the first two
+  // out of the running order.
+  it('opens at a chosen item without reordering anything', () => {
+    const q = startQueue('pl1', ids, 'c')!
+    expect(q.ids).toEqual(ids)
+    expect(queueHead(q)).toBe('c')
+    expect(nextInQueue('c')).toBe('d')
+    expect(previousInQueue('c')).toBe('b')
+  })
+
+  // The queue outlives the page it was made on, so "next" has to come from it
+  // rather than from whatever series the episode belongs to.
+  it('is what the player reads back for next and previous', () => {
+    startQueue('pl1', ids)
+    expect(queuePosition('a')).toEqual({ position: 1, total: 4 })
+    expect(nextInQueue('a')).toBe('b')
+    expect(previousInQueue('a')).toBeNull()
+    expect(nextInQueue('d')).toBeNull()
+  })
+
+  it('starts at the top when the chosen item is not in the list', () => {
+    const q = startQueue('pl1', ids, 'gone')!
+    expect(queueHead(q)).toBe('a')
+  })
+
+  it('writes nothing for an empty playlist', () => {
+    clearQueue()
+    expect(startQueue('pl1', [])).toBeNull()
+    expect(startQueue('pl1', ['', ''])).toBeNull()
+    expect(queueFor('a')).toBeNull()
+    expect(queueHead(null)).toBeNull()
+  })
+
+  /*
+    A playlist is the one list that can hold the same title twice, and an id is
+    all navigation carries — so two slots answering to one id means `indexOf`
+    only ever finds the first. Without the dedupe, [a, b, a, c] advanced
+    a → b → a → b for ever and c was never reached.
+  */
+  it('plays a repeated title once rather than looping on it', () => {
+    const q = startQueue('pl1', ['a', 'b', 'a', 'c'])!
+    expect(q.ids).toEqual(['a', 'b', 'c'])
+    expect(nextInQueue('a')).toBe('b')
+    expect(nextInQueue('b')).toBe('c')
+    expect(nextInQueue('c')).toBeNull()
+    expect(queuePosition('b')).toEqual({ position: 2, total: 3 })
+  })
+
+  // The repeat is dropped where it sits, not where it was first seen: opening
+  // at the third row of [a, b, a, c] has to open at something still in the
+  // queue, and "a" is the slot that survived.
+  it('opens at the surviving copy of a repeated title', () => {
+    const q = startQueue('pl1', ['a', 'b', 'a', 'c'], 'a')!
+    expect(queueHead(q)).toBe('a')
+    expect(q.index).toBe(0)
+  })
+})
+
+/*
+  Episode ids within a series are unique, so this costs nothing there — but one
+  rule for both kinds of queue is one rule to remember, and a shuffle built from
+  a list that somehow repeated itself would strand the viewer the same way.
+*/
+describe('startShuffle with a repeated id', () => {
+  it('keeps each episode once so the shuffle can reach its end', () => {
+    const q = startShuffle('sr1', ['e1', 'e2', 'e1', 'e3'])!
+    expect(q.ids).toHaveLength(3)
+    expect(new Set(q.ids)).toEqual(new Set(['e1', 'e2', 'e3']))
   })
 })

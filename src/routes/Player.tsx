@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type Hls from 'hls.js'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useApi } from '../lib/auth'
+import { errorText } from '../lib/api'
 import { useItem, useMediaSegments } from '../lib/queries'
 import {
   resolveFirstEpisode,
@@ -122,6 +123,8 @@ export function Player() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const idleTimer = useRef<number | undefined>(undefined)
+  /** The control bars, so the idle timer can tell when focus is inside them. */
+  const chromeRef = useRef<HTMLDivElement>(null)
 
   // /watch/:id may point at a series or collection, so step down to a real
   // episode before asking the server how to play it.
@@ -758,7 +761,35 @@ export function Player() {
   const nudgeActivity = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(idleTimer.current)
-    idleTimer.current = window.setTimeout(() => setControlsVisible(false), IDLE_MS)
+    /*
+      Never hidden out from under the keyboard.
+
+      Hiding sets the whole chrome to `visibility: hidden`, and that blurs
+      whatever is inside it — so three seconds after the last keypress the
+      scrubber the viewer was seeking with was blurred to `<body>` and Home,
+      End, PageUp and PageDown stopped working. CSS cannot hold it open: by the
+      time a `:focus-within` rule would apply, the element it would apply to has
+      already lost the focus.
+
+      `:focus-visible` rather than focus of any kind, because a button clicked
+      with a mouse keeps the focus afterwards — on plain `contains`, one click
+      on the volume would have pinned the whole chrome over the film for good.
+      Asked at the moment of hiding and asked again three seconds later, so the
+      chrome still leaves on its own once the keyboard has moved off it.
+    */
+    function settle(): void {
+      const active = document.activeElement
+      const heldByKeyboard =
+        active instanceof HTMLElement &&
+        Boolean(chromeRef.current?.contains(active)) &&
+        active.matches(':focus-visible')
+      if (heldByKeyboard) {
+        idleTimer.current = window.setTimeout(settle, IDLE_MS)
+        return
+      }
+      setControlsVisible(false)
+    }
+    idleTimer.current = window.setTimeout(settle, IDLE_MS)
   }, [])
 
   useEffect(() => {
@@ -909,7 +940,11 @@ export function Player() {
           break
         case 'Escape':
           if (menu !== 'none') setMenu('none')
-          else if (!document.fullscreenElement) navigate(-1)
+          // `leavePlayer`, not `navigate(-1)`: the back arrow and the failure
+          // panel both use it, and three ways out of one screen must not
+          // disagree about where back is — least of all the one that skips the
+          // position report.
+          else if (!document.fullscreenElement) leavePlayer()
           break
       }
     }
@@ -917,7 +952,7 @@ export function Player() {
     return () => window.removeEventListener('keydown', onKey)
     // `togglePip` and not `pip`: the hook returns a fresh object every render,
     // which would tear down and re-add this listener on every timeupdate.
-  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, navigate, plan, nextId, previousId, goToId, menu, togglePip, setLevel, level])
+  }, [togglePlay, seekBy, toggleFullscreen, nudgeActivity, leavePlayer, plan, nextId, previousId, goToId, menu, togglePip, setLevel, level])
 
   /*
     Apply a subtitle chosen on the detail page. Which mechanism depends on the
@@ -1234,8 +1269,44 @@ export function Player() {
     buffering: waiting,
   })
 
-  const asMessage = (e: unknown) => (e instanceof Error ? e.message : null)
-  const failure = error ?? asMessage(playable.error) ?? asMessage(streamQuery.error) ?? null
+  /*
+    What went wrong, in words meant for the person watching.
+
+    Through `errorText`, because a failed `/PlaybackInfo` is an `ApiError`
+    marked technical, and reading `e.message` straight off it put
+    `POST /Items/8f1…/PlaybackInfo failed (500)` on the screen in the middle of
+    a film. The strings `error` holds are already written for this screen, so
+    they pass through untouched.
+  */
+  const queryError = playable.error ?? streamQuery.error ?? null
+  const failure =
+    error ?? (queryError ? errorText(queryError, "This title could not be played.") : null)
+
+  /*
+    A way out of the dead end. `setError(null)` on its own does nothing: the
+    only thing that clears it for good is the attach effect, which is keyed on
+    `plan`, and nothing on this screen used to change `plan` — so one failure
+    was permanent until the viewer thought to reload the page.
+
+    Refetching is what moves it. `resolveStream` answers with a fresh object,
+    which re-runs the attach effect and clears the error on the way through;
+    the position comes from `resumeTargetRef`, so a retry picks up where the
+    viewer was rather than at the start. When it was the item lookup that
+    failed there is no stream to ask for yet, so that is what gets another go.
+  */
+  const retryPlayback = useCallback(() => {
+    setError(null)
+    if (playable.isError) void playable.refetch()
+    else void streamQuery.refetch()
+  }, [playable, streamQuery])
+
+  /*
+    A refetch of a query that is already in error keeps `status: 'error'`, so
+    `isLoading` stays false and the spinner above never appears. Without this
+    the screen does not move at all between pressing Retry and the answer
+    coming back, which reads as a button that does nothing.
+  */
+  const retrying = playable.isFetching || streamQuery.isFetching
 
   const title = item ? displayTitle(item) : ''
   const sub = item && item.Type === 'Episode' ? `${episodeCode(item) ?? ''} · ${item.Name}` : null
@@ -1413,18 +1484,52 @@ export function Player() {
         </div>
       )}
 
+      {/*
+        `z-40`, and the chrome below is hidden while this is up. The control
+        bars keep `pointer-events: auto` so their buttons stay clickable, and
+        they come later in the DOM — so a dead transport bar painted over this
+        message and swallowed clicks aimed at it.
+      */}
       {failure && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+        /*
+          `role="alert"`, because this replaces a film that was about to play
+          and nothing else on the screen says so — a screen reader was told
+          nothing at all, on a page whose only other content is a <video>. The
+          chrome behind it is hidden, so there is also nowhere for the focus to
+          be: `autoFocus` on Retry gives the keyboard somewhere to land and
+          reads the panel out on arrival.
+        */
+        <div
+          role="alert"
+          className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/80 px-6 text-center"
+        >
           <p className="max-w-lg text-white/80">{failure}</p>
           <p className="max-w-lg text-xs text-white/40">
             If this keeps happening, the Jellyfin server log will name the cause.
           </p>
-          <button
-            onClick={() => navigate(-1)}
-            className="rounded bg-white px-5 py-2 text-sm font-semibold text-black"
-          >
-            Go back
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              autoFocus
+              onClick={retryPlayback}
+              disabled={retrying}
+              className="rounded bg-white px-5 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            >
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+            {/*
+              `leavePlayer`, not `navigate(-1)`: on a link opened from a
+              message there is no entry of ours behind this one, and going back
+              to it loads a new document — or nothing at all. It is also what
+              the back arrow in the chrome does, and these two should not
+              disagree about where back is.
+            */}
+            <button
+              onClick={leavePlayer}
+              className="rounded border border-white/30 px-5 py-2 text-sm font-semibold text-white/90 transition hover:border-white/60"
+            >
+              Go back
+            </button>
+          </div>
         </div>
       )}
 
@@ -1481,6 +1586,7 @@ export function Player() {
 
       {/* ----------------------------------------------------------- chrome */}
       <div
+        ref={chromeRef}
         /*
           `invisible` and not just `opacity-0`: the bars keep `pointer-events:
           auto` so their buttons stay clickable, which meant a hidden control
@@ -1489,7 +1595,7 @@ export function Player() {
           transitions discretely, so it holds until the fade finishes.
         */
         className={`pointer-events-none absolute inset-0 flex flex-col justify-between transition-[opacity,visibility] duration-300 ${
-          showControls ? 'visible opacity-100' : 'invisible opacity-0'
+          showControls && !failure ? 'visible opacity-100' : 'invisible opacity-0'
         }`}
       >
         <div className="pointer-events-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-16 pt-4 sm:px-8">
@@ -1506,16 +1612,31 @@ export function Player() {
               {sub && <p className="truncate text-sm text-white/60">{sub}</p>}
             </div>
 
+            {/*
+                A queue is not always a shuffle any more — a playlist writes one
+                in its own order — and a badge claiming to shuffle a list
+                someone ordered by hand is worse than no badge.
+
+                "Playlist", not "Queue": a queue is a word for the thing in the
+                code, and the only thing that writes an unshuffled one is a
+                playlist. The tooltip has to name the playlist too, because
+                "return to episode order" means nothing about a list of films.
+            */}
             {shuffle && (
               <button
                 onClick={() => {
                   clearQueue()
                   setQueueRevision((n) => n + 1)
                 }}
-                title="Stop shuffling and return to episode order"
+                title={
+                  queue?.shuffled
+                    ? 'Stop shuffling and return to episode order'
+                    : 'Stop playing through this playlist'
+                }
                 className="ml-auto shrink-0 rounded-full border border-accent/50 px-3 py-1.5 text-[11px] font-medium text-accent transition hover:bg-accent/10"
               >
-                Shuffling {shuffle.position}/{shuffle.total} · stop
+                {queue?.shuffled ? 'Shuffling' : 'Playlist'} {shuffle.position}/{shuffle.total} ·
+                stop
               </button>
             )}
           </div>
@@ -1527,6 +1648,9 @@ export function Player() {
             duration={absoluteDuration}
             buffered={buffered + offset}
             onSeek={seekAbsolute}
+            // Up and Down are stopped before they reach the window handler, so
+            // the bar has to keep the chrome awake itself on those two.
+            onActivity={nudgeActivity}
             chapters={chapterStarts}
             ranges={segmentRanges}
             preview={
@@ -1590,7 +1714,10 @@ export function Player() {
                       ? 'Volume — boost is not available for this stream'
                       : 'Volume — drag past 100% to boost quiet dialogue'
                 }
-                className="scrubber h-1 w-0 rounded-full bg-white/25 opacity-0 transition-all duration-200 group-hover/vol:w-28 group-hover/vol:opacity-100"
+                /* Focus has to open it too: a zero-width invisible slider is
+                   still in the tab order, so without this the keyboard lands
+                   on a control nobody can see it is on. */
+                className="scrubber h-1 w-0 rounded-full bg-white/25 opacity-0 transition-all duration-200 focus-visible:w-28 focus-visible:opacity-100 group-hover/vol:w-28 group-hover/vol:opacity-100"
                 /* The track changes colour past the 100% mark so the boost
                    range reads as somewhere you have gone, not as more of the
                    same slider. */

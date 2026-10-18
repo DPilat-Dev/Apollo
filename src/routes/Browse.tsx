@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { MediaCard } from '../components/MediaCard'
@@ -22,6 +22,8 @@ import { useCanManageCollections, useRemoveFromCollection } from '../lib/queries
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
 import { WindowedGrid } from '../components/WindowedGrid'
+import { LoadFailure } from '../components/LoadFailure'
+import { usePageOnScroll } from '../lib/usePageWalk'
 
 const PAGE_SIZE = 60
 
@@ -153,20 +155,10 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   // excluded when deciding whether filters are what emptied the grid.
   const filtered = isFilterActive({ ...filters, genre: '' })
 
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el) return
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && query.hasNextPage && !query.isFetchingNextPage) {
-          void query.fetchNextPage()
-        }
-      },
-      { rootMargin: '800px' },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [query])
+  // Paging on scroll, which stops for good on a refused page rather than asking
+  // for it again on every render — see `usePageWalk`.
+  const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
+  usePageOnScroll(sentinel, query)
 
   if (handOff) return <Navigate to={handOff} replace />
 
@@ -227,7 +219,21 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
         </WindowedGrid>
       )}
 
-      {!query.isLoading && items.length === 0 && (
+      {/*
+        "Nothing matched." over a failed request is a claim about the library
+        that Apollo is in no position to make — a filmography that 500s is not
+        an actor who has been in nothing. The rows on Home draw this same
+        distinction and for the same reason.
+      */}
+      {!query.isLoading && query.isError && items.length === 0 && (
+        <LoadFailure
+          error={query.error}
+          fallback="These titles couldn't load."
+          onRetry={() => void query.refetch()}
+        />
+      )}
+
+      {!query.isLoading && !query.isError && items.length === 0 && (
         <div className="py-24 text-center">
           <p className="text-white/40">
             {filtered ? 'Nothing here matches those filters.' : 'Nothing matched.'}
@@ -246,6 +252,20 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
       )}
 
       <div ref={sentinel} className="h-10" />
+
+      {/* What is on screen is real; only the rest of it is missing. The panel
+          stays put while the retry runs — an errored infinite query keeps
+          `status: 'error'` through the refetch — so `busy` is the only thing
+          that tells the viewer the press landed. */}
+      {isFetchNextPageError && (
+        <LoadFailure
+          error={query.error}
+          fallback="Couldn't load the rest of these."
+          label="Try again"
+          busy={isFetchingNextPage}
+          onRetry={() => void fetchNextPage()}
+        />
+      )}
     </div>
   )
 }
