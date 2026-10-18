@@ -7,6 +7,11 @@ import {
   CONTAINER_SORTS,
   CURATED_SORT,
   SORTS,
+  SHEET_FILTER_KEYS,
+  INLINE_FILTER_KEYS,
+  sheetFilterCount,
+  shownFilters,
+  filtersButtonLabel,
   sortContextFor,
   filterCacheKey,
   filtersToParams,
@@ -659,5 +664,75 @@ describe('nextLetterIndex', () => {
     expect(nextLetterIndex(0, 'End', 0)).toBe(0)
     expect(nextLetterIndex(99, 'ArrowDown', 27)).toBe(26)
     expect(nextLetterIndex(-5, 'ArrowUp', 27)).toBe(0)
+  })
+})
+
+describe('the filters that hide behind one button on a phone', () => {
+  const ALL: LibraryFilters = {
+    genre: 'Horror',
+    watched: 'unwatched',
+    yearFrom: 1990,
+    yearTo: 1999,
+    minRating: 7,
+    subtitles: true,
+    letter: 'M',
+  }
+
+  it('counts nothing when nothing is filtered', () => {
+    expect(sheetFilterCount(NO_FILTERS)).toBe(0)
+  })
+
+  it('counts one for each of the five filters the sheet holds', () => {
+    expect(sheetFilterCount({ ...NO_FILTERS, genre: 'Horror' })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, watched: 'unwatched' })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, watched: 'watched' })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, yearFrom: 1990 })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, minRating: 7 })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, subtitles: true })).toBe(1)
+    expect(sheetFilterCount(ALL)).toBe(5)
+  })
+
+  /*
+    The year is one chip in the bar below, so it is one on the badge too.
+    Counting both bounds would say "Filters 6" over a sheet holding five
+    controls, and the number beside the word is the only thing telling anyone
+    how much is hidden.
+  */
+  it('counts a year range once, however many of its bounds are set', () => {
+    expect(sheetFilterCount({ ...NO_FILTERS, yearFrom: 1990, yearTo: 1999 })).toBe(1)
+    expect(sheetFilterCount({ ...NO_FILTERS, yearTo: 1979 })).toBe(1)
+  })
+
+  it('does not count the letter, which stays out on the bar where it is pressed', () => {
+    expect(sheetFilterCount({ ...NO_FILTERS, letter: 'M' })).toBe(0)
+    expect(sheetFilterCount({ ...NO_FILTERS, letter: '#' })).toBe(0)
+    expect(sheetFilterCount({ ...NO_FILTERS, letter: 'M', minRating: 7 })).toBe(1)
+  })
+
+  it('leaves the genre out where the page is the genre and has no control for it', () => {
+    expect(sheetFilterCount({ ...NO_FILTERS, genre: 'Horror' }, false)).toBe(0)
+    expect(sheetFilterCount(ALL, false)).toBe(4)
+  })
+
+  /*
+    The pin: a filter added to `activeFilters` and to neither key list would
+    show a chip in the bar that no control anywhere can turn off.
+  */
+  it('accounts for every filter the chip bar can name, in one list or the other', () => {
+    const named = activeFilters(ALL).map((chip) => chip.key)
+    expect([...named].sort()).toEqual([...SHEET_FILTER_KEYS, ...INLINE_FILTER_KEYS].sort())
+    expect(sheetFilterCount(ALL) + INLINE_FILTER_KEYS.length).toBe(named.length)
+  })
+
+  it('shows the same chips as before, minus the genre where there is no control', () => {
+    expect(shownFilters(ALL, true)).toEqual(activeFilters(ALL))
+    expect(shownFilters(ALL, false)).toEqual(activeFilters(ALL).filter((c) => c.key !== 'genre'))
+    expect(shownFilters(NO_FILTERS, true)).toEqual([])
+  })
+
+  it('says out loud how much is hidden, rather than leaving a bare number', () => {
+    expect(filtersButtonLabel(0)).toBe('Filters')
+    expect(filtersButtonLabel(1)).toBe('Filters, 1 active')
+    expect(filtersButtonLabel(3)).toBe('Filters, 3 active')
   })
 })

@@ -308,6 +308,85 @@ export function clearFilter(filters: LibraryFilters, key: FilterKey): LibraryFil
 }
 
 /**
+ * ── Which filters a phone keeps on screen, and which it puts behind a tap ──
+ *
+ * Seven controls in one `flex-wrap` is four rows on a 390px-wide viewport, and
+ * measured in the live app that is 368px — 44% of an 840px screen — spent
+ * before the first poster appears. A library the viewer came to look at is
+ * then mostly a form.
+ *
+ * The split is by how often a control is pressed, not by how important it is.
+ * The letter picker and the sort are *browsing* controls: pressing M, reading
+ * the grid, pressing N is the loop the alphabet feature exists to support, and
+ * a loop with a tap-open-tap-close around each step is not that feature any
+ * more — it is a settings page. The other five are chosen once and then left
+ * alone for weeks, so a tap to reach them costs nothing and buys back three
+ * rows of posters.
+ *
+ * `letter` is therefore in `INLINE_FILTER_KEYS` and the remaining five in
+ * `SHEET_FILTER_KEYS`, and the badge on the button counts only the latter —
+ * a badge that counted the letter would be claiming to hide a control that is
+ * sitting right beside it. Sort is in neither list because it is not a filter:
+ * reordering a grid hides nothing, which is the same reason `activeFilters`
+ * has never named it.
+ *
+ * Both lists exist so that the two together have to add up to everything
+ * `activeFilters` can name. A filter added to the chip bar and to neither list
+ * would show a chip with an × and have no control behind it on a phone — the
+ * failure this feature could otherwise introduce quietly, because the chip
+ * would still look right.
+ */
+export const SHEET_FILTER_KEYS = [
+  'genre',
+  'watched',
+  'year',
+  'rating',
+  'subtitles',
+] as const satisfies readonly FilterKey[]
+
+export const INLINE_FILTER_KEYS = ['letter'] as const satisfies readonly FilterKey[]
+
+/**
+ * The chips a given page is allowed to show, and the basis for the badge.
+ *
+ * `hasGenreControl` is the Browse case: there the genre *is* the page, so the
+ * bar is handed no genre list and must neither offer an × that would delete the
+ * page nor count a filter that has no control on screen. That used to be a
+ * condition inside the JSX, where it could only ever be true for the chips and
+ * nowhere near the count — two places to keep in step, one of them untestable.
+ */
+export function shownFilters(filters: LibraryFilters, hasGenreControl: boolean): FilterChip[] {
+  return activeFilters(filters).filter((chip) => chip.key !== 'genre' || hasGenreControl)
+}
+
+/**
+ * How many of the hidden filters are on, for the badge on the Filters button.
+ *
+ * Derived from `activeFilters` rather than read off the fields, so the year
+ * range counts once — exactly as it is one chip in the bar below — instead of
+ * twice when both bounds are set. "Filters 6" above a sheet of five controls
+ * is a number nobody could reconcile, and this is the only place that number
+ * comes from.
+ */
+export function sheetFilterCount(filters: LibraryFilters, hasGenreControl = true): number {
+  const keys: readonly FilterKey[] = SHEET_FILTER_KEYS
+  return shownFilters(filters, hasGenreControl).filter((chip) => keys.includes(chip.key)).length
+}
+
+/**
+ * What the Filters button is called out loud.
+ *
+ * The badge is a digit next to a word, which reads as "Filters 2" — ambiguous
+ * enough out of context to be a second filter named 2. The accessible name
+ * says what the digit means instead, and lives here because a count-dependent
+ * string is a decision and the component is the one place this repo cannot
+ * test.
+ */
+export function filtersButtonLabel(count: number): string {
+  return count === 0 ? 'Filters' : `Filters, ${count} active`
+}
+
+/**
  * Which case the bounds go out in — the one thing here that only a live server
  * can settle, which is exactly why it is one constant and not three call sites.
  *
