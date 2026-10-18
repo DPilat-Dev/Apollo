@@ -54,12 +54,78 @@ export function shuffleIds(ids: string[], startWith?: string): string[] {
   return out
 }
 
+/**
+ * The ids a queue can be walked by: no blanks, no repeats, order kept.
+ *
+ * An id is the only thing navigation carries between one `/watch/:id` and the
+ * next, so every reader below locates the playing item with
+ * `ids.indexOf(itemId)` — and `indexOf` answers with the *first* slot holding
+ * that id. A list with the same id in it twice therefore has two slots
+ * answering to one id and only the earlier one is ever found: queue
+ * `[A, B, A, C]` played A → B → A → B → A → B for ever, C was unreachable, and
+ * the badge read "1/4" throughout. `queueFor` made it permanent by writing
+ * that first index back.
+ *
+ * Dropping the repeats is the trade, and it is the right way round. A playlist
+ * holding the same title twice now plays it once; the alternative is a playlist
+ * that never reaches its end. Keeping both slots would mean carrying a slot
+ * number through navigation, and the only place to write one is `nextInQueue`
+ * — which `Player.tsx` calls during render, so persisting an advance there
+ * would write to sessionStorage on every frame of playback.
+ *
+ * Series shuffles are deduplicated too, where episode ids are unique anyway:
+ * one rule for both is cheaper to hold in the head than two.
+ */
+function queueableIds(ids: string[]): string[] {
+  return [...new Set(ids.filter(Boolean))]
+}
+
 export function startShuffle(seriesId: string, episodeIds: string[]): PlayQueue | null {
-  const ids = episodeIds.filter(Boolean)
+  const ids = queueableIds(episodeIds)
   if (ids.length === 0) return null
   const queue: PlayQueue = { seriesId, ids: shuffleIds(ids), index: 0, shuffled: true }
   write(queue)
   return queue
+}
+
+/**
+ * The same queue, in the order it was given.
+ *
+ * For a playlist, which is a list someone put in an order on purpose. Play on
+ * one used to be `navigate('/watch/' + first.Id)` and nothing else, so the
+ * queue was never written and the player fell back to what it does for a bare
+ * item: a film played alone and stopped, and an episode handed over to the
+ * *series'* next episode — which is not in the playlist, and is very likely
+ * one already watched.
+ *
+ * `queueFor` and `nextInQueue` never cared about the order, only about
+ * position, so nothing else has to change to support this. `shuffled: false`
+ * is the one thing that distinguishes it, and it is there so the player can
+ * say "Playlist 3/12" rather than claiming to be shuffling something.
+ *
+ * `startWith` is for the play button on a row: the queue keeps its order and
+ * simply opens at that item, rather than being rotated to begin with it.
+ *
+ * A playlist is the one list that can hold the same title twice, which is what
+ * `queueableIds` is about: the repeats are dropped so the queue can be walked
+ * to its end at all.
+ */
+export function startQueue(
+  seriesId: string,
+  itemIds: string[],
+  startWith?: string,
+): PlayQueue | null {
+  const ids = queueableIds(itemIds)
+  if (ids.length === 0) return null
+  const at = startWith ? ids.indexOf(startWith) : 0
+  const queue: PlayQueue = { seriesId, ids, index: at === -1 ? 0 : at, shuffled: false }
+  write(queue)
+  return queue
+}
+
+/** The id a freshly started queue should play first. */
+export function queueHead(queue: PlayQueue | null): string | null {
+  return queue ? (queue.ids[queue.index] ?? null) : null
 }
 
 export function clearQueue() {

@@ -94,7 +94,35 @@ export function RemoteControl({
 
             {sessions.isLoading && <p className="text-xs text-white/40">Looking…</p>}
 
-            {!sessions.isLoading && devices.length === 0 && (
+            {/*
+              A refused /Sessions request used to fall through to the empty
+              state below, which then told the viewer something untrue: a
+              server that would not answer the question is not a house with no
+              other devices in it. 403 is the ordinary case here, because the
+              server decides who may see whose sessions.
+
+              Gated on there being nothing to show, the way every other screen
+              in the app is. This query polls every five seconds while the
+              picker is open, so on a flaky link one refused poll would
+              otherwise paint "Couldn't ask about other devices" over a list of
+              devices that are right there and still clickable — and do it
+              again every five seconds.
+            */}
+            {sessions.isError && devices.length === 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs text-white/55">
+                  {errorText(sessions.error, "Couldn't ask about other devices.")}
+                </p>
+                <button
+                  onClick={() => void sessions.refetch()}
+                  className="rounded border border-white/20 px-2 py-0.5 text-[11px] transition hover:border-white/50"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {!sessions.isLoading && !sessions.isError && devices.length === 0 && (
               <p className="text-xs text-white/40">
                 No other devices are signed in right now. Open Jellyfin on a TV or phone and it
                 will appear here.

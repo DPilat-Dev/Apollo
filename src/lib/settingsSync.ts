@@ -178,23 +178,11 @@ export function reconcile({
   return { settings: merged, push: false }
 }
 
-const SYNCED_SNAPSHOT_KEY = 'apollo.settings.synced'
-
-/** The last state the server and this device agreed on. */
-export function readLastSynced(): Settings | null {
-  try {
-    const raw = localStorage.getItem(SYNCED_SNAPSHOT_KEY)
-    return raw ? (JSON.parse(raw) as Settings) : null
-  } catch {
-    return null
-  }
-}
-
-export function writeLastSynced(settings: Settings) {
-  try {
-    localStorage.setItem(SYNCED_SNAPSHOT_KEY, JSON.stringify(settings))
-  } catch {
-    // A full or unavailable store costs correctness on the next reload only,
-    // and there is nothing useful to do about it here.
-  }
-}
+/*
+  The agreed-state snapshot this reads — `lastSynced` — is stored by
+  `settings.ts`, beside the settings it describes and the localStorage key they
+  live under. Everything in this module is a decision rather than a store, which
+  is what lets all of it be checked without a browser; `readLastSynced` and
+  `writeLastSynced` are imported from there by the hook, not re-exported from
+  here, so there is one answer to where they live.
+*/

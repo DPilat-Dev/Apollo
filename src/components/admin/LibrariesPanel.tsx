@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { LibraryOptions, VirtualFolderInfo } from '@jellyfin/sdk/lib/generated-client/models'
 import {
   useAddLibrary,
@@ -26,9 +26,33 @@ const COLLECTION_TYPES = [
   { value: 'mixed', label: 'Mixed content' },
 ]
 
+/** The same key the list renders by, and the one the dialog is held open by. */
+const folderKey = (f: VirtualFolderInfo) => f.ItemId ?? f.Name ?? ''
+
 export function LibrariesPanel() {
   const folders = useVirtualFolders()
-  const [editing, setEditing] = useState<VirtualFolderInfo | null>(null)
+  /*
+    Which library is being edited, not the record itself.
+
+    Every mutation in the editor keys off `folder.Name`, and every one of them
+    invalidates `virtualFolders` — so a held DTO was stale the moment anything
+    succeeded. Rename a library and then add a folder in the same dialog, and
+    the add went out under the name the server no longer knows and 404ed.
+    `MiscPanels` keeps an open plugin detail this way for the same reason.
+
+    `ItemId` and not the name, because the name is the one field a rename
+    changes. Keyed on it, the dialog matched nothing for the length of the
+    refetch — and a stand-in record to cover those renders only moved the fault:
+    it carried the *old* name, so every mutation in the window went out under a
+    name the server had stopped answering to, and a refetch that failed left the
+    dialog on that record indefinitely with nothing to say why everything 404s.
+    `saveOptions` already addresses the library by `ItemId` for this reason.
+  */
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const editing =
+    editingKey === null
+      ? null
+      : ((folders.data ?? []).find((f) => folderKey(f) === editingKey) ?? null)
   const [adding, setAdding] = useState(false)
 
   return (
@@ -56,8 +80,8 @@ export function LibrariesPanel() {
       <div className="grid gap-3 sm:grid-cols-2">
         {(folders.data ?? []).map((f) => (
           <button
-            key={f.ItemId ?? f.Name}
-            onClick={() => setEditing(f)}
+            key={folderKey(f)}
+            onClick={() => setEditingKey(folderKey(f))}
             className="rounded-xl border border-white/10 bg-ink-soft/60 p-4 text-left transition hover:border-white/25"
           >
             <div className="flex items-start justify-between gap-2">
@@ -78,7 +102,7 @@ export function LibrariesPanel() {
         ))}
       </div>
 
-      {editing && <LibraryEditor folder={editing} onClose={() => setEditing(null)} />}
+      {editing && <LibraryEditor folder={editing} onClose={() => setEditingKey(null)} />}
       {adding && <AddLibraryDialog onClose={() => setAdding(false)} />}
     </div>
   )
@@ -88,8 +112,21 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
   const [options, setOptions] = useState<LibraryOptions>(folder.LibraryOptions ?? {})
   const [name, setName] = useState(folder.Name ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** Which folder's Remove has been pressed once, if any. */
+  const [confirmPath, setConfirmPath] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [browsing, setBrowsing] = useState(false)
+  const confirmId = useId()
+  /*
+    The name the server answers to, which is not always the one on the record.
+    `virtualFolders` takes a round trip to catch up after a rename, and every
+    other mutation here is addressed by name — so between the rename's answer
+    and the refetch landing, the record carries a name the server has already
+    forgotten. Remembering the rename closes that window without waiting for
+    anything; once the list catches up the two say the same thing.
+  */
+  const [renamedTo, setRenamedTo] = useState<string | null>(null)
+  const serverName = renamedTo ?? folder.Name ?? ''
 
   const saveOptions = useSaveLibraryOptions()
   const rename = useRenameLibrary()
@@ -106,7 +143,7 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
     setNotice(e instanceof Error ? e.message : 'That change did not go through.')
 
   return (
-    <Modal onClose={onClose} title={folder.Name ?? 'Library'}>
+    <Modal onClose={onClose} title={serverName || 'Library'}>
       {notice && (
         <p className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/75">
           {notice}
@@ -123,11 +160,17 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
           <button
             onClick={() =>
               rename.mutate(
-                { name: folder.Name!, newName: name.trim() },
-                { onSuccess: () => setNotice('Renamed.'), onError: fail },
+                { name: serverName, newName: name.trim() },
+                {
+                  onSuccess: () => {
+                    setNotice('Renamed.')
+                    setRenamedTo(name.trim())
+                  },
+                  onError: fail,
+                },
               )
             }
-            disabled={!name.trim() || name === folder.Name || rename.isPending}
+            disabled={!name.trim() || name === serverName || rename.isPending}
             className="shrink-0 rounded-lg bg-white/10 px-4 text-sm transition hover:bg-white/20 disabled:opacity-35"
           >
             Rename
@@ -137,23 +180,102 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
 
       <Section title="Folders">
         <div className="space-y-1.5">
+          {/*
+            Asking first, because this one is not the local list-editing
+            "Remove" it looks like — the identical control in the add dialog
+            only drops a path out of a form. Here it is a DELETE that takes
+            every item under the folder out of the library, and the household's
+            watch state for them with it. Named in full for the same reason:
+            one of these paths is the one that holds everything.
+          */}
           {(folder.Locations ?? []).map((loc) => (
             <div
               key={loc}
-              className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2"
+              className="rounded-lg border border-white/10 px-3 py-2"
             >
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-white/70">{loc}</span>
-              <button
-                onClick={() =>
-                  removePath.mutate(
-                    { name: folder.Name!, path: loc },
-                    { onSuccess: () => setNotice('Folder removed.'), onError: fail },
-                  )
-                }
-                className="shrink-0 text-xs text-white/40 transition hover:text-accent"
-              >
-                Remove
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-white/70">
+                  {loc}
+                </span>
+                {confirmPath !== loc && (
+                  <button
+                    onClick={() => {
+                      setNotice(null)
+                      setConfirmPath(loc)
+                    }}
+                    // The trigger has to go dead while a DELETE is in flight
+                    // too. On a slow link the confirm closes, nothing visibly
+                    // happens, and a second press sent a second DELETE against
+                    // a folder that may already be gone.
+                    disabled={removePath.isPending}
+                    className="shrink-0 text-xs text-white/40 transition hover:text-accent disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {confirmPath === loc && (
+                /*
+                  Announced and focused, because the trigger that opened this
+                  has just been unmounted — so focus fell to the top of the
+                  document and a screen reader was told nothing at all. The
+                  `autoFocus` also scrolls it into view, which matters inside a
+                  scrolling modal where this can open below the fold.
+                */
+                <div
+                  role="alertdialog"
+                  aria-labelledby={`${confirmId}-path-title`}
+                  aria-describedby={`${confirmId}-path-body`}
+                  className="mt-2 border-t border-white/10 pt-2"
+                >
+                  <p id={`${confirmId}-path-title`} className="text-xs text-white/75">
+                    Stop scanning this folder?
+                  </p>
+                  <p id={`${confirmId}-path-body`} className="mt-1 text-xs text-white/60">
+                    Everything in it leaves the library, and the watch state for it goes too. The
+                    files stay on disk.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      autoFocus
+                      onClick={() =>
+                        removePath.mutate(
+                          { name: serverName, path: loc },
+                          {
+                            /*
+                              Cleared here rather than before the call. Clearing
+                              it first unmounted this panel in the same commit,
+                              so the "Removing…" label and the guard below could
+                              never be seen — and the row's own trigger came
+                              back immediately, ready to send a second DELETE.
+                            */
+                            onSuccess: () => {
+                              setNotice('Folder removed.')
+                              setConfirmPath(null)
+                            },
+                            onError: (e) => {
+                              fail(e)
+                              setConfirmPath(null)
+                            },
+                          },
+                        )
+                      }
+                      // A second press before the first DELETE comes back sends
+                      // a second one, against a folder that may already be gone.
+                      disabled={removePath.isPending}
+                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold transition hover:bg-accent-hot disabled:opacity-50"
+                    >
+                      {removePath.isPending ? 'Removing…' : 'Yes, remove'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmPath(null)}
+                      className="rounded-lg border border-white/20 px-3 py-1.5 text-xs transition hover:border-white/45"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {browsing ? (
@@ -162,7 +284,7 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
               onPick={(path) => {
                 setBrowsing(false)
                 addPath.mutate(
-                  { name: folder.Name!, path },
+                  { name: serverName, path },
                   { onSuccess: () => setNotice('Folder added.'), onError: fail },
                 )
               }}
@@ -330,7 +452,7 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
         ) : (
           <div className="rounded-lg border border-accent/40 bg-accent/10 p-3">
             <p className="text-sm text-white/85">
-              Remove <strong>{folder.Name}</strong> from Jellyfin?
+              Remove <strong>{serverName}</strong> from Jellyfin?
             </p>
             <p className="mt-1 text-xs text-white/50">
               The media files stay on disk. Watch state and metadata for these items are lost.
@@ -338,7 +460,7 @@ function LibraryEditor({ folder, onClose }: { folder: VirtualFolderInfo; onClose
             <div className="mt-3 flex gap-2">
               <button
                 onClick={() =>
-                  remove.mutate({ name: folder.Name! }, { onSuccess: onClose, onError: fail })
+                  remove.mutate({ name: serverName }, { onSuccess: onClose, onError: fail })
                 }
                 disabled={remove.isPending}
                 className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot disabled:opacity-50"

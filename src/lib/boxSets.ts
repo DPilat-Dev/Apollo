@@ -8,47 +8,31 @@
  * The whole surface is conditional: plenty of servers have never had a box set
  * made on them, and for those the app has to look exactly as it did before this
  * existed — no nav entry, no shelf, no "Collections (0)". That decision depends
- * on a request, so it lives here where all four of its outcomes can be checked
- * without a browser.
+ * on a request, so it is read through `querySurface`, where all four of its
+ * outcomes can be checked without a browser.
  */
 
-/** The shape of the box-set query, narrow enough to build one by hand in a test. */
-export interface CollectionsQuery {
-  /** No answer yet — the first fetch is still in flight. */
-  isPending: boolean
-  isError: boolean
-  data: readonly unknown[] | undefined
-}
+import { querySurface, type ListQuery, type QuerySurface } from './querySurface'
 
 /**
- * The four outcomes, kept apart on purpose.
+ * The box-set list's four outcomes — `querySurface` under the name the
+ * collections screens ask for it by.
  *
- * `absent` and `failed` both end up hiding things, but they are not the same
+ * `empty` and `failed` both end up hiding things, but they are not the same
  * fact and the pages that can say so should say so: one means this server has
- * no collections, the other means we never got to ask.
+ * no collections, the other means we never got to ask. The rule itself is
+ * shared with Home, which had grown its own copy of it.
  */
-export type CollectionsSurface = 'pending' | 'failed' | 'absent' | 'present'
-
-export function collectionsSurface(query: CollectionsQuery): CollectionsSurface {
-  // Loading is its own answer, never "none". Guessing here is what produces
-  // the flash — an entry rendered optimistically and pulled away a moment
-  // later when the empty result lands.
-  if (query.isPending) return 'pending'
-
-  // A failed refetch that still has last time's list is not a failure worth
-  // reporting; without this, a flaky refresh makes the shelf someone is
-  // looking at vanish.
-  if (query.isError && !query.data) return 'failed'
-
-  return (query.data?.length ?? 0) > 0 ? 'present' : 'absent'
-}
+export type CollectionsQuery = ListQuery
+export type CollectionsSurface = QuerySurface
+export const collectionsSurface = querySurface
 
 /**
  * Whether to offer collections anywhere the user did not ask for them — the
  * home shelf and the nav. Only a list we have actually seen counts.
  */
 export function shouldShowCollections(query: CollectionsQuery): boolean {
-  return collectionsSurface(query) === 'present'
+  return collectionsSurface(query) === 'ready'
 }
 
 /** Just enough of a `UserDto` to decide who may curate. */
@@ -147,7 +131,7 @@ export function planCollectionCreate(input: {
  *
  * `boxSets` is the one that matters and the one easiest to leave out. The nav
  * entry, the home shelf and the collections grid are all hidden while that
- * list is empty — `collectionsSurface` says `absent` — so on a server with no
+ * list is empty — `collectionsSurface` says `empty` — so on a server with no
  * collections at all, the create that finally makes one has to refetch it or
  * the app goes on insisting there are none and the thing just made is
  * unreachable. That server is the whole reason this feature exists.

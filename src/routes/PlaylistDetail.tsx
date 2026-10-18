@@ -11,7 +11,7 @@ import {
 import { displayTitle, formatRuntime, itemSubtitle } from '../lib/format'
 import { blurhashBackground } from '../lib/blurhash'
 import { ChevronDown, ChevronLeft, PlayIcon, ShuffleIcon } from '../components/icons'
-import { startShuffle } from '../lib/queue'
+import { queueHead, startQueue, startShuffle } from '../lib/queue'
 
 /**
  * One playlist: what is in it, in order, with the ordering editable.
@@ -32,6 +32,25 @@ export function PlaylistDetail() {
 
   const entries = items ?? []
   const first = entries[0]
+
+  /*
+    Playing anything from here writes the whole playlist as the queue, in its
+    own order. Without it the player advances by series — so a playlist of
+    episodes jumped to whatever follows episode one *in its show*, and a
+    playlist of films stopped after the first.
+
+    The queue is addressed by item id, not by entry: a title listed twice is
+    played once, because an id is all navigation carries and two slots
+    answering to one id is a queue that loops on it for ever. `queue.ts` has
+    the long version. Removal and reordering above still address the entry,
+    which is why `PlaylistItemId` is still what those buttons carry.
+  */
+  const playFrom = (startWith?: string) => {
+    const ids = entries.map((e) => e.Id).filter((id): id is string => Boolean(id))
+    if (!playlistId || ids.length === 0) return
+    const head = queueHead(startQueue(playlistId, ids, startWith))
+    if (head) navigate(`/watch/${head}`)
+  }
 
   const entryId = (item: { PlaylistItemId?: string | null; Id?: string | null }) =>
     item.PlaylistItemId ?? item.Id ?? ''
@@ -56,7 +75,7 @@ export function PlaylistDetail() {
 
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => first?.Id && navigate(`/watch/${first.Id}`)}
+            onClick={() => playFrom()}
             disabled={!first}
             className="flex items-center gap-2 rounded bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:bg-white/85 disabled:opacity-40"
           >
@@ -101,7 +120,7 @@ export function PlaylistDetail() {
                 </span>
 
                 <button
-                  onClick={() => item.Id && navigate(`/watch/${item.Id}`)}
+                  onClick={() => item.Id && playFrom(item.Id)}
                   className="relative aspect-video w-24 shrink-0 overflow-hidden rounded bg-ink-card"
                   aria-label={`Play ${displayTitle(item)}`}
                 >

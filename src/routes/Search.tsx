@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MediaCard } from '../components/MediaCard'
-import { useJellyseerrSession, useSearchByLibrary } from '../lib/queries'
+import { useJellyseerrSession, useSearchByLibrary, useViews } from '../lib/queries'
 import { RequestResults } from '../components/RequestResults'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { LoadFailure } from '../components/LoadFailure'
 
 /** 'all' | a library id | 'jellyseerr' */
 type Filter = string
@@ -15,6 +16,14 @@ export function Search() {
   const [filter, setFilter] = useState<Filter>('all')
 
   const groups = useSearchByLibrary(term)
+  /*
+    The search is only as reachable as the library list it fans out over:
+    `useSearchByLibrary` stays disabled until `/UserViews` answers with at least
+    one browsable library. So a failed view list is a search that never ran, and
+    this is the query that can say why.
+  */
+  const views = useViews()
+  const viewsFailed = views.isError && !views.data
   const seerr = useJellyseerrSession()
   const seerrAvailable = Boolean(seerr.data?.reachable)
 
@@ -89,7 +98,44 @@ export function Search() {
           </section>
         ))}
 
-      {showLibrary && !groups.isLoading && found.length === 0 && (
+      {/*
+        One library answering 500 fails the whole search, because the groups
+        are gathered with Promise.all. Saying "nothing matched" then is a
+        statement about the library that the request never established — and
+        on a search it is the kind that sends someone off to re-type the title
+        differently.
+
+        Gated on there being nothing to show, the way the rows on Home are: a
+        failed refetch that still has the last results is not worth reporting
+        over results the viewer can see.
+      */}
+      {showLibrary && viewsFailed && found.length === 0 && (
+        <LoadFailure
+          error={views.error}
+          fallback="Your libraries couldn't load, so there was nothing to search."
+          onRetry={() => void views.refetch()}
+          className="mt-8"
+        />
+      )}
+
+      {showLibrary && !viewsFailed && groups.isError && found.length === 0 && (
+        <LoadFailure
+          error={groups.error}
+          fallback="That search couldn't run."
+          onRetry={() => void groups.refetch()}
+          className="mt-8"
+        />
+      )}
+
+      {/*
+        `isSuccess`, because only a search that came back can say nothing
+        matched. The gate used to be `!isLoading && !isError`, which a *disabled*
+        query also satisfies — it reports `isPending: true, isLoading: false,
+        isError: false` — so whenever `/UserViews` had failed, or had not
+        answered yet, this page announced that nothing in the libraries matched
+        “Dune” without ever having asked anything about Dune.
+      */}
+      {showLibrary && groups.isSuccess && found.length === 0 && (
         <p className="py-12 text-center text-white/40">
           Nothing in your libraries matched “{term}”.
           {seerrAvailable && ' Jellyseerr results are below.'}

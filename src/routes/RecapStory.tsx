@@ -17,6 +17,9 @@ import {
 import { SLIDE_MS, advance, storySlides, tapDirection, type StorySlide } from '../lib/recapStory'
 import { CloseIcon } from '../components/icons'
 import { useReducedMotion } from '../lib/useReducedMotion'
+import { errorText } from '../lib/api'
+import { pagesSettling } from '../lib/pageWalk'
+import { usePagesToEnd } from '../lib/usePageWalk'
 
 /**
  * The year, dealt out one card at a time.
@@ -49,10 +52,10 @@ export function RecapStory() {
       }),
   })
 
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = query
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  // Nothing gates this walk but its own stopping condition — there is no list
+  // to scroll — so it runs itself to the end. See `usePageWalk`.
+  const { isFetchNextPageError } = query
+  usePagesToEnd(query)
 
   const items = useMemo(() => query.data?.pages.flatMap((p) => p.Items ?? []) ?? [], [query.data])
   const stats: RecapStats | null = useMemo(
@@ -73,7 +76,9 @@ export function RecapStory() {
   )
 
   const [index, setIndex] = useState(0)
-  const settling = query.isLoading || hasNextPage || isFetchingNextPage
+  // A stopped walk is not a settling one: the spinner below must not outlive
+  // the requests feeding it.
+  const settling = pagesSettling(query)
 
   // Where the run ends, and where anyone impatient goes. Replacing rather than
   // pushing, so Back leaves the recap instead of walking the cards again.
@@ -120,7 +125,49 @@ export function RecapStory() {
 
   if (!season) return <Navigate to="/" replace />
 
-  if (settling || slides.length === 0) {
+  /*
+    Nothing to deal out. Either the year is empty — in which case the recap page
+    is the one that says so properly — or the walk was refused, and a spinner
+    that never stops is the one thing this screen must not do, since it has no
+    chrome of its own to escape by.
+
+    Asked of the query rather than of `slides`, which is what this guard used to
+    read. `storySlides` opens and closes the run unconditionally, so
+    `slides.length` is never below two and the branch could not fire: a
+    `/Items` that answered 500 on its first page dealt out "Your year in
+    review / 2026 / Here is what you watched" and auto-advanced to "That was
+    2026", over nothing at all.
+  */
+  if (!settling && items.length === 0) {
+    return (
+      <div className="on-media flex h-dvh flex-col items-center justify-center gap-4 bg-ink px-6 text-center">
+        <p className="text-sm text-white/55">
+          {query.isError
+            ? errorText(query.error, "Your year couldn't load.")
+            : `Nothing finished in ${season.year} yet.`}
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {query.isError && (
+            <button
+              onClick={() => void query.refetch()}
+              className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
+            >
+              Retry
+            </button>
+          )}
+          <Link
+            to={preview ? `${RECAP_HREF}?preview=${preview}` : RECAP_HREF}
+            replace
+            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
+          >
+            Your year in review
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (settling) {
     return (
       <div className="on-media flex h-dvh items-center justify-center bg-ink">
         <div className="size-10 animate-spin rounded-full border-3 border-white/15 border-t-accent" />
@@ -157,6 +204,23 @@ export function RecapStory() {
       </Link>
 
       <Card key={index} slide={slide} stats={stats!} still={reduceMotion} onFinish={toPage} />
+
+      {/*
+        Part of the year arrived and the rest was refused, so every number on
+        these cards is real but short — and a story dealt out as fact is the
+        last place to leave that unsaid. `YearRecap` says the same thing over
+        its panels.
+
+        A sentence rather than a Try again button: the whole surface is a tap
+        target that advances the run, so a control inside it is one the viewer
+        cannot reliably press. The recap page is one tap away and carries the
+        retry.
+      */}
+      {isFetchNextPageError && (
+        <p className="absolute inset-x-0 bottom-5 z-20 px-6 text-center text-xs text-white/55">
+          Some of {season.year} didn&rsquo;t load, so these numbers are low.
+        </p>
+      )}
     </div>
   )
 }

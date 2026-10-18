@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useIsAdmin, useRefreshItem, useUpdateItem } from '../../lib/queries'
-import { canIdentify } from '../../lib/identify'
+import { ARTWORK_REPLACED_WARNING, canIdentify } from '../../lib/identify'
 import { canEditArtwork } from '../../lib/artwork'
 import { Modal } from '../Modal'
 import { NumberInput, Section, Select, TextArea, TextInput, ToggleRow, ToggleRows } from './controls'
@@ -55,6 +55,15 @@ export function MetadataEditor({
   const [draft, setDraft] = useState<BaseItemDto>(() => structuredClone(item))
   const [notice, setNotice] = useState<string | null>(null)
   const [openTool, setOpenTool] = useState<MetadataTool | null>(tool ?? null)
+  /*
+    The full refresh asks first. It sat one click away from "Refresh missing",
+    looked the same, and did something that cannot be undone: every field
+    overwritten with whatever the providers answer and every image deleted
+    before new ones are fetched. The same destruction through Identify has been
+    spelled out before it happens since the day that dialog was written.
+  */
+  const [confirmReplace, setConfirmReplace] = useState(false)
+  const confirmId = useId()
   const update = useUpdateItem()
   const refresh = useRefreshItem()
   const isAdmin = useIsAdmin()
@@ -300,31 +309,94 @@ export function MetadataEditor({
         title="Refresh from providers"
         hint="Re-queries metadata providers. Replacing overwrites what is here now."
       >
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() =>
-              refresh.mutate(
-                { itemId: itemId! },
-                { onSuccess: () => setNotice('Refresh queued.'), onError: fail },
-              )
-            }
-            disabled={!itemId || refresh.isPending}
-            className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45 disabled:opacity-40"
-          >
-            Refresh missing
-          </button>
-          <button
-            onClick={() =>
-              refresh.mutate(
-                { itemId: itemId!, replaceAllMetadata: true, replaceAllImages: true },
-                { onSuccess: () => setNotice('Full refresh queued.'), onError: fail },
-              )
-            }
-            disabled={!itemId || refresh.isPending}
-            className="rounded-lg border border-amber-500/40 px-4 py-2 text-sm text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-40"
-          >
-            Replace all metadata and images
-          </button>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() =>
+                refresh.mutate(
+                  { itemId: itemId! },
+                  { onSuccess: () => setNotice('Refresh queued.'), onError: fail },
+                )
+              }
+              disabled={!itemId || refresh.isPending}
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45 disabled:opacity-40"
+            >
+              Refresh missing
+            </button>
+            {!confirmReplace && (
+              <button
+                onClick={() => {
+                  setNotice(null)
+                  setConfirmReplace(true)
+                }}
+                disabled={!itemId || refresh.isPending}
+                className="rounded-lg border border-amber-500/40 px-4 py-2 text-sm text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-40"
+              >
+                Replace all metadata and images
+              </button>
+            )}
+          </div>
+
+          {confirmReplace && (
+            /*
+              Announced and focused. Pressing the trigger unmounts it, so focus
+              fell to the top of the document and assistive technology was told
+              nothing — and this panel is the last thing in a scrolling modal,
+              where on a phone it can be inserted below the fold and the button
+              reads as dead. `autoFocus` scrolls it into view as well.
+            */
+            <div
+              role="alertdialog"
+              aria-labelledby={`${confirmId}-title`}
+              aria-describedby={`${confirmId}-body`}
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3"
+            >
+              <p id={`${confirmId}-title`} className="text-sm text-white/85">
+                Replace everything on <strong>{item.Name}</strong> with what the providers say?
+              </p>
+              <p id={`${confirmId}-body`} className="mt-1 text-xs text-white/50">
+                Every text field is replaced, including anything edited here by hand.{' '}
+                {ARTWORK_REPLACED_WARNING}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  autoFocus
+                  onClick={() =>
+                    refresh.mutate(
+                      { itemId: itemId!, replaceAllMetadata: true, replaceAllImages: true },
+                      {
+                        /*
+                          Cleared here rather than before the call. Clearing it
+                          first unmounted this panel in the same commit, so the
+                          "Queueing…" label and the guard below could never be
+                          seen and the trigger was back immediately, ready to
+                          queue a second full refresh.
+                        */
+                        onSuccess: () => {
+                          setNotice('Full refresh queued.')
+                          setConfirmReplace(false)
+                        },
+                        onError: (e) => {
+                          fail(e)
+                          setConfirmReplace(false)
+                        },
+                      },
+                    )
+                  }
+                  disabled={!itemId || refresh.isPending}
+                  className="rounded-lg bg-amber-500/90 px-4 py-2 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:opacity-50"
+                >
+                  {refresh.isPending ? 'Queueing…' : 'Yes, replace everything'}
+                </button>
+                <button
+                  onClick={() => setConfirmReplace(false)}
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm transition hover:border-white/45"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </Section>
     </Modal>

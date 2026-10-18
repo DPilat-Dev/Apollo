@@ -5,6 +5,7 @@ import { Billboard } from '../components/Billboard'
 import { Row } from '../components/Row'
 import {
   useBoxSets,
+  useCurrentUser,
   useItemsRow,
   useLatest,
   useNextUp,
@@ -14,14 +15,26 @@ import {
   useViews,
 } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
+import { isBrowsableLibrary } from '../lib/collections'
+import { querySurface } from '../lib/querySurface'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { LoadFailure } from '../components/LoadFailure'
 
 /** Enough to fill the shelf without building a hundred cards nobody scrolls to. */
 const COLLECTIONS_IN_ROW = 24
 
 export function Home() {
-  const { data: views } = useViews()
+  const viewsQuery = useViews()
+  const { data: views } = viewsQuery
+  /*
+    The user, not `useIsAdmin()`. That returns false while `/Users/Me` is still
+    in flight, which is indistinguishable from "not an administrator" — so if
+    `/UserViews` answered `[]` first, the owner of the server was told their own
+    account had been granted nothing and to go and ask whoever runs it.
+  */
+  const me = useCurrentUser()
+  const isAdmin = Boolean(me.data?.Policy?.IsAdministrator)
   const resume = useResume()
   const nextUp = useNextUp()
   const removeFromResume = useRemoveFromResume()
@@ -31,7 +44,7 @@ export function Home() {
   useDocumentTitle(pageTitle())
 
   const movieView = views?.find((v) => v.CollectionType === 'movies')
-  const libraries = (views ?? []).filter((v) => v.CollectionType !== 'livetv')
+  const libraries = (views ?? []).filter((v) => isBrowsableLibrary(v.CollectionType))
 
   const trending = useItemsRow('trending', {
     includeItemTypes: ['Movie', 'Series'],
@@ -113,6 +126,70 @@ export function Home() {
     const fallback = dedupe([...(trending.data ?? []), ...(recentlyAdded.data ?? [])].filter(hasArt))
     return [...chosen, ...fallback]
   }, [resume.data, watchedAgain.data, trending.data, recentlyAdded.data])
+
+  /*
+    Said out loud rather than drawn as an empty page.
+
+    Everything below is library content, and every piece of it renders nothing
+    when it has nothing — the billboard holds its box open, each row returns
+    null — so an account with no libraries got a nav bar over 84vh of empty
+    hero and no explanation. Placed after every hook above, because the hooks
+    have to run in the same order whichever of these comes back.
+
+    Asked about `libraries` and not about the raw answer, which is not the same
+    list: Apollo has no live-TV surface, so a guide is filtered out of the rows
+    below and has to be filtered out of this question too. Otherwise an account
+    holding nothing but Live TV is `ready`, and gets exactly the blank hero this
+    exists to prevent.
+  */
+  const surface = querySurface({
+    isPending: viewsQuery.isPending,
+    isError: viewsQuery.isError,
+    data: views ? libraries : undefined,
+  })
+  /*
+    The empty case waits for the account as well. It is the one branch whose
+    wording depends on who is reading it, and an administrator told to go and
+    ask an administrator for access is worse than a moment of loading.
+  */
+  if (surface === 'failed' || (surface === 'empty' && !me.isPending)) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 pb-24 pt-32 sm:px-14">
+        <h1 className="text-2xl font-bold sm:text-3xl">
+          {surface === 'failed' ? "Your libraries didn't load" : 'Nothing to watch here yet'}
+        </h1>
+        {surface === 'failed' ? (
+          /* The heading has said what happened, so the panel says why — and its
+             fallback is for a server that did not give a reason, rather than the
+             heading again in other words. */
+          <LoadFailure
+            error={viewsQuery.error}
+            fallback="The server did not say why."
+            onRetry={() => void viewsQuery.refetch()}
+            className="mt-4"
+          />
+        ) : (
+          <>
+            <p className="mt-3 text-sm text-white/55">
+              {/* True of an account with no libraries and of one holding only a
+                  TV guide, which lands here for the same reason. */}
+              {isAdmin
+                ? 'This server has no libraries of films or shows yet. Point one at a folder and this page fills itself in.'
+                : 'This account has not been given access to any films or shows. Whoever runs the server can grant it — until then there is nothing for Apollo to show.'}
+            </p>
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className="mt-5 inline-block rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
+              >
+                Add a library
+              </Link>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="pb-24">

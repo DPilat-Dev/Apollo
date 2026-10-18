@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useApi } from '../lib/auth'
@@ -27,7 +27,9 @@ import {
   type RecapCount,
   type RecapStats,
 } from '../lib/yearRecap'
-import { errorText } from '../lib/api'
+import { LoadFailure } from '../components/LoadFailure'
+import { pagesSettling } from '../lib/pageWalk'
+import { usePagesToEnd } from '../lib/usePageWalk'
 
 /**
  * The year, totalled up.
@@ -60,18 +62,19 @@ export function YearRecap() {
     },
   })
 
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
-  /** The walk is done, so the set of shows to look up will not grow again. */
-  const settled = !query.isLoading && !hasNextPage && !isFetchingNextPage
+  const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
+  // Unlike the history list there is nothing to scroll towards — a total is
+  // wrong until the last page is in — so the walk runs itself to its stopping
+  // condition. See `usePageWalk` for why a refused page has to end it.
+  usePagesToEnd(query)
 
-  /*
-    Unlike the history list there is nothing to scroll towards — a total is
-    wrong until the last page is in — so the walk runs itself to the stopping
-    condition rather than waiting for a sentinel to come into view.
-  */
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  /**
+   * The walk is over, so the set of shows to look up will not grow again. A
+   * refused page counts as over, which is what `pagesSettling` is careful
+   * about: waiting for `hasNextPage` to go false would mean the genre lookup
+   * never runs and the year is described without any of them.
+   */
+  const settled = !pagesSettling(query)
 
   const played = useMemo(
     () => query.data?.pages.flatMap((page) => page.Items ?? []) ?? [],
@@ -120,7 +123,9 @@ export function YearRecap() {
   // arriving on the URL in June is not shown a stale ceremony.
   if (!season) return <Navigate to="/" replace />
 
-  const settling = query.isLoading || hasNextPage || isFetchingNextPage
+  // A walk that failed has stopped rather than settled, so the skeletons give
+  // way to whatever did arrive — with the note below saying it is partial.
+  const settling = pagesSettling(query)
 
   return (
     <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
@@ -139,17 +144,11 @@ export function YearRecap() {
       </header>
 
       {query.isError && items.length === 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
-          <p className="text-sm text-white/55">
-            {errorText(query.error, "Your year couldn't load.")}
-          </p>
-          <button
-            onClick={() => void query.refetch()}
-            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
-          >
-            Retry
-          </button>
-        </div>
+        <LoadFailure
+          error={query.error}
+          fallback="Your year couldn't load."
+          onRetry={() => void query.refetch()}
+        />
       )}
 
       {settling && (
@@ -168,6 +167,25 @@ export function YearRecap() {
           Nothing finished in {season.year}, so there is nothing to add up. Anything you finish
           from here shows up in next year&rsquo;s.
         </p>
+      )}
+
+      {/*
+        Some of the year is in and the rest was refused. The numbers below are
+        real but short, and a recap that undercounts without saying so is worse
+        than one that admits it.
+      */}
+      {isFetchNextPageError && items.length > 0 && (
+        /* No error passed: the shortfall is the news here, not whatever the
+           server said about the page it refused — the numbers below are real
+           and the sentence is about how much is missing from them. */
+        <LoadFailure
+          error={null}
+          fallback={`Some of ${season.year} didn't load, so these totals are low.`}
+          label="Try again"
+          busy={isFetchingNextPage}
+          onRetry={() => void fetchNextPage()}
+          className="mb-6"
+        />
       )}
 
       {!settling && stats && hasRecap(stats) && <Recap stats={stats} />}

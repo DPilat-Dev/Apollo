@@ -17,27 +17,37 @@ const query = (over: Partial<CollectionsQuery> = {}): CollectionsQuery => ({
   ...over,
 })
 
+/*
+  `collectionsSurface` is `querySurface` under the collections screens' name for
+  it, so these cases are the shared rule's cases. Two surfaces ride on them: the
+  nav entry and the home shelf, which must not flash into view and leave again,
+  and Home's whole page, which decides from the same four outcomes whether to
+  draw a library at all or explain that there is none.
+*/
 describe('collectionsSurface', () => {
   it('reports the collections a server actually has', () => {
-    expect(collectionsSurface(query({ data: [{ Id: 'a' }] }))).toBe('present')
+    expect(collectionsSurface(query({ data: [{ Id: 'a' }] }))).toBe('ready')
   })
 
   it('separates a server with no collections from one still loading', () => {
     // The two used to be the same "falsy" branch, which is how the nav entry
     // came to appear and then disappear a moment later.
-    expect(collectionsSurface(query({ data: [] }))).toBe('absent')
+    expect(collectionsSurface(query({ data: [] }))).toBe('empty')
     expect(collectionsSurface(query({ isPending: true, data: undefined }))).toBe('pending')
   })
 
   it('separates a failed request from an empty server', () => {
-    // Both hide the entry, but only one of them is worth telling anyone about.
+    // Both hide the entry, but only one of them is worth telling anyone about —
+    // and on Home the same distinction is "nobody has granted this account a
+    // library" against "we could not ask", which are different sentences and
+    // different buttons.
     expect(collectionsSurface(query({ isError: true, data: undefined }))).toBe('failed')
-    expect(collectionsSurface(query({ data: [] }))).toBe('absent')
+    expect(collectionsSurface(query({ data: [] }))).toBe('empty')
   })
 
   it('keeps the last known list when a background refetch fails', () => {
-    expect(collectionsSurface(query({ isError: true, data: [{ Id: 'a' }] }))).toBe('present')
-    expect(collectionsSurface(query({ isError: true, data: [] }))).toBe('absent')
+    expect(collectionsSurface(query({ isError: true, data: [{ Id: 'a' }] }))).toBe('ready')
+    expect(collectionsSurface(query({ isError: true, data: [] }))).toBe('empty')
   })
 })
 

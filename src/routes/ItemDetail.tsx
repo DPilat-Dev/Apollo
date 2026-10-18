@@ -44,12 +44,14 @@ import { pickPlayableEpisode } from '../lib/playback'
 import { startShuffle } from '../lib/queue'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { LoadFailure } from '../components/LoadFailure'
 
 export function ItemDetail() {
   const { itemId } = useParams<{ itemId: string }>()
   const api = useApi()
   const navigate = useNavigate()
-  const { data: item, isLoading } = useItem(itemId)
+  const itemQuery = useItem(itemId)
+  const { data: item, isLoading } = itemQuery
   useDocumentTitle(pageTitle(item?.Name, item?.SeriesName))
   const similar = useSimilar(itemId)
   const favorite = useToggleFavorite()
@@ -70,10 +72,12 @@ export function ItemDetail() {
     times and cannot end up doing different things in different places.
   */
   const runItemAction = (target: BaseItemDto, action: ItemActionId) => {
-    if (action === 'playlist') return setPlaylistOpen(true)
-    // Carries the item the menu was opened on, the way the remote panel does:
-    // the episode rows further down have their own menus, and filing the show
-    // when the viewer asked for one episode is not a mistake they would notice.
+    // Both of these carry the item the menu was opened on, the way the remote
+    // panel does: the episode rows further down have their own menus, and
+    // filing the show when the viewer asked for one episode is not a mistake
+    // they would notice. `POST /Playlists/{id}/Items` expands a folder, so
+    // passing the season here quietly files all ten episodes.
+    if (action === 'playlist') return setPlaylistFor(target)
     if (action === 'collection') return setCollectionFor(target)
     if (action === 'remote') return setRemoteFor(target)
     if (action === 'refresh') {
@@ -84,7 +88,7 @@ export function ItemDetail() {
     setEditingItem(target)
   }
   const [trailerOpen, setTrailerOpen] = useState(false)
-  const [playlistOpen, setPlaylistOpen] = useState(false)
+  const [playlistFor, setPlaylistFor] = useState<BaseItemDto | null>(null)
   const [collectionFor, setCollectionFor] = useState<BaseItemDto | null>(null)
   const [tracks, setTracks] = useTrackSelection()
 
@@ -100,7 +104,35 @@ export function ItemDetail() {
   // episode list — fetched only for that purpose.
   const seriesEpisodes = useEpisodes(isSeries ? itemId : undefined, undefined)
 
-  if (isLoading || !item) {
+  /*
+    A failed fetch used to land here too — `isLoading` false, `item`
+    undefined — and shimmer forever, which is reachable by nothing more exotic
+    than a bookmark to something that has since been deleted, or a library an
+    account lost access to. The skeleton is for the wait only; the failure gets
+    a sentence and a way out.
+  */
+  if (!item && !isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 pt-24 sm:px-14 sm:pt-28">
+        <LoadFailure
+          error={itemQuery.error}
+          fallback="That title couldn't load."
+          onRetry={() => void itemQuery.refetch()}
+        >
+          {/* A bookmark to something deleted will never load, however many
+              times it is asked for, so there has to be a way off this page. */}
+          <Link
+            to="/"
+            className="rounded border border-white/20 px-3 py-1 text-xs transition hover:border-white/50"
+          >
+            Home
+          </Link>
+        </LoadFailure>
+      </div>
+    )
+  }
+
+  if (!item) {
     return (
       <div className="px-4 pt-24 sm:px-14">
         <div className="skeleton h-[45vh] w-full rounded-xl" />
@@ -433,7 +465,9 @@ export function ItemDetail() {
       )}
 
       {trailerOpen && <TrailerModal item={item} onClose={() => setTrailerOpen(false)} />}
-      {playlistOpen && <AddToPlaylist item={item} onClose={() => setPlaylistOpen(false)} />}
+      {playlistFor && (
+        <AddToPlaylist item={playlistFor} onClose={() => setPlaylistFor(null)} />
+      )}
       {collectionFor && (
         <AddToCollection item={collectionFor} onClose={() => setCollectionFor(null)} />
       )}
@@ -534,7 +568,10 @@ function EpisodeRow({
         </span>
         {/*
           Kept revealed on hover as the Edit button was, and pinned open where
-          there is no hover to reveal it with.
+          there is no hover to reveal it with — and on focus, since a control
+          that is invisible while focused is a control a keyboard cannot find.
+          `focus-within` rather than `focus-visible`: the focus lands on the
+          button inside the menu, not on this wrapper.
         */}
         {onAction && (
           <ItemActionsMenu
@@ -542,7 +579,7 @@ function EpisodeRow({
             onSelect={onAction}
             compact
             align="right"
-            className="opacity-0 transition group-hover:opacity-100 touch:opacity-100"
+            className="opacity-0 transition focus-within:opacity-100 group-hover:opacity-100 touch:opacity-100"
           />
         )}
         {onTogglePlayed && (
@@ -553,7 +590,7 @@ function EpisodeRow({
             className={`rounded-full p-1 transition ${
               watched
                 ? 'text-emerald-400'
-                : 'text-white/50 opacity-0 hover:text-white group-hover:opacity-100 touch:opacity-100'
+                : 'text-white/50 opacity-0 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 touch:opacity-100'
             }`}
           >
             <WatchedIcon className="size-5" filled={watched} />

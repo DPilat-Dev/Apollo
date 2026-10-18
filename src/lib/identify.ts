@@ -193,6 +193,16 @@ export interface ApplyWarning {
 }
 
 /**
+ * What replacing artwork costs, in one sentence.
+ *
+ * Exported because the metadata editor's "Replace all metadata and images"
+ * reaches the same server code with the same flag set, and two warnings about
+ * one behaviour are two chances to describe it wrongly.
+ */
+export const ARTWORK_REPLACED_WARNING =
+  'Existing artwork is deleted before new artwork is fetched, so any poster chosen by hand goes with it.'
+
+/**
  * What Apply is about to do, said before it happens.
  *
  * Read off Jellyfin 10.11.8 rather than assumed. `ApplySearchCriteria`
@@ -235,7 +245,7 @@ export function applyWarnings(
   if (opts.replaceAllImages) {
     warnings.push({
       code: 'images-replaced',
-      text: 'Existing artwork is deleted before new artwork is fetched, so any poster chosen by hand goes with it.',
+      text: ARTWORK_REPLACED_WARNING,
     })
     if (locked) {
       warnings.push({
