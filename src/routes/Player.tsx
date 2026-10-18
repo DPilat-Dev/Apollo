@@ -45,6 +45,12 @@ import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
 import { browserCanRenderPgs, pgsTrackFor, subtitleNeedsBurnIn } from '../lib/pgsSubtitles'
 import { pickSubtitleTrack } from '../lib/subtitleLanguage'
+import {
+  choiceFor,
+  recallSubtitleChoice,
+  rememberSubtitleChoice,
+  subtitleMemoryKey,
+} from '../lib/subtitleMemory'
 import { subtitleSizeStatus } from '../lib/subtitleStyle'
 import { usePgsSubtitles } from '../lib/usePgsSubtitles'
 import { PGS_PREPARING_AFTER_MS, pgsWaitMessage } from '../lib/pgsLoading'
@@ -165,6 +171,9 @@ export function Player() {
   const [fullscreen, setFullscreen] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [textTrackIndex, setTextTrackIndex] = useState<number | null>(null)
+  /* Keyed on the item below, so a logo that fails for one does not hide the
+     next one's. */
+  const [logoFailed, setLogoFailed] = useState(false)
   const [menu, setMenu] = useState<'none' | 'settings' | 'subtitles' | 'queue' | 'chapters'>(
     'none',
   )
@@ -202,6 +211,8 @@ export function Player() {
     setBuffered(0)
     setDismissedUpNext(null)
     setDismissedSkip(null)
+    // A broken logo on one show must not hide the next one's.
+    setLogoFailed(false)
   }, [item?.Id])
 
   const effectiveBitrate = bitrateOverride ?? settings.maxBitrate
@@ -304,6 +315,15 @@ export function Player() {
     plan,
     positionSeconds: livePosition,
     paused,
+    // Whichever way the track is reaching the screen, it is the same choice.
+    subtitleStreamIndex: burnedSubIndex ?? textTrackIndex,
+    /*
+      Falling back to what the server picked, rather than sending nothing when
+      the viewer has not chosen: a report with no audio index leaves Jellyfin's
+      own `RememberAudioSelections` with nothing to remember, and leaves a
+      dashboard watching this session unable to say which track is playing.
+    */
+    audioStreamIndex: audioIndex ?? plan?.mediaSource.DefaultAudioStreamIndex,
   })
 
   /*
@@ -1001,6 +1021,7 @@ export function Player() {
       subtitles: plan.subtitles,
       preferredLanguage: settings.subtitleLanguage,
       onByDefault: settings.subtitlesDefault,
+      remembered: recallSubtitleChoice(subtitleMemoryKey(item)),
     })
     if (chosen == null) return
     /*
@@ -1309,6 +1330,7 @@ export function Player() {
   const retrying = playable.isFetching || streamQuery.isFetching
 
   const title = item ? displayTitle(item) : ''
+  const logo = item ? api.logoUrl(item, 640) : null
   const sub = item && item.Type === 'Episode' ? `${episodeCode(item) ?? ''} · ${item.Name}` : null
   useDocumentTitle(pageTitle(item?.Name, item?.SeriesName))
   const activeSubtitle = plan?.subtitles.find(
@@ -1608,7 +1630,27 @@ export function Player() {
               <BackIcon className="size-7" />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate text-lg font-semibold sm:text-2xl">{title}</h1>
+              {/*
+                The show's own logo where there is one, which is the version of
+                this title the programme itself chose. `logoUrl` already knows
+                an episode's belongs to its series.
+
+                `logoFailed` rather than trusting the tag: the tag is a promise
+                that an image exists and this server has been known to keep one
+                pointing at a zero-byte file, which would leave the header
+                blank — the same failure `UserAvatar` carries a guard for.
+              */}
+              {logo && !logoFailed ? (
+                <img
+                  src={logo}
+                  alt={title}
+                  onError={() => setLogoFailed(true)}
+                  decoding="async"
+                  className="max-h-9 w-auto max-w-[min(100%,20rem)] object-contain object-left drop-shadow-lg sm:max-h-12"
+                />
+              ) : (
+                <h1 className="truncate text-lg font-semibold sm:text-2xl">{title}</h1>
+              )}
               {sub && <p className="truncate text-sm text-white/60">{sub}</p>}
             </div>
 
@@ -1849,6 +1891,10 @@ export function Player() {
                         onClick={() => {
                           setTextTrackIndex(null)
                           if (burnedSubIndex != null) reloadFrom(() => setBurnedSubIndex(undefined))
+                          // Off is a choice, and the one most worth keeping:
+                          // having it undone every episode is the same
+                          // complaint from the other side.
+                          rememberSubtitleChoice(subtitleMemoryKey(item), choiceFor(null))
                           setMenu('none')
                         }}
                       >
@@ -1875,6 +1921,7 @@ export function Player() {
                                 reloadFrom(() => setBurnedSubIndex(undefined))
                               setTextTrackIndex(s.index)
                             }
+                            rememberSubtitleChoice(subtitleMemoryKey(item), choiceFor(s))
                             setMenu('none')
                           }}
                           hint={subtitleNeedsBurnIn(s, plan?.mediaSource.Size) ? 'burn-in' : undefined}

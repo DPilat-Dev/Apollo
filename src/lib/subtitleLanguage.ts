@@ -1,4 +1,5 @@
 import type { SubtitleTrack } from './playback'
+import type { SubtitleChoice } from './subtitleMemory'
 
 /**
  * Choosing a subtitle track without being asked every time.
@@ -122,15 +123,39 @@ export function pickSubtitleTrack({
   subtitles,
   preferredLanguage,
   onByDefault,
+  remembered,
 }: {
   subtitles: readonly SubtitleTrack[] | undefined
   /** ISO code, or empty for "no preference". */
   preferredLanguage: string
   /** The older switch: use whatever the file calls its default. */
   onByDefault: boolean
+  /**
+   * What this viewer last chose for this show, if anything. See
+   * `subtitleMemory.ts` — it outranks both settings below, because those are
+   * answers to "what do you usually want" and this is an answer to "what do
+   * you want here", given by the same person about the same programme.
+   */
+  remembered?: SubtitleChoice | null
 }): number | null {
   const usable = (subtitles ?? []).filter(playable)
   if (usable.length === 0) return null
+
+  if (remembered?.kind === 'off') return null
+  if (remembered?.kind === 'language') {
+    const matching = usable.filter((s) => languagesMatch(s.language, remembered.language))
+    if (matching.length > 0) {
+      let best = matching[0]
+      for (const track of matching) if (score(track) > score(best)) best = track
+      return best.index
+    }
+    /*
+      Remembered a language this file does not carry — a dubbed episode in a
+      run of subtitled ones, or a show whose later seasons were ripped
+      differently. The settings below are the next best answer, and silence is
+      a worse one.
+    */
+  }
 
   const wanted = preferredLanguage.trim()
   if (wanted) {

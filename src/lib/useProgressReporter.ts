@@ -15,6 +15,9 @@ interface Args {
   positionSeconds: () => number
   /** Read as a value, not a getter: a change in it is worth a report. */
   paused: boolean
+  /** The track on screen, or null for none. Reported as -1 when none. */
+  subtitleStreamIndex?: number | null
+  audioStreamIndex?: number | null
 }
 
 /**
@@ -48,7 +51,15 @@ interface Args {
  * beacon was silently dropped on every page it ever ran on. Removed rather
  * than left as a comforting no-op.
  */
-export function useProgressReporter({ api, itemId, plan, positionSeconds, paused }: Args): {
+export function useProgressReporter({
+  api,
+  itemId,
+  plan,
+  positionSeconds,
+  paused,
+  subtitleStreamIndex,
+  audioStreamIndex,
+}: Args): {
   /**
    * Report where the viewer is, now.
    *
@@ -63,6 +74,12 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
   const pausedRef = useRef(paused)
   posRef.current = positionSeconds
   pausedRef.current = paused
+  /*
+    Through refs like the rest: changing track must not make `body` a new
+    function and restart the ten-second heartbeat.
+  */
+  const tracksRef = useRef({ subtitleStreamIndex, audioStreamIndex })
+  tracksRef.current = { subtitleStreamIndex, audioStreamIndex }
 
   const body = useCallback(() => {
     if (!itemId || !plan) return null
@@ -74,6 +91,19 @@ export function useProgressReporter({ api, itemId, plan, positionSeconds, paused
       PositionTicks: secondsToTicks(posRef.current()),
       IsPaused: pausedRef.current,
       CanSeek: true,
+      /*
+        What is actually being watched with, which the server stores against
+        the item when the account has `RememberSubtitleSelections` on — and
+        which Apollo never sent, so Jellyfin's own memory of a subtitle choice
+        was only ever written by other clients. -1 is how "none" is said here;
+        measured against 10.11.8, reporting it moves the remembered index to
+        -1 and a later report of a real index moves it back.
+
+        It is also simply what the session is: a dashboard showing this
+        playback had no idea which track was on screen.
+      */
+      SubtitleStreamIndex: tracksRef.current.subtitleStreamIndex ?? -1,
+      AudioStreamIndex: tracksRef.current.audioStreamIndex,
     }
   }, [itemId, plan])
 
