@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { JellyfinApi, clearSession, loadSession, saveSession, type Session } from './api'
@@ -6,6 +6,7 @@ import { signOut as jellyseerrSignOut } from './jellyseerr'
 import { forgetSignIn, purgeDeviceState, rememberSignIn } from './accounts'
 import { resetSettings } from './settings'
 import { clearPersistedCache } from './useQueryPersistence'
+import { onSessionExpired, resetSessionExpiry } from './sessionExpiry'
 
 interface AuthValue {
   session: Session | null
@@ -26,6 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback((s: Session, avatarTag?: string | null) => {
     saveSession(s)
+    // A fresh token: arm the expiry latch again, or the first refusal of the
+    // *previous* session would still be holding it shut.
+    resetSessionExpiry()
     // Identity only — see the note at the top of accounts.ts for why the token
     // that just came back is not part of what gets remembered.
     rememberSignIn({
@@ -82,6 +86,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   */
   const signOut = useCallback(() => endSession(true), [endSession])
   const switchUser = useCallback(() => endSession(false), [endSession])
+
+  /*
+    A third way out, and the only one nobody chooses: the server stopped
+    accepting the token. Treated as a switch rather than a sign-out, because
+    the person did not leave — their session died underneath them, and taking
+    their profile off the picker as well would punish them for it. `Login`
+    reads the notice and says what happened.
+  */
+  useEffect(() => {
+    return onSessionExpired(() => endSession(false))
+  }, [endSession])
 
   const value = useMemo<AuthValue>(
     () => ({

@@ -4,6 +4,7 @@ import { useAddToPlaylist, useCreatePlaylist, usePlaylists } from '../lib/querie
 import { displayTitle } from '../lib/format'
 import { CheckIcon, PlusIcon } from './icons'
 import { useDialog } from '../lib/useDialog'
+import { errorText } from '../lib/api'
 
 /** Picks an existing playlist, or makes one with this title already in it. */
 export function AddToPlaylist({ item, onClose }: { item: BaseItemDto; onClose: () => void }) {
@@ -16,7 +17,7 @@ export function AddToPlaylist({ item, onClose }: { item: BaseItemDto; onClose: (
 
   const itemId = item.Id
   const fail = (e: unknown) =>
-    setError(e instanceof Error ? e.message : 'That did not go through.')
+    setError(errorText(e, 'That did not go through.'))
 
   const { titleId, dialogProps } = useDialog({ onClose })
 

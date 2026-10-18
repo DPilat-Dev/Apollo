@@ -7,6 +7,7 @@ import { AuthProvider } from './lib/auth'
 import { SyncPlayProvider } from './lib/syncplay'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { registerServiceWorker } from './lib/registerSw'
+import { ApiError } from './lib/api'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -14,7 +15,16 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 60 * 1000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      /*
+        One retry, and only where one could help. A 4xx is the server saying
+        it understood and refused — asking again changes nothing, and on a
+        token the server has stopped accepting it doubled every failure on the
+        page: eleven queries produced twenty-two 401s. 5xx and network faults
+        are the ones worth a second go.
+      */
+      retry: (failureCount, error) =>
+        failureCount < 1 &&
+        !(error instanceof ApiError && error.status >= 400 && error.status < 500),
     },
   },
 })

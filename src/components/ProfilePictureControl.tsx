@@ -4,6 +4,7 @@ import { useApi } from '../lib/auth'
 import { useIsAdmin, useRemoveUserImage, useSetUserImage } from '../lib/queries'
 import { AVATAR_TYPES, canEditUserImage, checkAvatarFile } from '../lib/userImages'
 import { UserAvatar } from './UserAvatar'
+import { errorText } from '../lib/api'
 
 /**
  * Choosing, replacing and removing a profile picture.
@@ -31,7 +32,7 @@ export function ProfilePictureControl({ user }: { user: UserDto }) {
   const busy = setImage.isPending || removeImage.isPending
 
   const fail = (e: unknown) =>
-    setNotice(e instanceof Error ? e.message : 'That picture did not go through.')
+    setNotice(errorText(e, 'That picture did not go through.'))
 
   const choose = (file: File | undefined) => {
     if (!file || !userId) return

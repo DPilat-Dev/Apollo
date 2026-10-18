@@ -3,6 +3,7 @@ import { useBoxSets } from '../lib/queries'
 import { collectionsSurface } from '../lib/boxSets'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { pageTitle } from '../lib/pageTitle'
+import { errorText } from '../lib/api'
 
 /**
  * Every collection on the server, as a grid of their own posters.
@@ -32,7 +33,7 @@ export function Collections() {
       {surface === 'failed' && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-ink-soft/50 px-4 py-3">
           <p className="text-sm text-white/55">
-            {query.error instanceof Error ? query.error.message : "Collections couldn't load."}
+            {errorText(query.error, "Collections couldn't load.")}
           </p>
           <button
             onClick={() => void query.refetch()}

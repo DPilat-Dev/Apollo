@@ -14,6 +14,7 @@ import { bestOffsetMs, sampleFromExchange, serverNow, type TimeSample } from './
 import { planCommand, secondsToTicks, type SendCommand } from './syncplayCommands'
 import { correctDrift, expectedPositionSeconds, type GroupTimeline } from './syncplayDrift'
 import type { GroupInfoDto, JellyfinApi } from './api'
+import { errorText } from './api'
 
 /**
  * SyncPlay: watching in step with other people.
@@ -250,7 +251,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
     try {
       setGroups(await api.syncPlayGroups())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not list groups.')
+      setError(errorText(e, 'Could not list groups.'))
     }
   }, [api])
 
@@ -382,7 +383,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
         await api.syncPlayNew(name)
         await refreshGroups()
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not create that group.')
+        setError(errorText(e, 'Could not create that group.'))
       }
     },
     [api, refreshGroups],
@@ -395,7 +396,7 @@ export function SyncPlayProvider({ children }: { children: ReactNode }) {
       try {
         await api.syncPlayJoin(groupId)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not join that group.')
+        setError(errorText(e, 'Could not join that group.'))
       }
     },
     [api],

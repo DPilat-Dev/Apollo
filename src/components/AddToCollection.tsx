@@ -5,6 +5,7 @@ import { collectionsSurface, planCollectionCreate } from '../lib/boxSets'
 import { displayTitle } from '../lib/format'
 import { CheckIcon, PlusIcon } from './icons'
 import { useDialog } from '../lib/useDialog'
+import { errorText } from '../lib/api'
 
 /**
  * Picks an existing collection, or makes one with this title already in it.
@@ -30,7 +31,7 @@ export function AddToCollection({ item, onClose }: { item: BaseItemDto; onClose:
 
   const itemId = item.Id
   const fail = (e: unknown) =>
-    setError(e instanceof Error ? e.message : 'That did not go through.')
+    setError(errorText(e, 'That did not go through.'))
 
   const { titleId, dialogProps } = useDialog({ onClose })
 
