@@ -17,11 +17,18 @@ import {
   filtersToParams,
   genreOptions,
   isFilterActive,
+  ALL_TITLES_LABEL,
   LETTERS,
+  LETTER_RAIL_KEYS,
+  applicableFilters,
   letterApplies,
   letterLabel,
+  letterOptionLabel,
   letterQuery,
+  letterRailLabel,
+  matchCountLabel,
   nextLetterIndex,
+  railTabStop,
   parseFilters,
   parseLetter,
   parseSort,
@@ -512,14 +519,51 @@ describe('letterQuery', () => {
   })
 
   /*
-    `nameLessThan` is documented inclusive — "equally or lesser" — so the bound
-    N can also catch a title whose sort name is exactly "n". The bound values
-    are pinned here rather than corrected: the server's inclusivity is not ours
-    to fix, and the cost is one title appearing in two buckets.
+    The upper bound is the next letter, and that is all this can say. Whether
+    the server compares it inclusively — the docs say "equally or lesser" — is
+    an open question no test here can settle: `nameLessThan` is `'N'` either
+    way. See `letterQuery` for what was actually observed against two real
+    libraries, and for why the bounds are left alone.
   */
-  it('names the next letter as the upper bound, inclusive as the server has it', () => {
+  it('names the next letter as the upper bound', () => {
     expect(letterQuery('M').nameLessThan).toBe('N')
     expect(letterQuery('Y').nameLessThan).toBe('Z')
+  })
+
+  /*
+    The property the whole feature rests on: the 27 buckets tile the alphabet.
+    One bucket's upper bound is the next one's lower bound, so no title is in
+    two buckets and none is in no bucket — the failure a hand-edited bound
+    would cause is Q spanning [Q, S], which returns every R title under two
+    different buttons and is invisible unless something checks the seams.
+  */
+  it('tiles the alphabet: each bucket ends exactly where the next one starts', () => {
+    for (let i = 0; i < LETTERS.length - 1; i += 1) {
+      const here = letterQuery(LETTERS[i]!)
+      const next = letterQuery(LETTERS[i + 1]!)
+      expect(here.nameLessThan).toBe(next.nameStartsWithOrGreater)
+    }
+  })
+
+  it('closes the #/A seam, where the open lower end meets the alphabet', () => {
+    expect(letterQuery('#').nameLessThan).toBe(letterQuery('A').nameStartsWithOrGreater)
+    expect(letterQuery('A').nameStartsWithOrGreater).toBe('A')
+  })
+
+  /*
+    `parseLetter` is what stands between a URL and a bound on a request, and it
+    is inside `letterQuery` rather than only at the page's edge. `[` is one
+    past Z in ASCII: accepted, it would be a bound nobody chose, and
+    `LETTERS.indexOf` returning -1 would then name `#` as the upper bound — a
+    lower bound above the upper one, which is an empty library.
+  */
+  it('refuses a letter that is not one of the 27, rather than bounding on it', () => {
+    for (const junk of ['[', 'AB', 'foo', '1', 'a'.repeat(40), ' ']) {
+      expect(letterQuery(junk)).toEqual({
+        nameStartsWithOrGreater: undefined,
+        nameLessThan: undefined,
+      })
+    }
   })
 
   it('gives the numbers bucket no lower bound, so it catches everything below A', () => {
@@ -550,6 +594,36 @@ describe('letterQuery', () => {
     expect(toItemsQuery(NO_FILTERS, 2026).nameStartsWithOrGreater).toBeUndefined()
     expect(toItemsQuery(NO_FILTERS, 2026).nameLessThan).toBeUndefined()
   })
+
+  /*
+    The letter spread is the last thing in `toItemsQuery`, so a future key
+    collision would silently win there. Every other filter is checked beside it
+    rather than alone: the letter is the one filter that arrived late.
+  */
+  it('carries every other filter unharmed alongside the letter', () => {
+    expect(
+      toItemsQuery(
+        {
+          genre: 'Horror',
+          watched: 'unwatched',
+          yearFrom: 1990,
+          yearTo: 1992,
+          minRating: 7.5,
+          subtitles: true,
+          letter: 'M',
+        },
+        2026,
+      ),
+    ).toEqual({
+      genres: 'Horror',
+      isPlayed: false,
+      years: [1990, 1991, 1992],
+      minCommunityRating: 7.5,
+      hasSubtitles: true,
+      nameStartsWithOrGreater: 'M',
+      nameLessThan: 'N',
+    })
+  })
 })
 
 describe('the letter in the URL and the cache key', () => {
@@ -558,6 +632,19 @@ describe('the letter in the URL and the cache key', () => {
     expect(params.get('letter')).toBe('M')
     expect(parseFilters(params).letter).toBe('M')
     expect(filtersToParams(parseFilters(new URLSearchParams('letter=m'))).get('letter')).toBe('M')
+  })
+
+  /*
+    `#` is the one bucket that does not survive a URL unencoded — a bare `#`
+    starts the fragment, so the param has to come back as `letter=%23` and be
+    read as `#` again. Left untested, the one value that encodes is the one
+    value nothing checks.
+  */
+  it('round-trips the numbers bucket, which the URL has to encode', () => {
+    const params = filtersToParams({ ...NO_FILTERS, letter: '#' })
+    expect(params.get('letter')).toBe('#')
+    expect(params.toString()).toBe('letter=%23')
+    expect(parseFilters(new URLSearchParams(params.toString())).letter).toBe('#')
   })
 
   it('writes no letter param when no letter is chosen', () => {
@@ -574,7 +661,14 @@ describe('the letter in the URL and the cache key', () => {
     const off = filterCacheKey(NO_FILTERS)
     const m = filterCacheKey({ ...NO_FILTERS, letter: 'M' })
     const n = filterCacheKey({ ...NO_FILTERS, letter: 'N' })
-    expect(new Set([off, m, n]).size).toBe(3)
+    const hash = filterCacheKey({ ...NO_FILTERS, letter: '#' })
+    expect(new Set([off, m, n, hash]).size).toBe(4)
+  })
+
+  it('gives every one of the 27 buckets a key of its own', () => {
+    const keys = LETTERS.map((letter) => filterCacheKey({ ...NO_FILTERS, letter }))
+    expect(new Set(keys).size).toBe(LETTERS.length)
+    expect(keys).not.toContain(filterCacheKey(NO_FILTERS))
   })
 })
 
@@ -665,6 +759,17 @@ describe('nextLetterIndex', () => {
     expect(nextLetterIndex(99, 'ArrowDown', 27)).toBe(26)
     expect(nextLetterIndex(-5, 'ArrowUp', 27)).toBe(0)
   })
+
+  /*
+    Both ends of the clamp, each reached by the key moving *away* from it: a
+    stale index of 99 stepping up is still out of range, and -5 stepping down
+    is still negative. Without these two, either half of the clamp can be
+    deleted and the suite above still passes.
+  */
+  it('pulls a stale index back in range even when the key moves the other way', () => {
+    expect(nextLetterIndex(99, 'ArrowUp', 27)).toBe(26)
+    expect(nextLetterIndex(-5, 'ArrowDown', 27)).toBe(0)
+  })
 })
 
 describe('the filters that hide behind one button on a phone', () => {
@@ -734,5 +839,203 @@ describe('the filters that hide behind one button on a phone', () => {
     expect(filtersButtonLabel(0)).toBe('Filters')
     expect(filtersButtonLabel(1)).toBe('Filters, 1 active')
     expect(filtersButtonLabel(3)).toBe('Filters, 3 active')
+  })
+})
+
+/*
+  The letter is an interval over SortName, so under any other sort it is not a
+  filter at all — and `letterApplies` was only ever asked by the three controls
+  that draw it. `?letter=M` with no `?sort=` therefore reached the request under
+  Recently Added: no rail, no picker, no chip, and a grid of 26 M titles in the
+  order they were added. One derivation, used by the query, the cache key, the
+  chip bar and the rail alike, is what makes those five unable to disagree.
+*/
+describe('applicableFilters', () => {
+  const ALL: LibraryFilters = {
+    genre: 'Horror',
+    watched: 'unwatched',
+    yearFrom: 1990,
+    yearTo: 1999,
+    minRating: 7,
+    subtitles: true,
+    letter: 'M',
+  }
+
+  it('keeps the letter under the sort it agrees with', () => {
+    expect(applicableFilters(ALL, 'name')).toEqual(ALL)
+  })
+
+  it('clears the letter under every sort it does not apply to', () => {
+    for (const key of ['added', 'rating', 'released', 'random', 'curated'] as const) {
+      expect(applicableFilters(ALL, key).letter).toBe('')
+    }
+  })
+
+  it('answers for every sort that exists, so a new one cannot inherit the letter', () => {
+    const keeps = CONTAINER_SORTS.filter((s) => applicableFilters(ALL, s.key).letter === 'M')
+    expect(keeps.map((s) => s.key)).toEqual(['name'])
+  })
+
+  it('leaves every other filter exactly as it was', () => {
+    expect(applicableFilters(ALL, 'added')).toEqual({ ...ALL, letter: '' })
+    expect(applicableFilters(NO_FILTERS, 'added')).toEqual(NO_FILTERS)
+    expect(applicableFilters(NO_FILTERS, 'name')).toEqual(NO_FILTERS)
+  })
+
+  /* The point of the whole exercise: no bounds on the request. */
+  it('sends no bounds for a letter that does not apply', () => {
+    const q = toItemsQuery(applicableFilters(ALL, 'added'), 2026)
+    expect(q.nameStartsWithOrGreater).toBeUndefined()
+    expect(q.nameLessThan).toBeUndefined()
+    expect(q.genres).toBe('Horror')
+  })
+
+  it('shows no letter chip and writes no letter param for one that does not apply', () => {
+    const under = applicableFilters(ALL, 'added')
+    expect(activeFilters(under).map((c) => c.key)).not.toContain('letter')
+    expect(filtersToParams(under).has('letter')).toBe(false)
+    expect(filterCacheKey(under)).toBe(filterCacheKey({ ...ALL, letter: '' }))
+  })
+})
+
+/*
+  Which keys the rail answers for, said once rather than inferred from whether
+  the focus moved. Inferred, "End at Z" and "a key the rail does not own" are
+  the same signal — so End at the bottom of the rail fell through to the
+  browser, which scrolled the page 2,436px out from under a fixed focus ring.
+*/
+describe('LETTER_RAIL_KEYS', () => {
+  it('is the four keys that move the rail, and nothing else', () => {
+    expect([...LETTER_RAIL_KEYS].sort()).toEqual(['ArrowDown', 'ArrowUp', 'End', 'Home'])
+  })
+
+  it('names every key the arithmetic actually moves for', () => {
+    for (const key of LETTER_RAIL_KEYS) {
+      const moved = [0, 13, 26].map((i) => nextLetterIndex(i, key, 27))
+      expect(moved).not.toEqual([0, 13, 26])
+    }
+  })
+
+  it('leaves out every key that moves nothing, so none is consumed for free', () => {
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Tab', 'Enter', ' ', 'a', 'PageDown']) {
+      expect(LETTER_RAIL_KEYS.has(key)).toBe(false)
+    }
+  })
+
+  /*
+    The pin on the fix: an owned key at the end of the rail still belongs to the
+    rail. `nextLetterIndex` clamps, so it answers "no movement" here — which is
+    exactly why ownership cannot be read off its result.
+  */
+  it('owns End at Z and Home at #, where the focus cannot move any further', () => {
+    expect(LETTER_RAIL_KEYS.has('End')).toBe(true)
+    expect(nextLetterIndex(26, 'End', 27)).toBe(26)
+    expect(LETTER_RAIL_KEYS.has('Home')).toBe(true)
+    expect(nextLetterIndex(0, 'Home', 27)).toBe(0)
+  })
+})
+
+/*
+  Where the rail's one tab stop sits. The comment on it claimed it was derived
+  so that a letter cleared elsewhere could not leave it on a stale button; it
+  was stored, and clearing the chip left it pointing at the old letter.
+*/
+describe('railTabStop', () => {
+  it('starts on the letter in force, so tabbing in lands where the grid is', () => {
+    expect(railTabStop(null, 'M')).toBe(LETTERS.indexOf('M'))
+    expect(railTabStop(null, '#')).toBe(0)
+  })
+
+  it('starts at the top when no letter is in force', () => {
+    expect(railTabStop(null, '')).toBe(0)
+  })
+
+  it('stays where the arrow keys left it', () => {
+    expect(railTabStop({ index: 20, letter: 'M' }, 'M')).toBe(20)
+  })
+
+  it('goes back to the letter in force when that letter changed from elsewhere', () => {
+    // The chip bar's × is the case: it clears the letter without touching the
+    // rail, and a tab stop left on T would be pointing at nothing.
+    expect(railTabStop({ index: 20, letter: 'M' }, '')).toBe(0)
+    expect(railTabStop({ index: 20, letter: 'M' }, 'B')).toBe(LETTERS.indexOf('B'))
+  })
+
+  it('stays put when the rail itself cleared the letter', () => {
+    // Pressing M again turns it off; focus and the tab stop stay on M, because
+    // pressing M, reading the count and pressing N is the loop.
+    expect(railTabStop({ index: 13, letter: '' }, '')).toBe(13)
+  })
+
+  it('never points outside the rail, whatever it was handed', () => {
+    for (const stop of [null, { index: 99, letter: 'M' }, { index: -4, letter: 'M' }]) {
+      const i = railTabStop(stop, 'M')
+      expect(i).toBeGreaterThanOrEqual(0)
+      expect(i).toBeLessThan(LETTERS.length)
+    }
+  })
+})
+
+/*
+  The count line is a live region, so every filter change announces it. "88
+  matching titles" three times running is three identical announcements for M,
+  N and O, and a scan of the alphabet is exactly the loop that produces them.
+*/
+describe('matchCountLabel', () => {
+  it('says the plain total when nothing is filtered', () => {
+    expect(matchCountLabel(1204, NO_FILTERS)).toBe('1,204 titles')
+  })
+
+  it('says which letter it is counting, so M and N do not announce alike', () => {
+    expect(matchCountLabel(88, { ...NO_FILTERS, letter: 'M' })).toBe('88 titles under M')
+    expect(matchCountLabel(91, { ...NO_FILTERS, letter: 'N' })).toBe('91 titles under N')
+  })
+
+  it('names the numbers bucket rather than reading a glyph out', () => {
+    expect(matchCountLabel(12, { ...NO_FILTERS, letter: '#' })).toBe(
+      '12 titles under numbers & symbols',
+    )
+  })
+
+  it('says a filtered total is filtered', () => {
+    expect(matchCountLabel(88, { ...NO_FILTERS, watched: 'unwatched' })).toBe('88 matching titles')
+  })
+
+  /* An empty result has to read as zero, not as nothing having happened. */
+  it('reads an empty result out loud', () => {
+    expect(matchCountLabel(0, { ...NO_FILTERS, letter: 'Q' })).toBe('0 titles under Q')
+    expect(matchCountLabel(0, NO_FILTERS)).toBe('0 titles')
+  })
+
+  it('says nothing at all before a total is known', () => {
+    expect(matchCountLabel(undefined, NO_FILTERS)).toBe('')
+    expect(matchCountLabel(null, { ...NO_FILTERS, letter: 'M' })).toBe('')
+  })
+})
+
+/*
+  Three readings of the same bucket, because three places need different
+  things: a chip says it, a `<select>` option is also a type-ahead target, and
+  a rail button's accessible name has to contain the `#` it visibly shows.
+*/
+describe('what a bucket is called where', () => {
+  it('keeps the first letter of every option unshadowed in the picker', () => {
+    // Native type-ahead matches option text, so an option beginning with A or
+    // N costs a second keypress to reach the actual A or N.
+    const options = [ALL_TITLES_LABEL, ...LETTERS.map(letterOptionLabel)]
+    const firsts = options.map((o) => o[0]!.toUpperCase())
+    expect(new Set(firsts).size).toBe(options.length)
+    // And the one that is not a bucket does not begin with a letter at all —
+    // there is no spare letter for it to begin with: all 26 are taken.
+    expect(ALL_TITLES_LABEL).not.toMatch(/^[A-Za-z#]/)
+    expect(letterOptionLabel('#')).toBe('# Numbers & symbols')
+    expect(letterOptionLabel('M')).toBe('M')
+  })
+
+  it('starts the rail button name with the glyph the button shows', () => {
+    // WCAG 2.5.3: someone saying "click hash" has to match the name.
+    expect(letterRailLabel('#')).toBe('# — Numbers and symbols')
+    expect(letterRailLabel('M')).toBe('M')
+    for (const letter of LETTERS) expect(letterRailLabel(letter).startsWith(letter)).toBe(true)
   })
 })

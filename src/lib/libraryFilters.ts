@@ -191,11 +191,50 @@ export function parseLetter(raw: string | null | undefined): string {
 }
 
 /**
- * What a bucket is called out loud — in the picker, in the chip, and as the
- * label on a rail button. Only `#` needs saying; the rest are a letter.
+ * What a bucket is called out loud — in the chip bar, and as a rail button's
+ * tooltip. Only `#` needs saying; the rest are a letter.
+ *
+ * A `<select>` option and a rail button's accessible name both need it said
+ * slightly differently, for reasons that have nothing to do with the chip; the
+ * two below say why.
  */
 export function letterLabel(letter: string): string {
   return letter === '#' ? 'Numbers & symbols' : letter
+}
+
+/**
+ * The same bucket as a `<select>` option, which is also a type-ahead target.
+ *
+ * Native type-ahead matches option *text*, so "Numbers & symbols" answered to
+ * N and took two presses to reach the letter N — the keystroke the option has
+ * nothing to do with. The glyph goes in front, where it is both the thing the
+ * option is about and the thing nobody types.
+ */
+export function letterOptionLabel(letter: string): string {
+  return letter === '#' ? `# ${letterLabel('#')}` : letter
+}
+
+/**
+ * The idle option, which is deliberately not a word.
+ *
+ * "All titles" answered to A, so pressing A landed there and the letter A took
+ * a second press — and there is no spare letter to start it with instead: all
+ * 26 are buttons. So it starts with punctuation, which no bucket does and
+ * nobody types looking for a letter.
+ */
+export const ALL_TITLES_LABEL = '— All titles'
+
+/**
+ * The accessible name of a rail button, which has to begin with what the
+ * button visibly says.
+ *
+ * WCAG 2.5.3 (Label in Name): a button reading `#` whose name is "Numbers &
+ * symbols" cannot be reached by speech — "click hash" matches nothing in it.
+ * The glyph comes first, and "and" is spelled out because the ampersand is
+ * what a speech engine is least likely to agree with us about.
+ */
+export function letterRailLabel(letter: string): string {
+  return letter === '#' ? '# — Numbers and symbols' : letter
 }
 
 export function parseFilters(params: URLSearchParams): LibraryFilters {
@@ -420,11 +459,28 @@ const bound = (letter: string): string =>
  * again: fuzzy, multi-field, matches overviews and cast, and has no defined
  * relationship to any sort.
  *
- * `nameLessThan` is documented as inclusive — "equally or lesser than a given
- * input string" — so the bound `N` can also catch a title whose sort name is
- * exactly `n`, putting it in both M's bucket and N's. That is the server's
- * inclusivity, not ours to correct: a client-side correction would need the
- * sort name of every item it has not loaded yet.
+ * ── Whether the upper bound is inclusive is an open question ──────────────
+ *
+ * The 10.11.8 document describes `nameLessThan` as "equally or lesser than a
+ * given input string", which would put a title whose sort name is exactly `N`
+ * in both M's bucket and N's. Nothing here can tell: `letterQuery('M')
+ * .nameLessThan` is `'N'` under either reading, so no test in this repo
+ * distinguishes an inclusive server from an exclusive one, and settling it
+ * needs an authenticated request nobody has made. It is written down as open
+ * rather than asserted either way.
+ *
+ * What *was* measured, against two real libraries, is that the 27 buckets sum
+ * to exactly the library total — 442 of 442 Movies, 417 of 417 Anime — so in
+ * practice nothing is double-counted and nothing is unreachable. The only
+ * titles that could land in two buckets are the ones whose sort name is
+ * exactly one letter: the 1931 *M*, the 1969 *Z*. Neither library holds one.
+ *
+ * So the bounds stay as they are. Tightening the upper one to
+ * `bound(value) + '\uFFFF'` would settle the question by construction and is
+ * not worth it: a noncharacter can be ignorable under locale collation, which
+ * would collapse M's bucket to the single title "M" and lose "Mad Max" from
+ * it. That is a real regression traded against an edge case with no observed
+ * instances.
  *
  * ── Why the two ends are open ─────────────────────────────────────────────
  *
@@ -441,9 +497,19 @@ export function letterQuery(letter: string): Pick<
   'nameStartsWithOrGreater' | 'nameLessThan'
 > {
   const value = parseLetter(letter)
-  if (!value) return { nameStartsWithOrGreater: undefined, nameLessThan: undefined }
+  const index = LETTERS.indexOf(value)
+  /*
+    Twice, on purpose. `parseLetter` already refuses anything that is not one
+    of the 27, and an unfound value would otherwise index `LETTERS[-1 + 1]` —
+    naming `#` as the upper bound, so `>= 'M'` and `< '#'` would go out
+    together and the grid would come back empty with nothing to blame. One
+    guard removed is all that stands between those two states.
+  */
+  if (!value || index < 0) {
+    return { nameStartsWithOrGreater: undefined, nameLessThan: undefined }
+  }
 
-  const next = LETTERS[LETTERS.indexOf(value) + 1]
+  const next = LETTERS[index + 1]
   return {
     nameStartsWithOrGreater: value === '#' ? undefined : bound(value),
     nameLessThan: next ? bound(next) : undefined,
@@ -462,6 +528,68 @@ export function letterQuery(letter: string): Pick<
  */
 export function letterApplies(sortKey: SortKey): boolean {
   return sortKey === 'name'
+}
+
+/**
+ * The filters a page is actually showing, given the order it is showing them
+ * in — which is to say the same set with a letter that does not apply removed.
+ *
+ * `letterApplies` used to be asked by the three things that *draw* the letter
+ * and by nothing that *sends* it, so `?letter=M` with no `?sort=` fell to the
+ * `added` fallback and filtered the grid to 26 M titles in Recently Added
+ * order, with no rail, no picker and no chip admitting to it. Threading a sort
+ * key into `toItemsQuery` would have fixed the request and left the decision
+ * split across the query and the chips, free to drift again.
+ *
+ * So a route derives its filters through this once, and the query, the cache
+ * key, the chip bar, the picker and the rail are then all reading one value
+ * and cannot disagree: a letter that does not apply produces no bounds, no
+ * chip, no param and no control.
+ */
+export function applicableFilters(filters: LibraryFilters, sortKey: SortKey): LibraryFilters {
+  return letterApplies(sortKey) ? filters : clearFilter(filters, 'letter')
+}
+
+/**
+ * Whether a filter change has to put the page back at the top as well.
+ *
+ * Filters are written as a REPLACE, and a REPLACE deliberately leaves the
+ * scroll position alone — right for every other filter, wrong for the letter:
+ * pressing M while 4,000px down lands you 4,000px into a list that just became
+ * 400 titles long, which is a blank screen that looks broken. It is one line
+ * and it lives here because both grids need it and only one of them had it.
+ */
+export function filterChangeMovesPage(from: LibraryFilters, to: LibraryFilters): boolean {
+  return from.letter !== to.letter
+}
+
+/**
+ * What the count line above a grid says, and therefore what a live region
+ * announces on every filter change.
+ *
+ * "88 matching titles" is the same sentence for M, N and O, and walking the
+ * alphabet is exactly the loop that produces three of them in a row — so the
+ * letter is named in the count itself rather than left to a chip the
+ * announcement does not include. Empty is a reading too: a filter that matched
+ * nothing has to say "0 titles under Q", where a line that disappears instead
+ * says nothing happened.
+ *
+ * Returns `''` before a total is known, because the line stays mounted — a
+ * live region has to be in the tree before its text changes to be read out.
+ */
+export function matchCountLabel(
+  total: number | null | undefined,
+  filters: LibraryFilters,
+): string {
+  if (total == null) return ''
+  const count = total.toLocaleString()
+  if (filters.letter) {
+    // "starting with Numbers & symbols" is not a sentence; "under" is the
+    // filing-cabinet word that works for a letter and for the glyph alike.
+    const bucket = filters.letter === '#' ? letterLabel('#').toLowerCase() : filters.letter
+    return `${count} titles under ${bucket}`
+  }
+  return isFilterActive(filters) ? `${count} matching titles` : `${count} titles`
 }
 
 export interface ItemsFilterQuery {
@@ -613,4 +741,48 @@ export function nextLetterIndex(current: number, key: string, length: number): n
     default:
       return current
   }
+}
+
+/**
+ * The keys the rail answers for, said out loud rather than inferred.
+ *
+ * `nextLetterIndex` clamps, so "End with the focus already on Z" and "a key
+ * this rail has never heard of" are the same answer from it — and a component
+ * reading ownership off that answer let End at the bottom of the rail fall
+ * through to the browser, which scrolled the page 2,436px out from under a
+ * `fixed` focus ring and, on a long library, started fetching the next page.
+ * An owned key at a boundary still belongs to the rail: it moves nothing and
+ * is consumed anyway.
+ */
+export const LETTER_RAIL_KEYS: ReadonlySet<string> = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+])
+
+/** Where the arrow keys last left the rail's tab stop, and on which letter. */
+export interface RailTabStop {
+  index: number
+  /** The letter in force when it was left there. */
+  letter: string
+}
+
+/**
+ * Which of the 27 buttons is the rail's one tab stop.
+ *
+ * It is wherever the arrow keys last left it, and before that the letter
+ * currently in force, so tabbing in lands on the part of the alphabet the grid
+ * is already showing rather than back at `#`. The letter it was left under is
+ * remembered with it, because a letter cleared from *outside* the rail — the
+ * chip bar's ×, a Back — would otherwise leave the tab stop on a button that
+ * is no longer about anything. Clearing from the rail itself is not that case:
+ * pressing M again turns M off and the stop stays on M, because pressing M,
+ * reading the count and pressing N is the loop the rail exists for.
+ *
+ * Clamped, so a stale index can never name a button that is not there.
+ */
+export function railTabStop(stop: RailTabStop | null, value: string): number {
+  const index = stop?.letter === value ? stop.index : LETTERS.indexOf(value)
+  return Math.min(Math.max(index, 0), LETTERS.length - 1)
 }

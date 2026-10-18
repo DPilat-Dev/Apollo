@@ -1,6 +1,6 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useMemo, useRef } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { CardSkeleton, MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
@@ -15,17 +15,13 @@ import { LoadFailure } from '../components/LoadFailure'
 import { usePageOnScroll } from '../lib/usePageWalk'
 import {
   NO_FILTERS,
-  clearFilter,
   filterCacheKey,
-  filtersToParams,
   isFilterActive,
   letterApplies,
-  parseFilters,
-  parseSort,
+  matchCountLabel,
   toItemsQuery,
-  type LibraryFilters,
-  type SortKey,
 } from '../lib/libraryFilters'
+import { useFilterParams } from '../lib/useFilterParams'
 
 const PAGE_SIZE = 60
 
@@ -45,7 +41,6 @@ const renderCard = (item: BaseItemDto) => (
 
 export function Library() {
   const { viewId } = useParams<{ viewId: string }>()
-  const [params, setParams] = useSearchParams()
   const api = useApi()
   const { data: views, isPending: viewsPending } = useViews()
   const sentinel = useRef<HTMLDivElement>(null)
@@ -59,42 +54,12 @@ export function Library() {
     Sort and filters are read from the URL rather than held in state. A library
     of 27,000 episodes is only usable filtered, and a filtered grid is something
     people bookmark, share and come back to — all of which a useState filter
-    loses on the first refresh. Browse already worked this way for the same
-    reason; this makes the two pages agree.
-
-    Writing them back replaces the history entry instead of pushing one, so
-    Back still leaves the library rather than walking every select change.
+    loses on the first refresh. Browse works this way too, and the hook is what
+    keeps the two pages from drifting apart about it — including about a letter
+    the sort does not apply to, which is cleared before the request, the cache
+    key, the chip bar and the rail ever see it.
   */
-  const filters = useMemo(() => parseFilters(params), [params])
-  const sort = parseSort(params.get('sort'), 'added')
-
-  const write = (next: URLSearchParams) => setParams(next, { replace: true })
-
-  /*
-    Changing the letter is the one filter change that also moves the page.
-    Filters are written as a REPLACE, and `scrollTargetFor` leaves a REPLACE's
-    scroll position alone on purpose — right for every other filter, wrong for
-    this one: pressing M while 4,000px down lands you 4,000px into a list that
-    just became 400 titles long, which is a blank screen that looks broken.
-    Scoped to the letter, so nothing else's behaviour changes.
-  */
-  const setFilters = (next: LibraryFilters) => {
-    if (next.letter !== filters.letter) window.scrollTo({ top: 0 })
-    write(filtersToParams(next, params))
-  }
-
-  const setSort = (key: SortKey) => {
-    const next = new URLSearchParams(params)
-    next.set('sort', key)
-    /*
-      Leaving A–Z takes the letter with it. The picker and the rail are only
-      shown beside the alphabetical sort, so a letter that outlived them would
-      be state with nothing on screen admitting to it — the same
-      empty-library illusion the chip bar exists to prevent, except there is
-      no longer a control to undo it with.
-    */
-    write(letterApplies(key) ? next : filtersToParams(clearFilter(filters, 'letter'), next))
-  }
+  const { filters, sort, setFilters, setSort } = useFilterParams(() => ({ fallback: 'added' }))
 
   const currentYear = new Date().getFullYear()
   const filterQuery = toItemsQuery(filters, currentYear)
@@ -172,6 +137,10 @@ export function Library() {
               count: the whole bar was silent before, so a screen reader user
               chose Unwatched and got no confirmation anything had happened.
 
+              It says which letter it counted, too. "88 matching titles" is the
+              same sentence for M, N and O, and walking the alphabet is exactly
+              the loop that queues three of them in a row.
+
               The paragraph stays mounted with nothing in it rather than
               appearing with the count, because a live region has to be in the
               tree *before* it changes to be read out — inserted together with
@@ -180,7 +149,7 @@ export function Library() {
               box: 4px of margin and nothing else.
             */}
             <p role="status" className="mt-1 text-sm text-white/45">
-              {total != null && `${total.toLocaleString()} ${filtered ? 'matching titles' : 'titles'}`}
+              {matchCountLabel(total, filters)}
             </p>
           </div>
         </div>

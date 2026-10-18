@@ -8,6 +8,18 @@
 */
 @custom-variant touch (@media (hover: none));
 
+/*
+  A window too short for something that is as tall as the window.
+
+  The letter rail is 27 cells that scale with the viewport down to a 0.85rem
+  floor, below which it is a fixed ~393px however short the window gets — so in
+  a 389px landscape phone, or the 683×348 CSS viewport a 1366×768 laptop has at
+  the 200% zoom WCAG 1.4.4 asks for, both ends of it are off-screen with no
+  scroll that can reach them. A width query cannot see any of that: both of
+  those are past `sm:`.
+*/
+@custom-variant short (@media (max-height: 600px));
+
 @theme {
   --color-ink: #0a0a0b;
   --color-ink-soft: #141416;

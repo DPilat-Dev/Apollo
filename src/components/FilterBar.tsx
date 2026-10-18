@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
 import {
+  ALL_TITLES_LABEL,
   LETTERS,
   SORTS,
   clearFilter,
@@ -8,7 +9,7 @@ import {
   filtersButtonLabel,
   genreOptions,
   letterApplies,
-  letterLabel,
+  letterOptionLabel,
   parseLetter,
   parseYearRange,
   ratingOptions,
@@ -21,22 +22,32 @@ import {
   type WatchedState,
 } from '../lib/libraryFilters'
 
+/*
+  No `outline-none` here, and the note is so it does not come back. It used to
+  be, and `outline-none` lands in `@layer utilities` while the app's
+  `:focus-visible` ring is in `@layer base` — so it beat the ring regardless of
+  specificity, and every `<select>` in this bar reported `outline-style: none`
+  while focused. Keyboard focus had no indicator at all on the one row of
+  controls a keyboard viewer has to pass through to reach the grid. It was not
+  buying anything either: `:focus:not(:focus-visible)` in `index.css` is what
+  keeps a mouse click from drawing a ring.
+*/
 const CONTROL =
-  'rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm outline-none transition hover:border-white/35'
+  'rounded border border-white/15 bg-ink-soft px-3 py-2 text-sm transition hover:border-white/35'
 
 /**
  * Lets a `<select>` give ground on a phone instead of wrapping the bar.
  *
  * A select is as wide as its widest *option*, not its current value, so the
- * letter picker is 172px because one of its 28 options is "Numbers & symbols",
- * and that alone is what pushed the three remaining mobile controls onto two
- * rows. `min-width: 0` is what flexbox needs before it is allowed to shrink a
+ * letter picker is around 172px because one of its 28 options spells the
+ * numbers bucket out in full, and that alone is what pushed the three
+ * remaining mobile controls onto two rows. `min-width: 0` is what flexbox needs before it is allowed to shrink a
  * form control at all.
  *
  * It costs almost nothing to read, because the two selects that get it are
  * only side by side under the alphabetical sort — where one reads "A–Z" and
  * the other reads a single letter. The only value long enough to be clipped is
- * "Numbers & symbols" itself, and the chip below the bar says it in full.
+ * the numbers bucket itself, and the chip below the bar says it in full.
  *
  * Switched off at `sm:` so the desktop row wraps as it always has rather than
  * quietly squeezing seven controls into one line on a 700px window.
@@ -261,10 +272,18 @@ export function FilterBar({
             onChange={(e) => onFilters({ ...filters, letter: parseLetter(e.target.value) })}
             className={`${CONTROL} ${SHRINKS} sm:order-2`}
           >
-            <option value="">All titles</option>
+            {/*
+              Both option texts are chosen around native type-ahead, which
+              matches the start of an option rather than its value: "All
+              titles" answered to A and "Numbers & symbols" to N, so the two
+              likeliest keystrokes in an alphabet picker each landed on
+              something else first and took a second press. `libraryFilters`
+              holds both labels and why they read as they do.
+            */}
+            <option value="">{ALL_TITLES_LABEL}</option>
             {LETTERS.map((letter) => (
               <option key={letter} value={letter}>
-                {letterLabel(letter)}
+                {letterOptionLabel(letter)}
               </option>
             ))}
           </select>
