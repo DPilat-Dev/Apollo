@@ -106,9 +106,11 @@ export interface LibraryFilters {
   yearTo: number | null
   minRating: number | null
   subtitles: boolean
+  /** One of `LETTERS`, or `''` for the whole alphabet. */
+  letter: string
 }
 
-export type FilterKey = 'genre' | 'watched' | 'year' | 'rating' | 'subtitles'
+export type FilterKey = 'genre' | 'watched' | 'year' | 'rating' | 'subtitles' | 'letter'
 
 export const NO_FILTERS: LibraryFilters = {
   genre: '',
@@ -117,10 +119,19 @@ export const NO_FILTERS: LibraryFilters = {
   yearTo: null,
   minRating: null,
   subtitles: false,
+  letter: '',
 }
 
 /** The params this module owns. Anything else in the URL is someone else's. */
-const FILTER_PARAMS = ['genre', 'watched', 'yearFrom', 'yearTo', 'minRating', 'hasSubs'] as const
+const FILTER_PARAMS = [
+  'genre',
+  'watched',
+  'yearFrom',
+  'yearTo',
+  'minRating',
+  'hasSubs',
+  'letter',
+] as const
 
 /**
  * The oldest year worth believing. Films exist from the 1870s; a "year" below
@@ -153,6 +164,40 @@ function parseRating(raw: string | null): number | null {
   return Math.min(value, MAX_RATING)
 }
 
+/**
+ * The 27 buckets the alphabet filter offers: numbers and symbols, then A–Z.
+ *
+ * Built from a range rather than typed out because a typo in a hand-written
+ * list is a button that filters to nothing, and the only thing that would
+ * notice is a viewer wondering where the Q titles went.
+ */
+export const LETTERS: readonly string[] = [
+  '#',
+  ...Array.from({ length: 26 }, (_, i) => String.fromCharCode('A'.charCodeAt(0) + i)),
+]
+
+/**
+ * One of the 27 buckets, or nothing at all.
+ *
+ * Case is normalised on the way in so `?letter=m` and `?letter=M` are the same
+ * grid and the same cache entry, and anything that is not exactly one bucket is
+ * refused rather than passed along: these values become *bounds on a request*,
+ * and `[` (one past Z in ASCII) or a 40-character paste would ask the server
+ * for a range nobody chose and return a library that looks empty.
+ */
+export function parseLetter(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim().toUpperCase()
+  return LETTERS.includes(value) ? value : ''
+}
+
+/**
+ * What a bucket is called out loud — in the picker, in the chip, and as the
+ * label on a rail button. Only `#` needs saying; the rest are a letter.
+ */
+export function letterLabel(letter: string): string {
+  return letter === '#' ? 'Numbers & symbols' : letter
+}
+
 export function parseFilters(params: URLSearchParams): LibraryFilters {
   const watched = params.get('watched')
   const years = [parseYear(params.get('yearFrom')), parseYear(params.get('yearTo'))]
@@ -169,6 +214,7 @@ export function parseFilters(params: URLSearchParams): LibraryFilters {
     yearTo: years[1],
     minRating: parseRating(params.get('minRating')),
     subtitles: subs === '1' || subs === 'true',
+    letter: parseLetter(params.get('letter')),
   }
 }
 
@@ -193,6 +239,7 @@ export function filtersToParams(
   if (filters.yearTo != null) next.set('yearTo', String(filters.yearTo))
   if (filters.minRating != null) next.set('minRating', String(filters.minRating))
   if (filters.subtitles) next.set('hasSubs', '1')
+  if (filters.letter) next.set('letter', filters.letter)
   return next
 }
 
@@ -223,6 +270,12 @@ const yearLabel = (from: number | null, to: number | null): string => {
 export function activeFilters(filters: LibraryFilters): FilterChip[] {
   const chips: FilterChip[] = []
   if (filters.genre) chips.push({ key: 'genre', label: filters.genre })
+  if (filters.letter) {
+    chips.push({
+      key: 'letter',
+      label: filters.letter === '#' ? letterLabel('#') : `Starts with ${filters.letter}`,
+    })
+  }
   if (filters.watched !== 'all') {
     chips.push({ key: 'watched', label: filters.watched === 'unwatched' ? 'Unwatched' : 'Watched' })
   }
@@ -249,7 +302,87 @@ export function clearFilter(filters: LibraryFilters, key: FilterKey): LibraryFil
       return { ...filters, minRating: null }
     case 'subtitles':
       return { ...filters, subtitles: false }
+    case 'letter':
+      return { ...filters, letter: '' }
   }
+}
+
+/**
+ * Which case the bounds go out in — the one thing here that only a live server
+ * can settle, which is exactly why it is one constant and not three call sites.
+ *
+ * The comparison is ordinal, so the case is not cosmetic: `M` is 0x4D and `m`
+ * is 0x6D. Asked for `>= 'M'` against a `SortName` the server has stored
+ * lowercased, every title from `a` onwards comes back and the filter has
+ * quietly stopped filtering — a bug that looks like no bug, because a grid of
+ * the whole library is what the page shows anyway. Uppercase is what is in
+ * force, and it is what the bound values are pinned to in the tests, so
+ * flipping this line is the entire change and the tests say in one place what
+ * the bounds become.
+ */
+const BOUND_CASE: 'upper' | 'lower' = 'upper'
+
+const bound = (letter: string): string =>
+  BOUND_CASE === 'upper' ? letter.toUpperCase() : letter.toLowerCase()
+
+/**
+ * The `/Items` bounds for one letter: a half-open interval over the field the
+ * grid is already ordered by.
+ *
+ * ── Why an interval and not a prefix ──────────────────────────────────────
+ *
+ * `SortName` strips leading articles, so "The Office" sorts under **O**. The
+ * grid is ordered by `SortName`; a prefix match (`nameStartsWith`) is against
+ * the display name, so pressing T would produce a grid holding "The Office"
+ * while the O section of that same grid also holds it, and the alphabet down
+ * the side would be visibly disagreeing with the list beside it. An interval
+ * over the same field the order comes from agrees with that order by
+ * construction — there is nothing left to reconcile. `searchTerm` is worse
+ * again: fuzzy, multi-field, matches overviews and cast, and has no defined
+ * relationship to any sort.
+ *
+ * `nameLessThan` is documented as inclusive — "equally or lesser than a given
+ * input string" — so the bound `N` can also catch a title whose sort name is
+ * exactly `n`, putting it in both M's bucket and N's. That is the server's
+ * inclusivity, not ours to correct: a client-side correction would need the
+ * sort name of every item it has not loaded yet.
+ *
+ * ── Why the two ends are open ─────────────────────────────────────────────
+ *
+ * `#` has no lower bound and `Z` has no upper one, and both are the same
+ * decision: every title must be reachable by some button. "Everything that
+ * sorts before A" is digits, brackets and symbols in a single parameter, and
+ * there is no character to start that range at. Past Z, an ordinal comparison
+ * puts Cyrillic, CJK and accented capitals all *after* `Z` — so a closed
+ * `[Z, '[')` bucket would leave "Ødipus" and "Звездные войны" in no bucket at
+ * all, present in the library and reachable by no button on the rail.
+ */
+export function letterQuery(letter: string): Pick<
+  ItemsFilterQuery,
+  'nameStartsWithOrGreater' | 'nameLessThan'
+> {
+  const value = parseLetter(letter)
+  if (!value) return { nameStartsWithOrGreater: undefined, nameLessThan: undefined }
+
+  const next = LETTERS[LETTERS.indexOf(value) + 1]
+  return {
+    nameStartsWithOrGreater: value === '#' ? undefined : bound(value),
+    nameLessThan: next ? bound(next) : undefined,
+  }
+}
+
+/**
+ * Whether a letter filter means anything beside a given sort.
+ *
+ * It is an interval over `SortName`, so it only lines up with the grid while
+ * the grid is in `SortName` order. Offered beside "Recently Added" it would be
+ * a control whose result nobody could read: the titles would all start with M
+ * and sit in an order the letter had nothing to do with. Written as an
+ * allow-list of one rather than a list of exclusions, so a sort added later
+ * does not quietly inherit a filter nobody checked it against.
+ */
+export function letterApplies(sortKey: SortKey): boolean {
+  return sortKey === 'name'
 }
 
 export interface ItemsFilterQuery {
@@ -258,6 +391,8 @@ export interface ItemsFilterQuery {
   years: number[] | undefined
   minCommunityRating: number | undefined
   hasSubtitles: boolean | undefined
+  nameStartsWithOrGreater: string | undefined
+  nameLessThan: string | undefined
 }
 
 /**
@@ -284,6 +419,7 @@ export function toItemsQuery(filters: LibraryFilters, currentYear: number): Item
     years,
     minCommunityRating: filters.minRating ?? undefined,
     hasSubtitles: filters.subtitles || undefined,
+    ...letterQuery(filters.letter),
   }
 }
 
@@ -366,4 +502,36 @@ export function decadeOptions(currentYear: number, filters: LibraryFilters): Yea
     })
   }
   return options
+}
+
+/**
+ * Where the rail's one tab stop moves next.
+ *
+ * The rail is 27 buttons and one tab stop — a roving tabindex — because 27 raw
+ * tab stops in the middle of a page is a wall anybody who tabs has to get
+ * through to reach the grid. The arithmetic lives here rather than in the
+ * component for the usual reason: the component is the one thing this repo
+ * cannot test, and off-by-one at the ends is exactly the bug that hides there.
+ *
+ * It clamps rather than wraps. A rail is a spatial object sitting against the
+ * edge of the screen, and wrapping from Z back to `#` throws the focus ring the
+ * whole height of the viewport for one keypress — a scroll bar does not do
+ * that, and neither should this. Anything out of range is clamped too, so a
+ * stale index can never focus a button that is not there.
+ */
+export function nextLetterIndex(current: number, key: string, length: number): number {
+  const last = Math.max(length - 1, 0)
+  const clamp = (i: number) => Math.min(Math.max(i, 0), last)
+  switch (key) {
+    case 'ArrowDown':
+      return clamp(current + 1)
+    case 'ArrowUp':
+      return clamp(current - 1)
+    case 'Home':
+      return 0
+    case 'End':
+      return last
+    default:
+      return current
+  }
 }

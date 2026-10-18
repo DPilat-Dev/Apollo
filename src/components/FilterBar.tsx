@@ -1,9 +1,13 @@
 import {
+  LETTERS,
   SORTS,
   activeFilters,
   clearFilter,
   decadeOptions,
   genreOptions,
+  letterApplies,
+  letterLabel,
+  parseLetter,
   parseYearRange,
   ratingOptions,
   yearRangeValue,
@@ -66,6 +70,29 @@ export function FilterBar({
             {genreOptions(genres, filters.genre).map((g) => (
               <option key={g} value={g}>
                 {g}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/*
+          The letter picker, and the whole feature on a phone: keyboard- and
+          screen-reader-native for free, where the rail beside the grid is
+          neither. It is also what lets the rail be a desktop embellishment
+          that could be removed without removing the feature. Shown only beside
+          the alphabetical sort, because that is the only order it agrees with.
+        */}
+        {letterApplies(sortKey) && (
+          <select
+            aria-label="First letter"
+            value={filters.letter}
+            onChange={(e) => onFilters({ ...filters, letter: parseLetter(e.target.value) })}
+            className={CONTROL}
+          >
+            <option value="">All titles</option>
+            {LETTERS.map((letter) => (
+              <option key={letter} value={letter}>
+                {letterLabel(letter)}
               </option>
             ))}
           </select>

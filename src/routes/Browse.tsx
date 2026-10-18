@@ -6,6 +6,8 @@ import { FilterBar } from '../components/FilterBar'
 import { useApi } from '../lib/auth'
 import {
   NO_FILTERS,
+  clearFilter,
+  letterApplies,
   sortContextFor,
   filterCacheKey,
   filtersToParams,
@@ -107,7 +109,10 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const setSort = (key: SortKey) => {
     const next = new URLSearchParams(params)
     next.set('sort', key)
-    write(next)
+    // Same reasoning as Library's: the letter picker only exists beside the
+    // alphabetical sort, and a filter that outlives its control is state
+    // nothing on screen admits to.
+    write(letterApplies(key) ? next : filtersToParams(clearFilter(filters, 'letter'), next))
   }
 
   const currentYear = new Date().getFullYear()
