@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { itemActions, type ItemActionId } from '../../lib/itemActions'
 import { useCanManageCollections, useIsAdmin } from '../../lib/queries'
+import { usePopupDismiss } from '../../lib/usePopupDismiss'
 import { MoreIcon } from '../icons'
 
 /**
@@ -37,30 +38,14 @@ export function ItemActionsMenu({
   const isAdmin = useIsAdmin()
   const canManageCollections = useCanManageCollections()
   const [open, setOpen] = useState(false)
-  const wrap = useRef<HTMLDivElement>(null)
   const actions = itemActions({ isAdmin, canManageCollections, item })
 
   /*
-    Close on Escape and on a click elsewhere. `pointerdown` rather than
-    `click`, so a press that starts outside the menu dismisses it before the
-    thing underneath receives the release — otherwise dismissing the menu also
-    activates whatever happened to be behind it.
+    Escape and click-away. This menu's own copy of that is what became
+    `usePopupDismiss`: the header's account menu and nav drawer each had half of
+    it, and the half they were missing was the keyboard's.
   */
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const wrap = usePopupDismiss({ open, onClose: () => setOpen(false) })
 
   if (actions.length === 0) return null
 

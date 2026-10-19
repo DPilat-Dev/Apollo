@@ -3,12 +3,14 @@ import { Navigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
+import { LetterRail } from '../components/LetterRail'
 import { useApi } from '../lib/auth'
 import {
   NO_FILTERS,
   sortContextFor,
   filterCacheKey,
   isFilterActive,
+  letterApplies,
   matchCountLabel,
   toItemsQuery,
   toSortQuery,
@@ -163,11 +165,27 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
   usePageOnScroll(sentinel, query)
 
+  /*
+    The same gate the picker is behind, so the two cannot disagree. The rail
+    was originally scoped to Library on the assumption that this page holds
+    "typically tens of items"; a genre page measured 529 titles, larger than
+    most libraries, and a person page is the same grid. One control appearing
+    as a dropdown here and as a dropdown plus a rail there was a difference no
+    viewer could account for.
+  */
+  const showRail = letterApplies(sort.key)
+
   if (handOff) return <Navigate to={handOff} replace />
 
 
   return (
-    <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
+    /* The right edge is given back while the rail is there, exactly as Library
+       gives it back: at xl:grid-cols-8 the last column's hover-grow reaches
+       the rail otherwise, and 56px is not enough for the rail, air and a
+       desktop scrollbar together. */
+    <div
+      className={`px-4 pb-24 pt-24 sm:pl-14 sm:pt-28 ${showRail ? 'sm:pr-20' : 'sm:pr-14'}`}
+    >
       <div className="mb-6 flex flex-col gap-4">
         <div>
           {heading ?? (
@@ -198,6 +216,13 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
           sorts={sorts}
         />
       </div>
+
+      {showRail && (
+        <LetterRail
+          value={filters.letter}
+          onSelect={(letter) => setFilters({ ...filters, letter })}
+        />
+      )}
 
       {query.isLoading ? (
         <div className={GRID_CLASS}>

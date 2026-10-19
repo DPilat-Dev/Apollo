@@ -9,6 +9,8 @@ import {
   SORTS,
   SHEET_FILTER_KEYS,
   INLINE_FILTER_KEYS,
+  BAR_CONTROLS,
+  chipFocusAfterRemoval,
   sheetFilterCount,
   shownFilters,
   filtersButtonLabel,
@@ -1010,6 +1012,99 @@ describe('matchCountLabel', () => {
   it('says nothing at all before a total is known', () => {
     expect(matchCountLabel(undefined, NO_FILTERS)).toBe('')
     expect(matchCountLabel(null, { ...NO_FILTERS, letter: 'M' })).toBe('')
+  })
+
+  /*
+    A live region reads this sentence out on every filter change, so "1 titles
+    under X" is not a typo somebody skims past — it is spoken. One is the
+    ordinary result of walking the alphabet of a small library, not an edge
+    case: a Q, an X and a Z bucket with a single title each is what most
+    libraries hold.
+  */
+  it('counts one title in the singular, in all three sentences', () => {
+    expect(matchCountLabel(1, NO_FILTERS)).toBe('1 title')
+    expect(matchCountLabel(1, { ...NO_FILTERS, letter: 'Q' })).toBe('1 title under Q')
+    expect(matchCountLabel(1, { ...NO_FILTERS, watched: 'unwatched' })).toBe('1 matching title')
+    expect(matchCountLabel(1, { ...NO_FILTERS, letter: '#' })).toBe(
+      '1 title under numbers & symbols',
+    )
+  })
+
+  /* Zero and the thousands are plural, which is the half that already worked. */
+  it('keeps every other count plural', () => {
+    expect(matchCountLabel(0, NO_FILTERS)).toBe('0 titles')
+    expect(matchCountLabel(2, { ...NO_FILTERS, letter: 'Q' })).toBe('2 titles under Q')
+    expect(matchCountLabel(1204, { ...NO_FILTERS, subtitles: true })).toBe(
+      '1,204 matching titles',
+    )
+  })
+})
+
+/*
+  The bar's tab order is its DOM order, and nothing else can be trusted to say
+  what that is: `sm:order-*` put the letter picker back where it looks right
+  and left a keyboard walking the bar backwards — Genre, Watched, Year,
+  Rating, Subtitled, then back up to First letter, which is WCAG 2.4.3. So the
+  order is one value here, the bar lays itself out by walking it, and a control
+  added to the bar without a place in it renders nowhere at all.
+*/
+describe('BAR_CONTROLS', () => {
+  it('is the order the bar reads in, left to right', () => {
+    expect([...BAR_CONTROLS]).toEqual([
+      'genre',
+      'letter',
+      'watched',
+      'year',
+      'rating',
+      'subtitles',
+      'sort',
+    ])
+  })
+
+  it('holds every filter the bar can show, and the sort, exactly once', () => {
+    expect([...BAR_CONTROLS].sort()).toEqual(
+      [...SHEET_FILTER_KEYS, ...INLINE_FILTER_KEYS, 'sort'].sort(),
+    )
+    expect(new Set(BAR_CONTROLS).size).toBe(BAR_CONTROLS.length)
+  })
+
+  it('puts the letter picker where a phone keeps it: beside the sort, not behind the button', () => {
+    // The two controls a phone leaves on the bar are the letter and the sort,
+    // and the five it hides are contiguous between Genre and Sort only by
+    // accident of this order — which is why the bar must not depend on it.
+    expect(BAR_CONTROLS.indexOf('letter')).toBeLessThan(BAR_CONTROLS.indexOf('watched'))
+    expect(BAR_CONTROLS[BAR_CONTROLS.length - 1]).toBe('sort')
+  })
+})
+
+/*
+  Removing a chip unmounts the button the pointer or the keyboard is on. Left
+  alone, the browser drops focus to <body>: a keyboard viewer who clears one
+  filter of three is returned to the top of the document and has to walk the
+  whole page again to reach the other two.
+*/
+describe('chipFocusAfterRemoval', () => {
+  it('moves to the chip that takes the removed one place', () => {
+    expect(chipFocusAfterRemoval(['genre', 'letter', 'watched'], 'letter')).toBe('watched')
+    expect(chipFocusAfterRemoval(['genre', 'letter', 'watched'], 'genre')).toBe('letter')
+  })
+
+  it('falls to Clear all when the last chip in the row goes', () => {
+    // There is nothing to the right of it but that button, and it is still
+    // there: other chips remain, so the row does not unmount.
+    expect(chipFocusAfterRemoval(['genre', 'letter'], 'letter')).toBe('clear')
+  })
+
+  it('leaves the row for the sort when the row itself is leaving', () => {
+    // The last chip takes "Clear all" and the whole row with it, so focus has
+    // to land on something that is still on screen at every width. The sort is
+    // the only control the bar always has.
+    expect(chipFocusAfterRemoval(['letter'], 'letter')).toBe('sort')
+  })
+
+  it('does not aim at a chip that was never in the row', () => {
+    expect(chipFocusAfterRemoval([], 'letter')).toBe('sort')
+    expect(chipFocusAfterRemoval(['genre'], 'watched')).toBe('sort')
   })
 })
 

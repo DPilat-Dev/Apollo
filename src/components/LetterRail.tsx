@@ -91,7 +91,7 @@ export function LetterRail({
       role="toolbar"
       aria-orientation="vertical"
       aria-label="Filter by first letter"
-      className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-px pl-2 pr-[calc(0.5rem+env(safe-area-inset-right))] sm:flex touch:hidden short:hidden"
+      className="fixed right-0 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-px pl-2 pr-[calc(0.5rem+env(safe-area-inset-right)+var(--dialog-scrollbar-gap,0px))] sm:flex touch:hidden short:hidden"
     >
       {LETTERS.map((letter, index) => (
         <button

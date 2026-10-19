@@ -1,13 +1,27 @@
 import { useEffect, useId, useRef } from 'react'
 import { FOCUSABLE_SELECTOR, initialFocus, isDismissKey, trapTarget } from './dialogFocus'
+import {
+  SCROLLBAR_GAP_PROPERTY,
+  acquireScrollLock,
+  releaseScrollLock,
+  scrollbarGap,
+} from './scrollLock'
 
 /**
  * Turns a `<div>` covering the screen into a dialog.
  *
  * Escape closes it, Tab cycles inside it instead of walking out into the page
- * behind, assistive technology is told what it is, and closing hands focus back
- * to whatever opened it. The decisions are in `dialogFocus.ts`, which is tested;
- * this is the part that needs a document.
+ * behind, assistive technology is told what it is, the page behind it does not
+ * scroll, and closing hands focus back to whatever opened it. The decisions are
+ * in `dialogFocus.ts` and `scrollLock.ts`, which are tested; this is the part
+ * that needs a document.
+ *
+ * The scroll lock is here rather than in `Modal` — which is where it was
+ * reported, from the phone Filters sheet — because `Modal` is six of the ten
+ * dialogs in this app and the other four (the trailer, the shortcuts sheet,
+ * Add to playlist, Add to collection) build the same overlay around this hook
+ * instead. This is the one thing every dialog has in common, and a fix in
+ * `Modal` would have left four of them scrolling the page behind the backdrop.
  *
  * The listener lives on the dialog element rather than on `document` so nesting
  * works: an Escape inside an inner dialog closes the inner one and stops there,
@@ -25,6 +39,54 @@ export function useDialog({ onClose }: { onClose: () => void }) {
   */
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+
+  /*
+    Nothing behind a dialog moves while it is open. Measured on the phone
+    Filters sheet at 390×844: a drag on the dimmed backdrop scrolled the grid
+    underneath from 0 to 500px while the sheet stayed put, because `body`
+    computed to `overflow: hidden auto` — `index.css` locks the x-axis and
+    nothing locked the y. On a handset that is a swipe on the dim area taking
+    the list you were reading off the screen while the dialog asking about it
+    stays.
+
+    `scrollLock` says why the dialogs are counted rather than flagged, and why
+    the width of the vanished scrollbar is handed back as padding.
+  */
+  useEffect(() => {
+    // Already locked by a dialog underneath this one: take a share of the count
+    // and leave the page exactly as that dialog left it.
+    if (!acquireScrollLock()) {
+      return () => {
+        releaseScrollLock()
+      }
+    }
+
+    const { body } = document
+    /*
+      The inline values, not the computed ones, and restored verbatim. `body`
+      carries `overflow-x: hidden` from the stylesheet, so writing a computed
+      `hidden auto` back would bake a one-off into the element and quietly take
+      that rule out of the stylesheet's hands forever.
+    */
+    const overflow = body.style.overflow
+    const paddingRight = body.style.paddingRight
+    const gap = scrollbarGap(window.innerWidth, document.documentElement.clientWidth)
+
+    body.style.overflow = 'hidden'
+    if (gap > 0) {
+      body.style.paddingRight = `${gap}px`
+      // For the fixed chrome, which is laid out against the viewport and so
+      // cannot be held still by padding the page. See `scrollLock`.
+      document.documentElement.style.setProperty(SCROLLBAR_GAP_PROPERTY, `${gap}px`)
+    }
+
+    return () => {
+      releaseScrollLock()
+      body.style.overflow = overflow
+      body.style.paddingRight = paddingRight
+      document.documentElement.style.removeProperty(SCROLLBAR_GAP_PROPERTY)
+    }
+  }, [])
 
   useEffect(() => {
     const node = ref.current

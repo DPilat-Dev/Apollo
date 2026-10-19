@@ -74,7 +74,46 @@ describe('the pages that render the filter bar', () => {
       expect(source).toMatch(/matchCountLabel\(/)
       expect(source).not.toMatch(/total > 0 &&/)
     })
+
+    /*
+      The rail was scoped to Library on the assumption that Browse holds
+      "typically tens of items". A genre page was then measured at 529 titles —
+      larger than most libraries — so the same control was a dropdown on one
+      page and a dropdown plus a rail on another, for no reason a viewer could
+      infer. Both are gated on `letterApplies`, so wherever the picker is drawn
+      the rail is drawn with it.
+    */
+    it(`${file} shows the rail wherever it shows the picker`, () => {
+      const source = code(file)
+      expect(source).toMatch(/<LetterRail\b/)
+      expect(source).toMatch(/letterApplies\(/)
+      // And gives the rail its edge back, so the last column's hover-grow does
+      // not reach under it.
+      expect(source).toMatch(/sm:pr-20/)
+    })
   }
+})
+
+describe('the order of the filter bar', () => {
+  /*
+    The bar's tab order is its DOM order. Grouping the five occasional filters
+    into one component for the phone sheet made them contiguous in the DOM and
+    `sm:order-*` put the letter picker back where it looks right — so a keyboard
+    walked Genre, Watched, Year, Rating, Subtitled and then jumped *backwards*
+    to First letter. WCAG 2.4.3, and invisible to anyone reading the rendered
+    page. So the order is one declared value, the bar lays itself out by walking
+    it, and no `order` utility is allowed to disagree with the result.
+  */
+  const source = code('components/FilterBar.tsx')
+
+  it('is the declared one, walked in the DOM rather than rearranged in CSS', () => {
+    expect(source).toMatch(/BAR_CONTROLS\.map\(/)
+  })
+
+  it('uses no order utility at all, at any breakpoint', () => {
+    // Anchored on a class boundary so `border-white/15` is not read as one.
+    expect(source).not.toMatch(/[\s:'"`]order-/)
+  })
 })
 
 describe('useFilterParams', () => {

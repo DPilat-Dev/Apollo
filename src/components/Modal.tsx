@@ -18,6 +18,13 @@ import { useDialog } from '../lib/useDialog'
  * placement, not a second kind of overlay — same chrome, same border, same
  * close ✕ — because a second overlay shape in the app would be one more thing
  * to keep in step for no stated gain.
+ *
+ * The page behind it does not move either, which is the other half of "not
+ * available" and was missing from every dialog in the app: `index.css` locks
+ * `overflow-x` on `body` and nothing locked `overflow-y`, so a drag on the
+ * backdrop scrolled the page underneath. That lock is in `useDialog` with the
+ * rest of it, because this component is only six of the ten dialogs — the
+ * other four build the same overlay around the same hook.
  */
 export function Modal({
   title,

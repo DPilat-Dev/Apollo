@@ -386,6 +386,73 @@ export const SHEET_FILTER_KEYS = [
 export const INLINE_FILTER_KEYS = ['letter'] as const satisfies readonly FilterKey[]
 
 /**
+ * Every control on the filter bar, in the one order it shows them in — which
+ * is also the order a keyboard tabs through them.
+ *
+ * It is a value here rather than a sequence of JSX because the two stopped
+ * agreeing. Grouping the five occasional filters into one component for the
+ * phone sheet made them contiguous in the DOM, and `sm:order-*` put the letter
+ * picker back where it looks right on a wide screen — so the bar *read* Genre,
+ * First letter, Watched, Year, Rating, Subtitled, Sort and *tabbed* Genre,
+ * Watched, Year, Rating, Subtitled, First letter, Sort. Focus jumped backwards
+ * across the bar, which is WCAG 2.4.3, and nothing on the rendered page showed
+ * it: the visual order was correct.
+ *
+ * So the bar lays itself out by walking this list, there is no `order` utility
+ * anywhere in it, and the two cannot disagree again. The five that a phone
+ * hides are not contiguous here and do not need to be — they are rendered one
+ * by one from this order and only grouped inside the sheet.
+ *
+ * `sort` is in the list and is not a `FilterKey`, for the same reason
+ * `activeFilters` has never named it: reordering a grid hides nothing. It is
+ * still a control on the bar, and a layout order that left it out would be an
+ * order of six controls for a bar of seven.
+ */
+export const BAR_CONTROLS = [
+  'genre',
+  'letter',
+  'watched',
+  'year',
+  'rating',
+  'subtitles',
+  'sort',
+] as const satisfies readonly (FilterKey | 'sort')[]
+
+export type BarControl = (typeof BAR_CONTROLS)[number]
+
+/**
+ * Where focus goes when a chip's × removes it.
+ *
+ * Clicking the × unmounts the button the focus is on, and a browser given
+ * nothing else to do drops focus to `<body>` — so a keyboard viewer who clears
+ * one filter of three is returned to the top of the document and has to walk
+ * the whole page again to reach the other two.
+ *
+ * The ladder is: the chip that takes the removed one's place, so the row can be
+ * cleared one × at a time without the focus ever leaving it; failing that
+ * "Clear all", which is the next thing along and is still on screen while any
+ * chip remains; and failing *that* the sort control, because the last chip
+ * takes "Clear all" and the whole row away with it and the sort is the one
+ * control the bar has at every width — the five occasional filters are
+ * `display: none` on a phone, and focusing a hidden control is the same silence
+ * as focusing nothing.
+ */
+export type ChipFocusTarget = FilterKey | 'clear' | 'sort'
+
+export function chipFocusAfterRemoval(
+  /** The chips currently in the row, in the order they are shown. */
+  keys: readonly FilterKey[],
+  removed: FilterKey,
+): ChipFocusTarget {
+  const at = keys.indexOf(removed)
+  // A chip that is not in the row cannot say where the row's focus should go,
+  // and `keys[at + 1]` would answer "the first chip" for it.
+  if (at === -1) return 'sort'
+  if (keys.length === 1) return 'sort'
+  return keys[at + 1] ?? 'clear'
+}
+
+/**
  * The chips a given page is allowed to show, and the basis for the badge.
  *
  * `hasGenreControl` is the Browse case: there the genre *is* the page, so the
@@ -576,20 +643,31 @@ export function filterChangeMovesPage(from: LibraryFilters, to: LibraryFilters):
  *
  * Returns `''` before a total is known, because the line stays mounted — a
  * live region has to be in the tree before its text changes to be read out.
+ *
+ * The noun agrees with the count, in all three sentences. "1 titles under X" is
+ * not a typo somebody skims past — this line is a live region, so a screen
+ * reader says it out loud on every filter change, and one is the ordinary
+ * result of walking the alphabet rather than an edge case: a Q, an X and a Z
+ * bucket holding a single title each is what most libraries hold.
  */
+const titleNoun = (total: number): string => (total === 1 ? 'title' : 'titles')
+
 export function matchCountLabel(
   total: number | null | undefined,
   filters: LibraryFilters,
 ): string {
   if (total == null) return ''
-  const count = total.toLocaleString()
+  const count = `${total.toLocaleString()} ${titleNoun(total)}`
   if (filters.letter) {
     // "starting with Numbers & symbols" is not a sentence; "under" is the
     // filing-cabinet word that works for a letter and for the glyph alike.
     const bucket = filters.letter === '#' ? letterLabel('#').toLowerCase() : filters.letter
-    return `${count} titles under ${bucket}`
+    return `${count} under ${bucket}`
   }
-  return isFilterActive(filters) ? `${count} matching titles` : `${count} titles`
+  if (!isFilterActive(filters)) return count
+  // "matching" goes between the number and the noun, so the noun is still the
+  // one that has to agree: "1 matching title", not "1 matching titles".
+  return `${total.toLocaleString()} matching ${titleNoun(total)}`
 }
 
 export interface ItemsFilterQuery {
