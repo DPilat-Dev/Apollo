@@ -181,3 +181,35 @@ describe('the window moves in blocks', () => {
     }
   })
 })
+
+/*
+  A filter can take a list from 1,600 titles to 40 while the page is 25,000px
+  down it, and when the new result is already cached no skeleton unmounts the
+  grid in between — so one render happens with a deep `scrollTop` and a short
+  list. Unclamped at the top, that render asked for `items.slice(264, 40)`:
+  nothing at all, behind 9,900px of padding, which keeps the page tall enough
+  that the browser never corrects the scroll and the grid never recovers.
+
+  Clamped here rather than by having every caller scroll to the top first,
+  because the next consumer of this will not know to.
+*/
+describe('a list that shrank while the page was scrolled deep into it', () => {
+  it('never asks for an inverted slice, however far past the end the scroll is', () => {
+    for (const totalItems of [1, 7, 12, 40, 600, 604]) {
+      for (const scrollTop of [5_000, 25_000, 1_000_000]) {
+        const w = gridWindow({ totalItems, metrics, scrollTop, viewportHeight: 900 })
+        expect(w.endIndex).toBeGreaterThanOrEqual(w.startIndex)
+        expect(w.startIndex).toBeLessThanOrEqual(totalItems)
+      }
+    }
+  })
+
+  it('never reserves more height than the list has', () => {
+    for (const totalItems of [1, 7, 12, 40, 604]) {
+      const rows = Math.ceil(totalItems / 6)
+      const w = gridWindow({ totalItems, metrics, scrollTop: 1_000_000, viewportHeight: 900 })
+      expect(w.paddingTop).toBeLessThanOrEqual(rows * 250)
+      expect(w.paddingTop + w.paddingBottom).toBeLessThanOrEqual(rows * 250)
+    }
+  })
+})

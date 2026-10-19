@@ -133,14 +133,27 @@ export function gridWindow({
     the far end of a block would have the overscan below them eaten by the lag.
   */
   const anchorRow = floorTo(firstVisibleRow, BLOCK_ROWS)
-  const startRow = Math.max(0, anchorRow - overscanRows)
+  /*
+    Clamped at *both* ends, because `scrollTop` can outlive the list it was
+    measured against: a filter takes 1,600 titles down to 40 while the page is
+    25,000px into them, and when the new result is already cached no skeleton
+    unmounts the grid in between — so one render happens with a deep scroll and
+    a short list. Clamped only at zero, that render asked for
+    `items.slice(264, 40)`: nothing at all, behind 9,900px of padding, which
+    keeps the page tall enough that the browser never corrects the scroll and
+    the grid never comes back. Here rather than in the callers, because the
+    next consumer of this will not know to scroll to the top first.
+  */
+  const startRow = Math.min(Math.max(0, anchorRow - overscanRows), totalRows)
   const endRow = Math.min(
     totalRows,
     anchorRow + rowsInView + overscanRows + BLOCK_ROWS,
   )
 
   return {
-    startIndex: startRow * columns,
+    // A last row that is not full makes `startRow * columns` one past the end
+    // even at `totalRows`, which is the same inverted slice one row later.
+    startIndex: Math.min(startRow * columns, totalItems),
     endIndex: Math.min(totalItems, endRow * columns),
     /*
       `rowStride` includes the gap below a row, so `startRow` strides is
