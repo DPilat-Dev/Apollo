@@ -1,9 +1,10 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { useMemo, useRef } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { CardSkeleton, MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
+import { LetterRail } from '../components/LetterRail'
 import { useApi } from '../lib/auth'
 import { useViews } from '../lib/queries'
 import { browsableTypes } from '../lib/collections'
@@ -15,13 +16,12 @@ import { usePageOnScroll } from '../lib/usePageWalk'
 import {
   NO_FILTERS,
   filterCacheKey,
-  filtersToParams,
   isFilterActive,
-  parseFilters,
-  parseSort,
+  letterApplies,
+  matchCountLabel,
   toItemsQuery,
-  type SortKey,
 } from '../lib/libraryFilters'
+import { useFilterParams } from '../lib/useFilterParams'
 
 const PAGE_SIZE = 60
 
@@ -41,7 +41,6 @@ const renderCard = (item: BaseItemDto) => (
 
 export function Library() {
   const { viewId } = useParams<{ viewId: string }>()
-  const [params, setParams] = useSearchParams()
   const api = useApi()
   const { data: views, isPending: viewsPending } = useViews()
   const sentinel = useRef<HTMLDivElement>(null)
@@ -55,21 +54,12 @@ export function Library() {
     Sort and filters are read from the URL rather than held in state. A library
     of 27,000 episodes is only usable filtered, and a filtered grid is something
     people bookmark, share and come back to — all of which a useState filter
-    loses on the first refresh. Browse already worked this way for the same
-    reason; this makes the two pages agree.
-
-    Writing them back replaces the history entry instead of pushing one, so
-    Back still leaves the library rather than walking every select change.
+    loses on the first refresh. Browse works this way too, and the hook is what
+    keeps the two pages from drifting apart about it — including about a letter
+    the sort does not apply to, which is cleared before the request, the cache
+    key, the chip bar and the rail ever see it.
   */
-  const filters = useMemo(() => parseFilters(params), [params])
-  const sort = parseSort(params.get('sort'), 'added')
-
-  const write = (next: URLSearchParams) => setParams(next, { replace: true })
-  const setSort = (key: SortKey) => {
-    const next = new URLSearchParams(params)
-    next.set('sort', key)
-    write(next)
-  }
+  const { filters, sort, setFilters, setSort } = useFilterParams(() => ({ fallback: 'added' }))
 
   const currentYear = new Date().getFullYear()
   const filterQuery = toItemsQuery(filters, currentYear)
@@ -126,31 +116,59 @@ export function Library() {
 
   const total = query.data?.pages[0]?.TotalRecordCount
   const filtered = isFilterActive(filters)
+  const showRail = letterApplies(sort.key)
 
   useDocumentTitle(pageTitle(view?.Name))
 
   return (
-    <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
+    /* The rail is fixed to the right edge rather than floated over the grid:
+       at xl:grid-cols-8 the eighth column's hover-grow would reach it. So the
+       page gives the edge back while the rail is there — 56px is not enough
+       for the rail, air and a desktop scrollbar. */
+    <div
+      className={`px-4 pb-24 pt-24 sm:pl-14 sm:pt-28 ${showRail ? 'sm:pr-20' : 'sm:pr-14'}`}
+    >
       <div className="mb-6 flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold sm:text-4xl">{view?.Name ?? 'Library'}</h1>
-            {total != null && (
-              <p className="mt-1 text-sm text-white/45">
-                {total.toLocaleString()} {filtered ? 'matching titles' : 'titles'}
-              </p>
-            )}
+            {/*
+              One attribute that makes every filter change announce the new
+              count: the whole bar was silent before, so a screen reader user
+              chose Unwatched and got no confirmation anything had happened.
+
+              It says which letter it counted, too. "88 matching titles" is the
+              same sentence for M, N and O, and walking the alphabet is exactly
+              the loop that queues three of them in a row.
+
+              The paragraph stays mounted with nothing in it rather than
+              appearing with the count, because a live region has to be in the
+              tree *before* it changes to be read out — inserted together with
+              its own text, it is just another node appearing, which is the
+              silence this is meant to fix. Empty, it is a block with no line
+              box: 4px of margin and nothing else.
+            */}
+            <p role="status" className="mt-1 text-sm text-white/45">
+              {matchCountLabel(total, filters)}
+            </p>
           </div>
         </div>
 
         <FilterBar
           filters={filters}
-          onFilters={(next) => write(filtersToParams(next, params))}
+          onFilters={setFilters}
           sortKey={sort.key}
           onSort={setSort}
           genres={genres}
         />
       </div>
+
+      {showRail && (
+        <LetterRail
+          value={filters.letter}
+          onSelect={(letter) => setFilters({ ...filters, letter })}
+        />
+      )}
 
       {showSkeleton ? (
         <div className={GRID_CLASS}>
@@ -192,7 +210,7 @@ export function Library() {
           {filtered && (
             <button
               type="button"
-              onClick={() => write(filtersToParams(NO_FILTERS, params))}
+              onClick={() => setFilters(NO_FILTERS)}
               className="mt-4 rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
             >
               Clear filters

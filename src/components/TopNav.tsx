@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { usePopupDismiss } from '../lib/usePopupDismiss'
 import { useBoxSets, useCurrentUser, useIsAdmin, useRecapLink, useViews } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
 import { MenuIcon, SearchIcon } from './icons'
@@ -28,6 +29,22 @@ export function TopNav() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  /*
+    Both of these used to close only on an outside *click*, which is to say
+    that a keyboard could open either one and had no way to shut it again:
+    Escape did nothing and Tab walked on through the page with the menu still
+    over it. The item ⋮ menu had always had both halves, so the hook is that
+    menu's behaviour, moved somewhere all three can share it — Escape, a press
+    elsewhere, and the focus handed back to the trigger rather than dropped on
+    `<body>`.
+
+    It also replaces the invisible full-screen `<div>` each of these had for
+    catching outside clicks. That div caught the *release*, so dismissing a
+    menu by pressing on a card behind it also opened the card.
+  */
+  const navWrap = usePopupDismiss({ open: navOpen, onClose: () => setNavOpen(false) })
+  const menuWrap = usePopupDismiss({ open: menuOpen, onClose: () => setMenuOpen(false) })
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40)
@@ -102,7 +119,12 @@ export function TopNav() {
       theme, which is precisely what this exists to avoid.
     */
     <nav
-      className={`on-media fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${
+      /* `pr-[var(--dialog-scrollbar-gap,0px)]`: while a dialog holds the page
+         still, the viewport is as much wider as the scrollbar it hid, and
+         anything `fixed` to it — this bar's right-hand controls, the letter
+         rail — slides out with it. `useDialog` publishes the width; this gives
+         it back. 0px at every other moment, which is to say almost always. */
+      className={`on-media fixed inset-x-0 top-0 z-50 pr-[var(--dialog-scrollbar-gap,0px)] transition-colors duration-300 ${
         scrolled ? 'bg-ink/95 backdrop-blur-md shadow-lg shadow-black/40' : 'bg-gradient-to-b from-black/80 to-transparent'
       }`}
     >
@@ -110,55 +132,63 @@ export function TopNav() {
         {/* Below `sm` the library row has nowhere to go, so it moves behind an
             explicit menu button. It used to live inside the account menu,
             where nobody thinks to look for navigation. */}
-        <div className="relative sm:hidden">
+        <div ref={navWrap} className="relative sm:hidden">
           <button
             onClick={() => setNavOpen((v) => !v)}
             aria-label="Browse libraries"
+            aria-haspopup="menu"
             aria-expanded={navOpen}
             className="-ml-2 flex size-11 items-center justify-center text-white/85 transition hover:text-white"
           >
             <MenuIcon className="size-6" />
           </button>
           {navOpen && (
-            <>
-              <div className="fixed inset-0 z-0" onClick={() => setNavOpen(false)} />
-              <div className="absolute left-0 z-10 mt-1 max-h-[70vh] w-56 overflow-y-auto rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur">
+            /* `role="menu"` and `menuitem` links, the same as the ⋮ menu: a
+               popup that is announced as a stack of links in a div says
+               nothing about being a popup, and nothing about having closed. */
+            <div
+              role="menu"
+              className="absolute left-0 z-10 mt-1 max-h-[70vh] w-56 overflow-y-auto rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur"
+            >
+              <NavLink
+                to="/"
+                end
+                role="menuitem"
+                onClick={() => setNavOpen(false)}
+                className={mobileLinkClass}
+              >
+                Home
+              </NavLink>
+              <NavLink
+                to="/playlists"
+                role="menuitem"
+                onClick={() => setNavOpen(false)}
+                className={mobileLinkClass}
+              >
+                Playlists
+              </NavLink>
+              {showCollections && (
                 <NavLink
-                  to="/"
-                  end
+                  to="/collections"
+                  role="menuitem"
                   onClick={() => setNavOpen(false)}
                   className={mobileLinkClass}
                 >
-                  Home
+                  Collections
                 </NavLink>
+              )}
+              {browsable.map((v) => (
                 <NavLink
-                  to="/playlists"
+                  key={v.Id}
+                  to={`/library/${v.Id}`}
+                  role="menuitem"
                   onClick={() => setNavOpen(false)}
                   className={mobileLinkClass}
                 >
-                  Playlists
+                  {v.Name}
                 </NavLink>
-                {showCollections && (
-                  <NavLink
-                    to="/collections"
-                    onClick={() => setNavOpen(false)}
-                    className={mobileLinkClass}
-                  >
-                    Collections
-                  </NavLink>
-                )}
-                {browsable.map((v) => (
-                  <NavLink
-                    key={v.Id}
-                    to={`/library/${v.Id}`}
-                    onClick={() => setNavOpen(false)}
-                    className={mobileLinkClass}
-                  >
-                    {v.Name}
-                  </NavLink>
-                ))}
-              </div>
-            </>
+              ))}
+            </div>
           )}
         </div>
 
@@ -215,11 +245,13 @@ export function TopNav() {
 
           <RemoteControl />
 
-          <div className="relative">
+          <div ref={menuWrap} className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
               className="flex size-8 items-center justify-center rounded"
               aria-label="Account menu"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
             >
               <UserAvatar
                 server={session?.server ?? ''}
@@ -232,71 +264,80 @@ export function TopNav() {
               />
             </button>
             {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-0" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 z-10 mt-2 w-52 rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur">
-                  <p className="truncate px-3 py-2 text-xs text-white/45">
-                    Signed in as{' '}
-                    <span className="font-medium text-white/80">{session?.userName}</span>
-                  </p>
-                  <div className="my-1 h-px bg-white/10" />
-                  {/* Only ever rendered in December and January, and only for
-                      an account with something in that year — `useRecapLink`
-                      returns nothing otherwise, so the entry is absent rather
-                      than hidden. */}
-                  {recap && (
-                    <Link
-                      to={recap.href}
-                      onClick={() => setMenuOpen(false)}
-                      className="block px-3 py-2 text-sm font-medium text-accent hover:bg-white/5"
-                    >
-                      {recap.label}
-                    </Link>
-                  )}
-                  {/* In the account menu rather than the library bar: history
-                      is a fact about this account, not somewhere to browse,
-                      and the bar already scrolls on a server with many
-                      libraries. */}
+              <div
+                role="menu"
+                className="absolute right-0 z-10 mt-2 w-52 rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur"
+              >
+                {/* Not a menu item: it is the one line in here that cannot be
+                    chosen. `presentation` keeps it out of the item list a
+                    screen reader walks while leaving its text readable. */}
+                <p role="presentation" className="truncate px-3 py-2 text-xs text-white/45">
+                  Signed in as{' '}
+                  <span className="font-medium text-white/80">{session?.userName}</span>
+                </p>
+                <div role="separator" className="my-1 h-px bg-white/10" />
+                {/* Only ever rendered in December and January, and only for
+                    an account with something in that year — `useRecapLink`
+                    returns nothing otherwise, so the entry is absent rather
+                    than hidden. */}
+                {recap && (
                   <Link
-                    to="/history"
+                    to={recap.href}
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="block px-3 py-2 text-sm font-medium text-accent hover:bg-white/5"
+                  >
+                    {recap.label}
+                  </Link>
+                )}
+                {/* In the account menu rather than the library bar: history
+                    is a fact about this account, not somewhere to browse,
+                    and the bar already scrolls on a server with many
+                    libraries. */}
+                <Link
+                  to="/history"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                >
+                  Watch history
+                </Link>
+                <Link
+                  to="/settings"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                >
+                  Settings
+                </Link>
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    role="menuitem"
                     onClick={() => setMenuOpen(false)}
                     className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
                   >
-                    Watch history
+                    Dashboard
                   </Link>
-                  <Link
-                    to="/settings"
-                    onClick={() => setMenuOpen(false)}
-                    className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
-                  >
-                    Settings
-                  </Link>
-                  {isAdmin && (
-                    <Link
-                      to="/admin"
-                      onClick={() => setMenuOpen(false)}
-                      className="block px-3 py-2 text-sm text-white/80 hover:bg-white/5"
-                    >
-                      Dashboard
-                    </Link>
-                  )}
-                  <div className="my-1 h-px bg-white/10" />
-                  {/* Above Sign out, because on a shared device it is the one
-                      people reach for, and the two are one slip apart. */}
-                  <button
-                    onClick={switchUser}
-                    className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
-                  >
-                    Switch user
-                  </button>
-                  <button
-                    onClick={signOut}
-                    className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
-                  >
-                    Sign out
-                  </button>
-                </div>
-              </>
+                )}
+                <div role="separator" className="my-1 h-px bg-white/10" />
+                {/* Above Sign out, because on a shared device it is the one
+                    people reach for, and the two are one slip apart. */}
+                <button
+                  role="menuitem"
+                  onClick={switchUser}
+                  className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                >
+                  Switch user
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={signOut}
+                  className="block w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                >
+                  Sign out
+                </button>
+              </div>
             )}
           </div>
         </div>

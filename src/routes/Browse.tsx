@@ -1,21 +1,21 @@
 import { useMemo, useRef, type ReactNode } from 'react'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { MediaCard } from '../components/MediaCard'
 import { FilterBar } from '../components/FilterBar'
+import { LetterRail } from '../components/LetterRail'
 import { useApi } from '../lib/auth'
 import {
   NO_FILTERS,
   sortContextFor,
   filterCacheKey,
-  filtersToParams,
   isFilterActive,
-  parseFilters,
-  parseSort,
+  letterApplies,
+  matchCountLabel,
   toItemsQuery,
   toSortQuery,
-  type SortKey,
 } from '../lib/libraryFilters'
+import { useFilterParams } from '../lib/useFilterParams'
 import { personRedirect } from '../lib/persons'
 import { collectionInView } from '../lib/boxSets'
 import { useCanManageCollections, useRemoveFromCollection } from '../lib/queries'
@@ -71,9 +71,23 @@ const GRID_CLASS =
   'grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8'
 
 export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
-  const [params, setParams] = useSearchParams()
   const api = useApi()
   const sentinel = useRef<HTMLDivElement>(null)
+
+  /*
+    The same reading of the URL Library does, including the scroll reset that
+    this page used not to have: the letter picker is on screen from the moment
+    a person or genre page opens — `name` is the sort it falls back to — so
+    pressing a letter 4,000px down a filmography was the exact blank screen
+    Library already guarded against.
+
+    The container decides whether the curated order is on offer, and it is the
+    default where it is, because a collection that opens alphabetically opens
+    the Lord of the Rings on The Return of the King.
+  */
+  const { params, filters, sort, sorts, setFilters, setSort } = useFilterParams((p) =>
+    sortContextFor(Boolean(p.get('parentId'))),
+  )
 
   // Unconditional, because `personRedirect` is what knows not to fire: the
   // person page renders this same component, and the rule that a person URL
@@ -84,13 +98,10 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const studioIds = params.get('studioIds') ?? undefined
   const genreIds = params.get('genreIds') ?? undefined
   const parentId = params.get('parentId') ?? undefined
-  const filters = useMemo(() => parseFilters(params), [params])
   const title = params.get('name') || filters.genre || 'Browse'
   useDocumentTitle(pageTitle(title))
   const kind = params.get('kind') ?? ''
 
-  const { sorts, fallback } = sortContextFor(Boolean(parentId))
-  const sort = parseSort(params.get('sort'), fallback, sorts)
   const filterKey = [personIds, studioIds, genreIds, parentId, filterCacheKey(filters)].join('|')
 
   /*
@@ -102,13 +113,6 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const canManageCollections = useCanManageCollections()
   const collection = collectionInView({ params, canManage: canManageCollections })
   const removeFromCollection = useRemoveFromCollection()
-
-  const write = (next: URLSearchParams) => setParams(next, { replace: true })
-  const setSort = (key: SortKey) => {
-    const next = new URLSearchParams(params)
-    next.set('sort', key)
-    write(next)
-  }
 
   const currentYear = new Date().getFullYear()
   const filterQuery = toItemsQuery(filters, currentYear)
@@ -149,10 +153,11 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
     () => query.data?.pages.flatMap((p) => p.Items ?? []) ?? [],
     [query.data],
   )
-  const total = query.data?.pages[0]?.TotalRecordCount ?? 0
+  const total = query.data?.pages[0]?.TotalRecordCount
 
   // The page's own genre is not one of the filters a viewer can drop, so it is
-  // excluded when deciding whether filters are what emptied the grid.
+  // excluded both when deciding whether filters are what emptied the grid and
+  // when the count line says whether it is counting a filtered total.
   const filtered = isFilterActive({ ...filters, genre: '' })
 
   // Paging on scroll, which stops for good on a refused page rather than asking
@@ -160,11 +165,27 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
   const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query
   usePageOnScroll(sentinel, query)
 
+  /*
+    The same gate the picker is behind, so the two cannot disagree. The rail
+    was originally scoped to Library on the assumption that this page holds
+    "typically tens of items"; a genre page measured 529 titles, larger than
+    most libraries, and a person page is the same grid. One control appearing
+    as a dropdown here and as a dropdown plus a rail there was a difference no
+    viewer could account for.
+  */
+  const showRail = letterApplies(sort.key)
+
   if (handOff) return <Navigate to={handOff} replace />
 
 
   return (
-    <div className="px-4 pb-24 pt-24 sm:px-14 sm:pt-28">
+    /* The right edge is given back while the rail is there, exactly as Library
+       gives it back: at xl:grid-cols-8 the last column's hover-grow reaches
+       the rail otherwise, and 56px is not enough for the rail, air and a
+       desktop scrollbar together. */
+    <div
+      className={`px-4 pb-24 pt-24 sm:pl-14 sm:pt-28 ${showRail ? 'sm:pr-20' : 'sm:pr-14'}`}
+    >
       <div className="mb-6 flex flex-col gap-4">
         <div>
           {heading ?? (
@@ -175,21 +196,33 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
               <h1 className="text-2xl font-bold sm:text-4xl">{title}</h1>
             </>
           )}
-          {total > 0 && (
-            <p className="mt-1 text-sm text-white/45">
-              {total.toLocaleString()} {filtered ? 'matching titles' : 'titles'}
-            </p>
-          )}
+          {/*
+            Mounted whatever the count is, and a live region, for the same two
+            reasons Library's is: a region inserted together with its own text
+            is just another node appearing, and a filter that matched nothing
+            has to read "0 titles under Q" rather than removing the only
+            sentence that would have said so.
+          */}
+          <p role="status" className="mt-1 text-sm text-white/45">
+            {matchCountLabel(total, { ...filters, genre: '' })}
+          </p>
         </div>
 
         <FilterBar
           filters={filters}
-          onFilters={(next) => write(filtersToParams(next, params))}
+          onFilters={setFilters}
           sortKey={sort.key}
           onSort={setSort}
           sorts={sorts}
         />
       </div>
+
+      {showRail && (
+        <LetterRail
+          value={filters.letter}
+          onSelect={(letter) => setFilters({ ...filters, letter })}
+        />
+      )}
 
       {query.isLoading ? (
         <div className={GRID_CLASS}>
@@ -242,7 +275,7 @@ export function Browse({ heading, fallbackPersonId }: BrowseProps = {}) {
             <button
               type="button"
               // Keeps the genre, which is the page rather than a filter on it.
-              onClick={() => write(filtersToParams({ ...NO_FILTERS, genre: filters.genre }, params))}
+              onClick={() => setFilters({ ...NO_FILTERS, genre: filters.genre })}
               className="mt-4 rounded bg-accent px-4 py-2 text-sm font-semibold transition hover:bg-accent-hot"
             >
               Clear filters
