@@ -11,6 +11,8 @@
  * client.
  */
 
+import type { SeerrSeason, SeerrSeasonState } from './requestSeasons'
+
 const BASE = '/jellyseerr/api/v1'
 
 /** Jellyseerr's MediaStatus enum. */
@@ -25,6 +27,8 @@ export const MediaStatus = {
 export interface SeerrMediaInfo {
   status?: number
   status4k?: number
+  /** Per-season status, absent for every season nobody has asked for. */
+  seasons?: SeerrSeasonState[]
 }
 
 export interface SeerrResult {
@@ -47,6 +51,39 @@ export interface SeerrSearchResponse {
   totalResults: number
   results: SeerrResult[]
 }
+
+/**
+ * The details behind one search result.
+ *
+ * The search response carries a poster, a title and an overview and stops
+ * there — enough for a card, not enough to decide anything. These are the two
+ * endpoints the dialog reads: a film's length, a show's seasons, and in both
+ * cases `mediaInfo`, which is the only place the per-season status lives.
+ */
+export interface SeerrDetailsBase {
+  id: number
+  overview?: string
+  voteAverage?: number
+  backdropPath?: string | null
+  posterPath?: string | null
+  genres?: { id: number; name: string }[]
+  mediaInfo?: SeerrMediaInfo
+}
+
+export interface SeerrMovieDetails extends SeerrDetailsBase {
+  title?: string
+  releaseDate?: string
+  runtime?: number
+}
+
+export interface SeerrTvDetails extends SeerrDetailsBase {
+  name?: string
+  firstAirDate?: string
+  numberOfSeasons?: number
+  seasons?: SeerrSeason[]
+}
+
+export type SeerrDetails = SeerrMovieDetails & SeerrTvDetails
 
 export interface SeerrUser {
   id: number
@@ -186,6 +223,15 @@ export function requestMedia(payload: RequestPayload) {
   })
 }
 
+/**
+ * One title in full. `mediaType` picks the endpoint — Jellyseerr keeps films
+ * and shows at separate paths, and asking the wrong one for a TMDB id answers
+ * 404 for something that exists.
+ */
+export function details(mediaType: 'movie' | 'tv', tmdbId: number) {
+  return call<SeerrDetails>(`/${mediaType}/${tmdbId}`)
+}
+
 export function myRequests(take = 20) {
   return call<{ results: unknown[]; pageInfo?: { results: number } }>(
     `/request?take=${take}&filter=all&sort=added`,
@@ -248,6 +294,11 @@ export function seerrYear(r: SeerrResult) {
 export function seerrPoster(r: SeerrResult, width: 342 | 500 = 342) {
   const path = r.posterPath ?? r.profilePath
   return path ? `https://image.tmdb.org/t/p/w${width}${path}` : null
+}
+
+/** The wide still behind the dialog's header. Films and shows both carry one. */
+export function seerrBackdrop(path?: string | null) {
+  return path ? `https://image.tmdb.org/t/p/w780${path}` : null
 }
 
 /** What the request button should say, and whether it can be pressed. */

@@ -1128,11 +1128,41 @@ export function useJellyseerrSearch(term: string, enabled: boolean) {
   })
 }
 
+/**
+ * The details behind one Jellyseerr result, fetched when the dialog opens.
+ *
+ * Not folded into the search query: the search answers in one request for the
+ * whole page of results, and pulling details for twenty cards to serve the one
+ * somebody might open would be twenty requests to Jellyseerr per keystroke.
+ *
+ * `staleTime` is long because this is TMDB metadata, which does not move —
+ * except for `mediaInfo`, which does, so a successful request invalidates it.
+ */
+export function useJellyseerrDetails(
+  mediaType: 'movie' | 'tv',
+  tmdbId: number | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['seerrDetails', mediaType, tmdbId],
+    queryFn: () => seerr.details(mediaType, tmdbId as number),
+    enabled: enabled && tmdbId !== null,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useRequestMedia() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: seerr.RequestPayload) => seerr.requestMedia(payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['seerrSearch'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seerrSearch'] })
+      // The per-season status the dialog reads lives on the details, so a
+      // request that is not followed by this leaves the season it just asked
+      // for still offering itself as unrequested.
+      qc.invalidateQueries({ queryKey: ['seerrDetails'] })
+    },
   })
 }
 
