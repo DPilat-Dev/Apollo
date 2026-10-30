@@ -54,6 +54,19 @@ describe('the one-press request', () => {
   it('still names seasons when it requests a series', () => {
     expect(code(CARD)).toMatch(/seasons:/)
   })
+
+  /*
+    The dim that reveals these controls fills the poster. It once sat over the
+    info button and took its clicks — and what it ran instead was `submit`,
+    which filed a real request for five seasons of a show nobody had asked
+    for. A request is not something a stray click on artwork may start.
+  */
+  it('leaves the dim inert and puts the targets on the controls', () => {
+    const source = code(CARD)
+    expect(source).toMatch(/pointer-events-none[^"]*absolute inset-0/)
+    // Both controls opt back in; neither relies on the dim to be clickable.
+    expect(source.match(/pointer-events-auto/g)?.length).toBeGreaterThanOrEqual(2)
+  })
 })
 
 describe('the season dialog', () => {

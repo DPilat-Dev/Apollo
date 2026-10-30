@@ -102,6 +102,8 @@ function RequestCard({ result }: { result: SeerrResult }) {
 
   const poster = seerrPoster(result)
   const year = seerrYear(result)
+  // The button says what it opens: a film has no seasons to pick.
+  const isTv = result.mediaType === 'tv'
   const { label, requestable } = availability(result)
   const done = state === 'done'
 
@@ -143,28 +145,27 @@ function RequestCard({ result }: { result: SeerrResult }) {
         </span>
 
         {/*
-          The way in to the long version. Opposite the badge rather than over
-          the Request button, because the two are separate intents and a
-          control that sometimes requests and sometimes opens a dialog is the
-          one thing a request button must not be.
+          Both intents, named, in the same place.
 
-          Always on a touch screen, where there is no hover to reveal it.
+          This started as a bare ⓘ in the corner, over a dim that filled the
+          poster. Two things were wrong with it. The dim was a later sibling
+          with no z-index, so it painted over the icon and swallowed the
+          click — and the click it swallowed was Request, which filed five
+          seasons of a show nobody asked for. And an unlabelled icon that
+          appears on hover is a poor way to advertise the only route to the
+          season picker.
+
+          So: the dim takes no clicks at all, the two controls are labelled
+          and sit together, and a stray click on artwork does nothing. Request
+          stays first and primary, because it is still the one people came
+          for — the picker is the considered path, not the default one.
         */}
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label={`More about ${seerrTitle(result)}`}
-          className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-1.5 text-white/75 opacity-0 transition hover:bg-black/90 hover:text-white focus-visible:opacity-100 group-hover/req:opacity-100 touch:opacity-100"
-        >
-          <InfoIcon className="size-3.5" />
-        </button>
-
-        {(requestable || done) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 touch:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 focus-within:opacity-100 touch:opacity-100">
+          {(requestable || done) && (
             <button
               onClick={submit}
               disabled={request.isPending || done}
-              className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition ${
+              className={`pointer-events-auto flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition ${
                 done
                   ? 'bg-emerald-500/90 text-white'
                   : 'bg-white text-black hover:bg-white/85 disabled:opacity-60'
@@ -181,8 +182,18 @@ function RequestCard({ result }: { result: SeerrResult }) {
                 </>
               )}
             </button>
-          </div>
-        )}
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label={`More about ${seerrTitle(result)}`}
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/45 px-3 py-1.5 text-xs font-medium text-white/90 transition hover:border-white hover:bg-white/15 hover:text-white"
+          >
+            <InfoIcon className="size-3.5" />
+            {isTv ? 'Seasons' : 'Details'}
+          </button>
+        </div>
       </div>
 
       <p className="mt-2 line-clamp-1 text-[13px] font-medium text-white/85">
