@@ -168,6 +168,75 @@ describe('summariseDevices', () => {
     expect(overview.rows[0].appName).toBeTruthy()
     expect(overview.groups[0].staleCount).toBe(0)
   })
+
+  /*
+    One device, listed once per account that has used it. Seen on 12.4.0: the
+    browser this app is running in came back twice — as `nobody` on Apollo
+    1.15.0 and as `David` on 1.0.0 — with one id between them. React was given
+    the same key twice, the list drew THIS DEVICE twice, and both the total
+    and the unused count were one too high.
+  */
+  it('folds a device that several accounts have used into one row', () => {
+    const overview = summarise([
+      device({ Id: 'shared', LastUserName: 'David', DateLastActivity: daysAgo(400) }),
+      device({ Id: 'shared', LastUserName: 'nobody', DateLastActivity: daysAgo(1) }),
+      device({ Id: 'alone', LastUserName: 'David', DateLastActivity: daysAgo(2) }),
+    ])
+
+    expect(overview.rows.map((r) => r.id)).toEqual(['shared', 'alone'])
+    expect(overview.total).toBe(2)
+    // The row carries every account, most recent first, so the audit still
+    // answers "who has been on this device".
+    expect(overview.rows[0].userNames).toEqual(['nobody', 'David'])
+    expect(overview.rows[0].lastUserName).toBe('nobody')
+  })
+
+  it('dates a folded device by its most recent use, not its oldest', () => {
+    // Otherwise a device somebody used this morning is offered to the sweep
+    // because a second account last touched it two years ago.
+    const overview = summarise([
+      device({ Id: 'shared', LastUserName: 'David', DateLastActivity: daysAgo(400) }),
+      device({ Id: 'shared', LastUserName: 'nobody', DateLastActivity: daysAgo(1) }),
+    ])
+
+    expect(overview.rows[0].lastActive).toBe(NOW - 86_400_000)
+    expect(overview.rows[0].stale).toBe(false)
+    expect(overview.staleCount).toBe(0)
+  })
+
+  it('keeps the device in hand current however the duplicates are ordered', () => {
+    const overview = summarise([
+      device({ Id: 'this-one', LastUserName: 'nobody', DateLastActivity: daysAgo(1) }),
+      device({ Id: 'this-one', LastUserName: 'David', DateLastActivity: daysAgo(400) }),
+    ])
+
+    expect(overview.rows).toHaveLength(1)
+    expect(overview.rows[0].isCurrent).toBe(true)
+    expect(overview.rows[0].stale).toBe(false)
+    expect(overview.current?.id).toBe('this-one')
+  })
+
+  it('does not let a folded row take its app name from the older entry', () => {
+    const overview = summarise([
+      device({ Id: 'shared', AppName: 'Apollo', AppVersion: '1.0.0', DateLastActivity: daysAgo(400) }),
+      device({ Id: 'shared', AppName: 'Apollo', AppVersion: '1.15.0', DateLastActivity: daysAgo(1) }),
+    ])
+
+    expect(overview.rows[0].appVersion).toBe('1.15.0')
+    expect(overview.groups).toHaveLength(1)
+    expect(overview.groups[0].devices).toHaveLength(1)
+  })
+
+  it('leaves a device with no name among its users alone', () => {
+    const overview = summarise([
+      device({ Id: 'shared', LastUserName: undefined, DateLastActivity: daysAgo(1) }),
+      device({ Id: 'shared', LastUserName: undefined, DateLastActivity: daysAgo(2) }),
+    ])
+
+    expect(overview.rows).toHaveLength(1)
+    expect(overview.rows[0].userNames).toEqual([])
+    expect(overview.rows[0].lastUserName).toBeNull()
+  })
 })
 
 describe('devicesRequest', () => {

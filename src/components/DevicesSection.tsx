@@ -194,7 +194,12 @@ function Device({ row, onRevoke, busy }: { row: DeviceRow; onRevoke: () => void;
           )}
         </p>
         <p className="mt-0.5 truncate text-xs text-white/45">
-          {[row.lastUserName, row.appVersion, row.lastActiveLabel].filter(Boolean).join(' · ')}
+          {/* Every account that has signed in on this device, not just the
+              last — one row can stand for several, and who has a token on a
+              device is the question this screen exists to answer. */}
+          {[row.userNames.join(', '), row.appVersion, row.lastActiveLabel]
+            .filter(Boolean)
+            .join(' · ')}
         </p>
       </div>
       <button
