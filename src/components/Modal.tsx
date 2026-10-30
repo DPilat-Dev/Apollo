@@ -66,7 +66,7 @@ export function Modal({
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-1 text-white/50 hover:text-white"
+            className="-m-1 p-2 text-white/50 hover:text-white touch:-m-2.5 touch:p-4"
           >
             ✕
           </button>

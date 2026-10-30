@@ -156,7 +156,7 @@ export function RequestDialog({
                 onClick={() =>
                   setChosen(selected.length === everything.length ? [] : everything)
                 }
-                className="rounded text-xs text-accent underline underline-offset-4 hover:text-accent-hot"
+                className="-m-2 rounded p-2 text-xs text-accent underline underline-offset-4 hover:text-accent-hot touch:-m-3.5 touch:p-3.5"
               >
                 {selected.length === everything.length ? 'Clear all' : 'Select all'}
               </button>

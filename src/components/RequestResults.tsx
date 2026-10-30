@@ -62,7 +62,7 @@ export function RequestResults({
     return (
       <section className={standalone ? 'mt-8' : 'mt-12'}>
         <h2 className="mb-4 text-lg font-semibold text-white/80">Request from Jellyseerr</h2>
-        <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {Array.from({ length: 8 }, (_, i) => (
             <div key={i} className="skeleton aspect-2/3 rounded-lg" />
           ))}
@@ -84,7 +84,7 @@ export function RequestResults({
       <p className="mb-4 text-sm text-white/40">
         Titles beyond your library. Requesting sends it to Jellyseerr as you.
       </p>
-      <div className="grid grid-cols-3 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-x-2.5 gap-y-6 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
         {results.map((r) => (
           <RequestCard key={`${r.mediaType}-${r.id}`} result={r} />
         ))}
@@ -160,12 +160,12 @@ function RequestCard({ result }: { result: SeerrResult }) {
           stays first and primary, because it is still the one people came
           for — the picker is the considered path, not the default one.
         */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 focus-within:opacity-100 touch:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 touch:gap-3 bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 focus-within:opacity-100 touch:opacity-100">
           {(requestable || done) && (
             <button
               onClick={submit}
               disabled={request.isPending || done}
-              className={`pointer-events-auto flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition ${
+              className={`pointer-events-auto flex items-center gap-1.5 rounded-full px-3.5 py-2 touch:py-3.5 text-xs font-semibold transition ${
                 done
                   ? 'bg-emerald-500/90 text-white'
                   : 'bg-white text-black hover:bg-white/85 disabled:opacity-60'
@@ -188,7 +188,7 @@ function RequestCard({ result }: { result: SeerrResult }) {
             type="button"
             onClick={() => setOpen(true)}
             aria-label={`More about ${seerrTitle(result)}`}
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/45 px-3 py-1.5 text-xs font-medium text-white/90 transition hover:border-white hover:bg-white/15 hover:text-white"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/45 px-3 py-1.5 touch:py-3.5 text-xs font-medium text-white/90 transition hover:border-white hover:bg-white/15 hover:text-white"
           >
             <InfoIcon className="size-3.5" />
             {isTv ? 'Seasons' : 'Details'}
