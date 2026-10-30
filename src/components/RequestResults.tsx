@@ -9,7 +9,8 @@ import {
 } from '../lib/jellyseerr'
 import { useJellyseerrSearch, useJellyseerrSession, useRequestMedia } from '../lib/queries'
 import { useSettings } from '../lib/settings'
-import { PlusIcon, CheckIcon } from './icons'
+import { PlusIcon, CheckIcon, InfoIcon } from './icons'
+import { RequestDialog } from './RequestDialog'
 import { errorText } from '../lib/api'
 
 /**
@@ -97,6 +98,7 @@ function RequestCard({ result }: { result: SeerrResult }) {
   const request = useRequestMedia()
   const [state, setState] = useState<'idle' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
 
   const poster = seerrPoster(result)
   const year = seerrYear(result)
@@ -140,6 +142,23 @@ function RequestCard({ result }: { result: SeerrResult }) {
           {result.mediaType === 'tv' ? 'Series' : 'Film'}
         </span>
 
+        {/*
+          The way in to the long version. Opposite the badge rather than over
+          the Request button, because the two are separate intents and a
+          control that sometimes requests and sometimes opens a dialog is the
+          one thing a request button must not be.
+
+          Always on a touch screen, where there is no hover to reveal it.
+        */}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={`More about ${seerrTitle(result)}`}
+          className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-1.5 text-white/75 opacity-0 transition hover:bg-black/90 hover:text-white focus-visible:opacity-100 group-hover/req:opacity-100 touch:opacity-100"
+        >
+          <InfoIcon className="size-3.5" />
+        </button>
+
         {(requestable || done) && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover/req:opacity-100 touch:opacity-100">
             <button
@@ -173,6 +192,8 @@ function RequestCard({ result }: { result: SeerrResult }) {
         {[year, done ? 'Requested' : label].filter(Boolean).join(' · ')}
       </p>
       {message && <p className="mt-0.5 text-[11px] text-red-300">{message}</p>}
+
+      {open && <RequestDialog result={result} onClose={() => setOpen(false)} />}
     </div>
   )
 }
