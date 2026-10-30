@@ -46,6 +46,13 @@ export interface DeviceRow {
   appName: string
   appVersion: string | null
   lastUserName: string | null
+  /**
+   * Every account that has used this device, most recent first.
+   *
+   * Usually one. `/Devices` answers with a row per device *per account*, so a
+   * shared browser arrives two or three times over — see `foldByDevice`.
+   */
+  userNames: string[]
   /** ms epoch, or null when the server gave no usable date. */
   lastActive: number | null
   lastActiveLabel: string
@@ -146,12 +153,14 @@ function toRow(device: DeviceInfo, currentDeviceId: string, now: number): Device
 
   const lastActive = deviceActivityAt(device.DateLastActivity)
   const isCurrent = id === currentDeviceId
+  const lastUserName = text(device.LastUserName, '') || null
   return {
     id,
     name: text(device.Name, 'Unnamed device'),
     appName: text(device.AppName, 'Unknown app'),
     appVersion: text(device.AppVersion, '') || null,
-    lastUserName: text(device.LastUserName, '') || null,
+    lastUserName,
+    userNames: lastUserName ? [lastUserName] : [],
     lastActive,
     lastActiveLabel: isCurrent ? 'Active now' : describeActivity(lastActive, now),
     isCurrent,
@@ -187,6 +196,63 @@ function byRecencyWithCurrentFirst(a: DeviceRow, b: DeviceRow): number {
   return byRecency(a, b)
 }
 
+/**
+ * One row per device, however many times the server listed it.
+ *
+ * `/Devices` answers with a row per device *per account*: the browser this was
+ * written in came back as `nobody` on Apollo 1.15.0 and as `David` on 1.0.0,
+ * both carrying the one device id. Three things went wrong at once — React was
+ * handed the same key twice, the list drew THIS DEVICE twice, and the totals
+ * at the top counted one device as two, which is the number the sweep offers
+ * to sign out.
+ *
+ * Folded rather than keyed apart because a device id is what a revoke takes:
+ * `DELETE /Devices?id=` removes the device for every account at once, so two
+ * rows with one id would be two buttons that do the same single thing.
+ *
+ * The merged row is dated by the *most recent* of its entries. Taking the
+ * oldest would file a browser used this morning under unused-for-two-years and
+ * hand it to the sweep.
+ */
+function foldByDevice(rows: DeviceRow[], now: number): DeviceRow[] {
+  const byId = new Map<string, DeviceRow[]>()
+  for (const row of rows) {
+    const seen = byId.get(row.id)
+    if (seen) seen.push(row)
+    else byId.set(row.id, [row])
+  }
+
+  const folded: DeviceRow[] = []
+  for (const group of byId.values()) {
+    if (group.length === 1) {
+      folded.push(group[0])
+      continue
+    }
+
+    // Most recent first, so the newest entry's name and version are the ones
+    // the row shows — an old row should not relabel a device in daily use.
+    const ordered = [...group].sort(byRecency)
+    const newest = ordered[0]
+    const lastActive = ordered.reduce<number | null>(
+      (best, row) => (row.lastActive !== null && (best === null || row.lastActive > best) ? row.lastActive : best),
+      null,
+    )
+    const isCurrent = ordered.some((row) => row.isCurrent)
+    const userNames = [...new Set(ordered.flatMap((row) => row.userNames))]
+
+    folded.push({
+      ...newest,
+      lastUserName: userNames[0] ?? null,
+      userNames,
+      lastActive,
+      lastActiveLabel: isCurrent ? 'Active now' : describeActivity(lastActive, now),
+      isCurrent,
+      stale: !isCurrent && (lastActive === null || now - lastActive > STALE_AFTER_DAYS * DAY_MS),
+    })
+  }
+  return folded
+}
+
 /** Everything the devices screen draws, from one list and one id. */
 export function summariseDevices(input: {
   devices: readonly DeviceInfo[]
@@ -194,10 +260,10 @@ export function summariseDevices(input: {
   now?: number
 }): DeviceOverview {
   const now = input.now ?? Date.now()
-  const rows = input.devices
+  const mapped = input.devices
     .map((device) => toRow(device, input.currentDeviceId, now))
     .filter((row): row is DeviceRow => row !== null)
-    .sort(byRecencyWithCurrentFirst)
+  const rows = foldByDevice(mapped, now).sort(byRecencyWithCurrentFirst)
 
   /*
     Grouped by app, because that is the shape of the mess: 168 rows are not 168
