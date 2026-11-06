@@ -118,6 +118,10 @@ REPO=$(git config --get remote.origin.url 2>/dev/null \
   | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
 REPO="${APOLLO_REPO:-${REPO:-DPilat-Dev/Apollo}}"
 
+# How long to wait for a release artifact that has not appeared yet, in
+# seconds. Zero restores the old behaviour of believing the first 404.
+ARTIFACT_WAIT="${APOLLO_ARTIFACT_WAIT:-180}"
+
 # The checkout is owned by the service account, so git refuses to touch it as
 # root until told this is deliberate.
 git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
@@ -145,9 +149,16 @@ target=$(git rev-parse --short "${REF}^{commit}")
 if [[ "$before" == "$target" ]]; then
   ok "already on $REF ($target)"
   # Rebuilding and restarting for a version that is already running just drops
-  # everyone's stream for nothing. Only skip if there is something to serve —
-  # a previous run that died during the build must still be recoverable.
-  if [[ $FORCE -eq 0 && -d "$APP_DIR/dist" ]]; then
+  # everyone's stream for nothing. Only skip if what is being served was built
+  # from this commit — a previous run that died during the build must still be
+  # recoverable.
+  #
+  # `-d dist` alone was not enough. A run that advanced the checkout and then
+  # failed to build left git on the new commit and dist on the old one, and
+  # this said there was nothing to do while serving the previous release. The
+  # stamp is written only after a build or download has actually landed, so an
+  # install that predates it rebuilds once and is correct from then on.
+  if [[ $FORCE -eq 0 && "$(cat "$APP_DIR/dist/.apollo-build" 2>/dev/null)" == "$target" ]]; then
     printf '%s\n' "  ${DIM}nothing to do — --force to rebuild anyway${RESET}"
     exit 0
   fi
@@ -183,7 +194,24 @@ fetch_prebuilt() {
   # Overridable so this path can be exercised against a local server, and so a
   # deployment behind a mirror is not forced to build instead.
   local base="${APOLLO_RELEASE_BASE:-https://github.com/${REPO}/releases/download}/${tag}"
-  curl -fsSL --retry 3 -o "$tmp/$asset" "$base/$asset" || return 1
+
+  # A release is published before its artifact is attached: the workflow that
+  # builds it only starts when the release appears, and takes about half a
+  # minute. v1.16.0 left a 29-second window — published at 20:42:03, artifact
+  # at 20:42:32 — and an update inside it saw a real release carrying nothing.
+  #
+  # So a missing artifact is waited on before it is believed. The wait is
+  # bounded and only costs anything when the artifact is genuinely absent,
+  # which for a tag that was never released is the one case that still falls
+  # through to building.
+  local waited=0
+  until curl -fsSL --retry 3 -o "$tmp/$asset" "$base/$asset" 2>/dev/null; do
+    (( waited >= ARTIFACT_WAIT )) && return 1
+    [[ $waited -eq 0 ]] && printf '%s\n' "  ${DIM}no artifact for $tag yet — the release workflow may still be running; waiting up to $((ARTIFACT_WAIT / 60))m${RESET}"
+    sleep 15
+    waited=$(( waited + 15 ))
+  done
+  (( waited > 0 )) && ok "artifact appeared after ${waited}s"
   curl -fsSL --retry 3 -o "$tmp/$asset.sha256" "$base/$asset.sha256" || return 1
 
   # The checksum is published beside the artifact, so it proves transfer
@@ -208,8 +236,28 @@ fetch_prebuilt() {
   ok "downloaded the built client for $tag"
 }
 
+# What the Vite build needs, in MB. The workflow that produces the artifact
+# says why this is not a number worth shaving: ~830 MB for the build and
+# ~620 MB for the type check.
+BUILD_NEEDS_MB=1024
+
 build_here() {
-  printf '%s\n' "  ${DIM}building locally — this needs about 1 GB of memory${RESET}"
+  local avail
+  avail=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 0)
+
+  # An automatic fallback must not take a path that ends in the OOM killer.
+  # This container has ~250 MB of heap available and dies with "Ineffective
+  # mark-compacts near heap limit" several seconds in, after the script has
+  # already reported that it is updating — which looks like the update broke
+  # rather than that it was never going to fit.
+  if [[ $BUILD -eq 0 && $avail -gt 0 && $avail -lt $BUILD_NEEDS_MB ]]; then
+    die "no prebuilt client for $REF, and this host has ${avail} MB free — the build needs about ${BUILD_NEEDS_MB} MB.
+  If the release was just cut, its artifact lands about half a minute later: run this again.
+  To build anyway, pass --build."
+  fi
+
+  printf '%s\n' "  ${DIM}building locally — this needs about ${BUILD_NEEDS_MB} MB of memory${RESET}"
+  [[ $avail -gt 0 && $avail -lt $BUILD_NEEDS_MB ]] && printf '%s\n' "  ${RED}only ${avail} MB free; this may be killed${RESET}" >&2
   npm ci --silent
   npm run build
 }
@@ -220,6 +268,12 @@ elif ! fetch_prebuilt "$REF"; then
   printf '%s\n' "  ${DIM}no prebuilt client for $REF; building instead${RESET}"
   build_here
 fi
+
+# Written last, and only here: this file is what the next run trusts when it
+# decides whether there is anything to do. Anything that fails above exits
+# before this line, which is the point — an unstamped dist is a dist nobody
+# has promised anything about.
+printf '%s\n' "$after" > "$APP_DIR/dist/.apollo-build"
 
 sync_unit
 
