@@ -114,9 +114,18 @@ describe('the popups that hang off a trigger', () => {
     // Both of them, which is what the ⋮ menu already had and neither of these
     // did: a button that gives no sign it opens anything, and a popup a screen
     // reader reads as a stack of links in a div.
+    //
+    // They no longer open the same *kind* of thing. The account control is
+    // still a menu. The library control opens a sheet, which is a dialog — so
+    // it must say dialog, or it promises a menu and presents something that
+    // behaves by other rules.
     const nav = code('components/TopNav.tsx')
-    expect(nav.match(/aria-haspopup="menu"/g)).toHaveLength(2)
+    expect(nav.match(/aria-haspopup="menu"/g)).toHaveLength(1)
+    expect(nav.match(/aria-haspopup="dialog"/g)).toHaveLength(1)
     expect(nav.match(/aria-expanded=/g)).toHaveLength(2)
-    expect(nav.match(/role="menu"/g)).toHaveLength(2)
+    expect(nav.match(/role="menu"/g)).toHaveLength(1)
+    // And the sheet is the shared one, so it cannot quietly lose the focus
+    // trap and the scroll lock that being a dialog is supposed to bring.
+    expect(nav).toMatch(/<Modal top/)
   })
 })

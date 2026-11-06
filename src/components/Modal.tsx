@@ -31,6 +31,7 @@ export function Modal({
   onClose,
   wide,
   bottom,
+  top,
   children,
 }: {
   title: string
@@ -39,13 +40,21 @@ export function Modal({
   wide?: boolean
   /** Anchored to the bottom edge, full width. For handset-only dialogs. */
   bottom?: boolean
+  /**
+   * The same, against the top edge — for a sheet that belongs to a control in
+   * the header, so it opens where the thing that opened it is. `bottom` wins
+   * if both are passed; a dialog cannot be at both ends.
+   */
+  top?: boolean
   children: React.ReactNode
 }) {
   const { titleId, dialogProps } = useDialog({ onClose })
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex justify-center ${bottom ? 'items-end' : 'items-center p-4'}`}
+      className={`fixed inset-0 z-50 flex justify-center ${
+        bottom ? 'items-end' : top ? 'items-start' : 'items-center p-4'
+      }`}
     >
       {/* Not a button and not focusable: it duplicates the close control, and
           a second Close in the Tab order is noise for anyone who reaches it. */}
@@ -56,7 +65,10 @@ export function Modal({
           bottom
             ? // The home-bar inset, so the last control is not sitting under it.
               'rounded-t-xl pb-[env(safe-area-inset-bottom)]'
-            : `rounded-xl ${wide ? 'max-w-4xl' : 'max-w-lg'}`
+            : top
+              ? // The status-bar inset, for the same reason at the other end.
+                'rounded-b-xl pt-[env(safe-area-inset-top)]'
+              : `rounded-xl ${wide ? 'max-w-4xl' : 'max-w-lg'}`
         }`}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-ink-soft/95 px-5 py-4 backdrop-blur">

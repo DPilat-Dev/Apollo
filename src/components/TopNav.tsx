@@ -5,6 +5,7 @@ import { usePopupDismiss } from '../lib/usePopupDismiss'
 import { useBoxSets, useCurrentUser, useIsAdmin, useRecapLink, useViews } from '../lib/queries'
 import { shouldShowCollections } from '../lib/boxSets'
 import { MenuIcon, SearchIcon } from './icons'
+import { Modal } from './Modal'
 import { RemoteControl } from './RemoteControl'
 import { UserAvatar } from './UserAvatar'
 
@@ -43,7 +44,6 @@ export function TopNav() {
     catching outside clicks. That div caught the *release*, so dismissing a
     menu by pressing on a card behind it also opened the card.
   */
-  const navWrap = usePopupDismiss({ open: navOpen, onClose: () => setNavOpen(false) })
   const menuWrap = usePopupDismiss({ open: menuOpen, onClose: () => setMenuOpen(false) })
 
   useEffect(() => {
@@ -98,8 +98,13 @@ export function TopNav() {
 
   const recap = useRecapLink()
 
-  const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `block px-3 py-2.5 text-sm transition-colors ${
+  /*
+    A sheet row, not a dropdown row: full width, and `min-h-12` because the
+    dropdown's 40px was under the 44 a finger needs — on the control people
+    press more than any other in the app.
+  */
+  const sheetLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex min-h-12 items-center px-5 text-base transition-colors ${
       isActive ? 'bg-white/10 font-semibold text-white' : 'text-white/80 hover:bg-white/5'
     }`
 
@@ -131,64 +136,63 @@ export function TopNav() {
       <div className="flex h-14 items-center gap-3 px-4 sm:h-16 sm:gap-7 sm:px-14">
         {/* Below `sm` the library row has nowhere to go, so it moves behind an
             explicit menu button. It used to live inside the account menu,
-            where nobody thinks to look for navigation. */}
-        <div ref={navWrap} className="relative sm:hidden">
+            where nobody thinks to look for navigation.
+
+            A sheet rather than the dropdown this was. The dropdown opened as a
+            224px panel in the corner — 57% of a phone's width — with 40px
+            rows. The sheet is full width with 48px rows, and it drops from the
+            top edge, under the bar that holds the button: a panel that opens
+            somewhere other than the control that opened it leaves you looking
+            for it.
+
+            Being a dialog also hands it the scroll lock and the focus trap for
+            free, which a bare popup had to be given separately. */}
+        <div className="sm:hidden">
           <button
-            onClick={() => setNavOpen((v) => !v)}
+            onClick={() => setNavOpen(true)}
             aria-label="Browse libraries"
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded={navOpen}
             className="-ml-2 flex size-11 items-center justify-center text-white/85 transition hover:text-white"
           >
             <MenuIcon className="size-6" />
           </button>
           {navOpen && (
-            /* `role="menu"` and `menuitem` links, the same as the ⋮ menu: a
-               popup that is announced as a stack of links in a div says
-               nothing about being a popup, and nothing about having closed. */
-            <div
-              role="menu"
-              className="absolute left-0 z-10 mt-1 max-h-[70vh] w-56 overflow-y-auto rounded border border-white/10 bg-ink-soft/98 py-1 shadow-2xl backdrop-blur"
-            >
-              <NavLink
-                to="/"
-                end
-                role="menuitem"
-                onClick={() => setNavOpen(false)}
-                className={mobileLinkClass}
-              >
-                Home
-              </NavLink>
-              <NavLink
-                to="/playlists"
-                role="menuitem"
-                onClick={() => setNavOpen(false)}
-                className={mobileLinkClass}
-              >
-                Playlists
-              </NavLink>
-              {showCollections && (
-                <NavLink
-                  to="/collections"
-                  role="menuitem"
-                  onClick={() => setNavOpen(false)}
-                  className={mobileLinkClass}
-                >
-                  Collections
+            <Modal top title="Browse" onClose={() => setNavOpen(false)}>
+              {/* Full-bleed: a list of destinations reads as a list, not as a
+                  column of cards inset from the edges. */}
+              <nav className="-mx-5 -my-5">
+                <NavLink to="/" end onClick={() => setNavOpen(false)} className={sheetLinkClass}>
+                  Home
                 </NavLink>
-              )}
-              {browsable.map((v) => (
                 <NavLink
-                  key={v.Id}
-                  to={`/library/${v.Id}`}
-                  role="menuitem"
+                  to="/playlists"
                   onClick={() => setNavOpen(false)}
-                  className={mobileLinkClass}
+                  className={sheetLinkClass}
                 >
-                  {v.Name}
+                  Playlists
                 </NavLink>
-              ))}
-            </div>
+                {showCollections && (
+                  <NavLink
+                    to="/collections"
+                    onClick={() => setNavOpen(false)}
+                    className={sheetLinkClass}
+                  >
+                    Collections
+                  </NavLink>
+                )}
+                {browsable.map((v) => (
+                  <NavLink
+                    key={v.Id}
+                    to={`/library/${v.Id}`}
+                    onClick={() => setNavOpen(false)}
+                    className={sheetLinkClass}
+                  >
+                    {v.Name}
+                  </NavLink>
+                ))}
+              </nav>
+            </Modal>
           )}
         </div>
 
