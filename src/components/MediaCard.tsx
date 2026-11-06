@@ -67,9 +67,22 @@ export const MediaCard = memo(function MediaCard({
   const played = useTogglePlayed()
 
   const isLandscape = shape === 'landscape'
+  /*
+    `coverUrl` for the portrait shape, not `posterUrl`: an episode's own
+    Primary image is a still from the episode, and a still cropped into a 2:3
+    frame is a scene with nothing on it that says which show it is.
+
+    It showed up in Recently Added on a mixed library, where a newly added
+    episode sits beside films and was the only card you could not identify.
+    The card already treats an episode as its series when opened — `detailId`
+    below resolves to `SeriesId` — so the artwork was the odd one out.
+
+    Landscape keeps `backdropUrl`, which inherits the series Thumb already,
+    and whose whole job in Continue Watching is to show where you are.
+  */
   const img = isLandscape
     ? (api.backdropUrl(item, 640) ?? api.posterUrl(item, 400))
-    : (api.posterUrl(item, 400) ?? api.backdropUrl(item, 640))
+    : (api.coverUrl(item, 400) ?? api.backdropUrl(item, 640))
 
   const progress = playedFraction(item)
   /** The resume overlay and the "1h 12m left" block, which own the bottom edge. */
