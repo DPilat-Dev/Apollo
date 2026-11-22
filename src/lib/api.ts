@@ -6,6 +6,7 @@ import { blobToBase64, canEditUserImage } from './userImages'
 import type { DeviceInfo, DeviceOverview, DeviceScope } from './devices'
 import type { MediaSegment } from './segments'
 import { PGS_SUBTITLE_PROFILE } from './pgsSubtitles'
+import type { ProbeResult } from './bandwidth'
 import type {
   ActivityLogEntry,
   AuthenticationInfo,
@@ -1627,6 +1628,30 @@ export class JellyfinApi {
   }
 
   // -------------------------------------------------------------- playback
+
+  /**
+   * Downloads `size` bytes of nothing and reports how long they took.
+   *
+   * This is Jellyfin's own speed test — the route jellyfin-web measures with —
+   * and it is deliberately not routed through `request`: the body is binary
+   * padding, and `request` would hand it to `JSON.parse`. `cache: 'no-store'`
+   * matters for the same reason the test exists: a probe served from the disk
+   * cache measures the disk.
+   */
+  async bitrateTest(size: number, signal?: AbortSignal): Promise<ProbeResult> {
+    const started = performance.now()
+    const res = await fetch(this.url('/Playback/BitrateTest', { size }), {
+      cache: 'no-store',
+      headers: { Authorization: authHeader(this.session.token) },
+      signal,
+    })
+    if (!res.ok) {
+      if (res.status === 401) reportSessionExpired()
+      throw new ApiError(`GET /Playback/BitrateTest failed (${res.status})`, res.status, '', true)
+    }
+    const body = await res.arrayBuffer()
+    return { bytes: body.byteLength, elapsedMs: performance.now() - started }
+  }
 
   /**
    * Everything goes in the body, matching the official client. Splitting these
