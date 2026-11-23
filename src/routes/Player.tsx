@@ -65,6 +65,15 @@ import { UpNext, upNextLeadSeconds } from '../components/UpNext'
 import { SleepPrompt } from '../components/SleepPrompt'
 import { SLEEP_DURATIONS_MINUTES } from '../lib/sleepTimer'
 import { useSleepTimer } from '../lib/useSleepTimer'
+import { useBandwidth } from '../lib/useBandwidth'
+import { autoQualityLabel, formatMbps } from '../lib/bandwidth'
+import {
+  LONG_STALL_MS,
+  assessStalls,
+  dropMessage,
+  nextStepDown,
+  type Stall,
+} from '../lib/adaptiveQuality'
 import {
   BITRATE_OPTIONS,
   DEFAULT_SUBTITLE_SIZE,
@@ -99,6 +108,12 @@ import { backDestination } from '../lib/leavePlayer'
 
 const IDLE_MS = 3000
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+
+/** The rungs a step-down can land on: the quality menu, without Auto. */
+const QUALITY_LADDER = BITRATE_OPTIONS.map((o) => o.value).filter((v) => v > 0)
+
+/** How long a step-down notice stays on screen. */
+const NOTICE_MS = 6_000
 
 type RepeatMode = 'off' | 'one' | 'all'
 type AspectMode = 'fit' | 'fill' | 'stretch'
@@ -215,7 +230,50 @@ export function Player() {
     setLogoFailed(false)
   }, [item?.Id])
 
-  const effectiveBitrate = bitrateOverride ?? settings.maxBitrate
+  /*
+    The ceiling, in three layers.
+
+    `chosen` is what a person picked — in the player menu, or in Settings.
+    Zero is Auto, and Auto is where the other two come in: `bandwidth` is what
+    the connection measured before the first frame, and `autoDrop` is where
+    repeated buffering has since pushed it. Both are ignored the moment someone
+    picks a figure themselves; a manual choice is a decision, not a hint.
+  */
+  const chosen = bitrateOverride ?? settings.maxBitrate
+  const auto = chosen === 0
+  const [autoDrop, setAutoDrop] = useState<number | null>(null)
+  const bandwidth = useBandwidth(auto, item?.Id ?? null)
+  const noteBandwidth = bandwidth.note
+  const effectiveBitrate = auto ? (autoDrop ?? bandwidth.bps ?? 0) : chosen
+  /** A step-down, said out loud. Keyed so two in a row both animate. */
+  const [qualityNotice, setQualityNotice] = useState<{ text: string; key: number } | null>(null)
+
+  /*
+    Stall history, and whether this stream has ever played a frame.
+
+    Refs rather than state: nothing here is rendered, and a re-render on every
+    `waiting` event — which fire in bursts, exactly when the machine is already
+    struggling — would be the worst possible time to ask React to do work.
+  */
+  const stallsRef = useRef<Stall[]>([])
+  const stallStartRef = useRef<{ at: number; cause: Stall['cause'] } | null>(null)
+  const longStallTimerRef = useRef<number | null>(null)
+  const countedRef = useRef(false)
+  const playedRef = useRef(false)
+
+  /*
+    The ladder resets with the episode, and the stall history with it. A
+    step-down earned by the last episode is not forgotten — it went into the
+    bandwidth cache, which this episode reads — but it is re-earned rather than
+    assumed, and nothing from twenty minutes ago counts towards dropping this
+    one.
+  */
+  useEffect(() => {
+    setAutoDrop(null)
+    setQualityNotice(null)
+    stallsRef.current = []
+    playedRef.current = false
+  }, [item?.Id])
 
   const streamQuery = useQuery({
     queryKey: [
@@ -238,7 +296,15 @@ export function Player() {
         mediaSourceId: requestedSource,
       })
     },
-    enabled: Boolean(item?.Id),
+    /*
+      Auto waits for its measurement.
+
+      Resolving first and re-resolving when the figure lands would start a
+      transcode, throw it away and start another — and the first of those two
+      is the unlimited one this whole feature exists to stop sending. The wait
+      is one small download, and only when nothing was measured recently.
+    */
+    enabled: Boolean(item?.Id) && (!auto || bandwidth.bps != null),
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
@@ -520,6 +586,104 @@ export function Player() {
       video.removeEventListener('error', onError)
     }
   }, [])
+
+  /*
+    Adaptive quality: watch the stalls, and stop asking for a stream this
+    connection has already failed to carry. The rule itself is in
+    `adaptiveQuality.ts`; this is the part that has to touch the element.
+
+    Attached separately from the other media listeners because those are bound
+    once, with no dependencies, and this one has to see the current ceiling.
+    Its dependencies are all things that change on a real event — a new stream,
+    a new ceiling — and never on a `timeupdate`, because re-running it four
+    times a second would clear the five-second timer before it could ever fire.
+  */
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !plan || !auto) return
+
+    /*
+      Every run of this effect is a new stream or a new ceiling, so the next
+      stall is this stream opening rather than this stream failing — which is
+      the difference between a step-down and a step-down on every track change.
+    */
+    playedRef.current = false
+    stallStartRef.current = null
+
+    const clearLongTimer = () => {
+      if (longStallTimerRef.current != null) {
+        clearTimeout(longStallTimerRef.current)
+        longStallTimerRef.current = null
+      }
+    }
+
+    const record = (stall: Stall) => {
+      stallsRef.current = [...stallsRef.current, stall]
+      if (!assessStalls(stallsRef.current, Date.now()).drop) return
+
+      const next = nextStepDown(QUALITY_LADDER, effectiveBitrate)
+      // Already on the bottom rung. Nothing left to try, and a fourth notice
+      // saying so in three minutes would be the app complaining at someone
+      // about their own internet.
+      if (next == null) return
+
+      stallsRef.current = []
+      // Resolved from the element, not from `absoluteTime`: a stall means no
+      // `timeupdate` has landed for a while, and resuming from the last one
+      // would rewind the picture by however long it was frozen.
+      resumeTargetRef.current = video.currentTime + plan.startOffsetSeconds
+      noteBandwidth(next)
+      setQualityNotice({ text: dropMessage(next), key: Date.now() })
+      setAutoDrop(next)
+    }
+
+    const onWaiting = () => {
+      const cause: Stall['cause'] = video.seeking
+        ? 'seek'
+        : playedRef.current
+          ? 'playback'
+          : 'startup'
+      stallStartRef.current = { at: Date.now(), cause }
+      countedRef.current = false
+      clearLongTimer()
+      /*
+        A stall that is still going is the one worth acting on, so it is timed
+        rather than waited out: counting it only once the picture comes back
+        means a thirty-second freeze is reported as one stall, thirty seconds
+        too late.
+      */
+      longStallTimerRef.current = window.setTimeout(() => {
+        const start = stallStartRef.current
+        if (!start) return
+        countedRef.current = true
+        record({ at: start.at, durationMs: LONG_STALL_MS, cause: start.cause })
+      }, LONG_STALL_MS)
+    }
+
+    const onPlaying = () => {
+      playedRef.current = true
+      clearLongTimer()
+      const start = stallStartRef.current
+      stallStartRef.current = null
+      if (!start || countedRef.current) return
+      record({ at: start.at, durationMs: Date.now() - start.at, cause: start.cause })
+    }
+
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('playing', onPlaying)
+    return () => {
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('playing', onPlaying)
+      clearLongTimer()
+    }
+  }, [auto, effectiveBitrate, noteBandwidth, plan])
+
+  // The notice is an aside, not a dialog: it says what happened and goes away.
+  useEffect(() => {
+    if (!qualityNotice) return
+    const timer = setTimeout(() => setQualityNotice(null), NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [qualityNotice])
 
   useEffect(() => {
     const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement))
@@ -1451,6 +1615,28 @@ export function Player() {
       )}
 
       {/*
+        A step-down, said out loud.
+
+        Above the loading overlay on purpose: the drop and the reload happen
+        together, so the spinner is up for the first second of this notice, and
+        a picture that comes back visibly softer with no explanation is the
+        thing people report as the app being broken.
+      */}
+      {qualityNotice && (
+        <div
+          key={qualityNotice.key}
+          className="pointer-events-none absolute inset-x-0 bottom-28 z-30 flex justify-center px-4"
+        >
+          <span
+            role="status"
+            className="animate-[gesture-pill_140ms_ease-out] rounded-full bg-black/75 px-4 py-2 text-center text-xs font-medium text-white/90 backdrop-blur"
+          >
+            {qualityNotice.text}
+          </span>
+        </div>
+      )}
+
+      {/*
         Acknowledgement for a double tap. Deliberately on the side that was
         tapped rather than centre-screen: it confirms the gesture was read as
         "the right edge", which is the part people get wrong at first.
@@ -1601,6 +1787,13 @@ export function Player() {
           video={videoRef.current}
           selectedAudioIndex={audioIndex}
           bufferedAhead={Math.max(0, buffered - currentTime)}
+          ceiling={
+            auto
+              ? `Auto · ${effectiveBitrate ? formatMbps(effectiveBitrate) : 'measuring'}${
+                  autoDrop != null ? ' (lowered)' : bandwidth.measured ? ' (measured)' : ' (estimated)'
+                }`
+              : formatMbps(chosen)
+          }
           segments={segments.data}
           onClose={() => setShowStats(false)}
         />
@@ -2093,18 +2286,41 @@ export function Player() {
                       </div>
                     </MenuGroup>
 
+                    {/*
+                        Auto shows the figure it measured, and `active` tracks
+                        the *choice* rather than the resolved ceiling: with the
+                        ceiling, Auto on a 6 Mbps line would put the tick on
+                        the 6 Mbps rung and claim a choice nobody made.
+                     */}
                     <MenuGroup title="Quality">
                       <MenuItem
-                        active={effectiveBitrate === 0}
-                        onClick={() => reloadFrom(() => setBitrateOverride(0))}
+                        active={auto}
+                        onClick={() => {
+                          reloadFrom(() => {
+                            setAutoDrop(null)
+                            setBitrateOverride(0)
+                          })
+                        }}
+                        hint={
+                          auto && autoDrop != null
+                            ? 'Lowered after buffering'
+                            : auto && !bandwidth.measured && bandwidth.bps != null
+                              ? 'Estimated — the speed test did not answer'
+                              : undefined
+                        }
                       >
-                        Auto (no limit)
+                        {autoQualityLabel(auto ? effectiveBitrate || null : null, bandwidth.measuring)}
                       </MenuItem>
                       {BITRATE_OPTIONS.filter((o) => o.value > 0).map((o) => (
                         <MenuItem
                           key={o.value}
-                          active={effectiveBitrate === o.value}
-                          onClick={() => reloadFrom(() => setBitrateOverride(o.value))}
+                          active={!auto && chosen === o.value}
+                          onClick={() => {
+                            reloadFrom(() => {
+                              setAutoDrop(null)
+                              setBitrateOverride(o.value)
+                            })
+                          }}
                         >
                           {o.label}
                         </MenuItem>
@@ -2328,6 +2544,7 @@ function StatsPanel({
   video,
   selectedAudioIndex,
   bufferedAhead,
+  ceiling,
   segments,
   onClose,
 }: {
@@ -2335,6 +2552,8 @@ function StatsPanel({
   video: HTMLVideoElement | null
   selectedAudioIndex?: number
   bufferedAhead: number
+  /** The ceiling asked for, and where it came from. */
+  ceiling: string
   segments?: MediaSegment[]
   onClose: () => void
 }) {
@@ -2387,6 +2606,13 @@ function StatsPanel({
     ],
     ['Size', source.Size ? `${(source.Size / 1_000_000_000).toFixed(2)} GB` : undefined],
     ['Buffered ahead', `${bufferedAhead.toFixed(1)}s`],
+    /*
+      What was *asked for*, next to the bitrate that came back. The pair is the
+      whole diagnosis for buffering: a video bitrate above the ceiling means
+      the server direct-played past the request, and one well under it means
+      the ceiling is not what is hurting.
+    */
+    ['Quality ceiling', ceiling],
     [
       'Dropped frames',
       quality ? `${quality.droppedVideoFrames} / ${quality.totalVideoFrames}` : undefined,

@@ -72,11 +72,25 @@ export const DEFAULT_SETTINGS: Settings = {
   subtitleOutline: false,
 }
 
+/*
+  The ladder Auto steps down, and the list anyone picks from by hand.
+
+  It used to jump 10 -> 4, which is the gap most home connections sit in: a
+  6 Mbps line offered a 10 Mbps ceiling it could not carry and a 4 Mbps one
+  that threw away a third of what it had, so the honest choice was 720p for a
+  connection capable of 1080p. The two rungs between exist for that.
+
+  "Auto" no longer means "no limit" — it measures the connection and asks for
+  what it found. See `bandwidth.ts` for why the old meaning was the worst
+  available answer anywhere outside the LAN.
+*/
 export const BITRATE_OPTIONS = [
-  { label: 'Auto (no limit)', value: 0 },
+  { label: 'Auto — match this connection', value: 0 },
   { label: '4K — 120 Mbps', value: 120_000_000 },
   { label: '1080p — 20 Mbps', value: 20_000_000 },
   { label: '1080p — 10 Mbps', value: 10_000_000 },
+  { label: '1080p — 8 Mbps', value: 8_000_000 },
+  { label: '720p — 6 Mbps', value: 6_000_000 },
   { label: '720p — 4 Mbps', value: 4_000_000 },
   { label: '480p — 1.5 Mbps', value: 1_500_000 },
 ] as const

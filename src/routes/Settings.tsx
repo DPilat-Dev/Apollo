@@ -123,7 +123,7 @@ export function Settings() {
       <Section title="Playback">
         <Row
           label="Maximum quality"
-          hint="A lower cap makes the server transcode sooner, which helps on slow connections."
+          hint="Auto measures this connection before playing and asks for about 70% of what it finds, then steps down a rung if the video keeps buffering. A fixed cap makes the server transcode sooner and never changes."
         >
           <select
             value={settings.maxBitrate}
