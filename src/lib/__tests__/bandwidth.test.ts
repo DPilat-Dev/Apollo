@@ -4,6 +4,7 @@ import {
   FALLBACK_BPS,
   FLOOR_BPS,
   HEADROOM,
+  MEASUREMENT_BUDGET_MS,
   MEASUREMENT_TTL_MS,
   PROBE_BUDGET_MS,
   PROBE_SIZES,
@@ -176,5 +177,31 @@ describe('the words on the Auto row', () => {
     expect(formatMbps(1_500_000)).toBe('1.5 Mbps')
     expect(formatMbps(20_000_000)).toBe('20 Mbps')
     expect(formatMbps(120_000_000)).toBe('120 Mbps')
+  })
+})
+
+describe('the budget', () => {
+  it('stops escalating once the test has spent its time', async () => {
+    // The projection per probe bounds what the *next* download should cost;
+    // this bounds what the whole test has actually cost. Without it a fast
+    // first probe and a slow second one still reached the third.
+    let clock = 0
+    const sizes: number[] = []
+    const result = await measureBitrate(
+      async (size) => {
+        sizes.push(size)
+        clock += 2_990 // the first probe alone eats nearly the whole budget
+        return { bytes: size, elapsedMs: 5 }
+      },
+      { now: () => clock, budgetMs: MEASUREMENT_BUDGET_MS },
+    )
+    expect(sizes).toEqual([PROBE_SIZES[0]])
+    expect(result.measured).toBe(true)
+  })
+
+  it('never downloads more than the top probe allows', () => {
+    // The whole test runs on someone's connection, possibly a metered one.
+    const total = PROBE_SIZES.reduce((sum, size) => sum + size, 0)
+    expect(total).toBeLessThanOrEqual(13_000_000)
   })
 })

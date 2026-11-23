@@ -1452,6 +1452,7 @@ export function Player() {
     reloading: streamQuery.isLoading && plan != null,
     firstLoad: playable.isLoading || (streamQuery.isLoading && plan == null),
     buffering: waiting,
+    measuring: bandwidth.measuring,
   })
 
   /*
@@ -1595,7 +1596,8 @@ export function Player() {
         </div>
       )}
 
-      {(playable.isLoading || streamQuery.isLoading || waiting) && !failure && (
+      {(playable.isLoading || streamQuery.isLoading || waiting || bandwidth.measuring) &&
+        !failure && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/70 px-8 text-center">
           <div className="size-14 animate-spin rounded-full border-3 border-white/20 border-t-accent" />
           {/*

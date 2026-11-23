@@ -27,8 +27,15 @@
  * test suite runs in Node with no network and no DOM.
  */
 
-/** Probe sizes in bytes, smallest first. */
-export const PROBE_SIZES = [500_000, 4_000_000, 16_000_000] as const
+/**
+ * Probe sizes in bytes, smallest first.
+ *
+ * The top one is 8 MB rather than anything larger because accuracy above
+ * `CEILING_BPS` buys nothing — everything past it clamps to the same figure —
+ * and the whole test is downloaded on someone's connection, possibly a metered
+ * one. 12.5 MB is the most a measurement can ever cost.
+ */
+export const PROBE_SIZES = [500_000, 4_000_000, 8_000_000] as const
 
 /**
  * How long a probe may take before the next one up is not worth running.
@@ -38,6 +45,17 @@ export const PROBE_SIZES = [500_000, 4_000_000, 16_000_000] as const
  * swallow the next size never downloads it.
  */
 export const PROBE_BUDGET_MS = 2_500
+
+/**
+ * The hard stop for the whole test, escalation and all.
+ *
+ * Playback waits for this figure, so this number is a black screen somebody is
+ * looking at. The budget per probe bounds the *projected* cost of the next
+ * download; this bounds the real one, which is the case that actually hurt: a
+ * probe through a slow reverse proxy, or one the server never finishes, had
+ * nothing to stop it and the player simply never started.
+ */
+export const MEASUREMENT_BUDGET_MS = 3_000
 
 /** The share of the measured speed Auto actually asks for. */
 export const HEADROOM = 0.7
@@ -105,14 +123,18 @@ export function withHeadroom(rawBps: number): number {
 }
 
 /**
- * The next probe up, or null when there is none left or the connection is too
- * slow to spend the time on it.
+ * The next probe up, or null when there is none left, the connection is too
+ * slow to spend the time on it, or the test has already used its budget.
  */
-export function nextProbeSize(rawBps: number, lastSize: number): number | null {
+export function nextProbeSize(
+  rawBps: number,
+  lastSize: number,
+  msLeft: number = PROBE_BUDGET_MS,
+): number | null {
   const next = PROBE_SIZES.find((size) => size > lastSize)
   if (next == null) return null
   const projectedMs = (next * 8 * 1000) / Math.max(1, rawBps)
-  return projectedMs <= PROBE_BUDGET_MS ? next : null
+  return projectedMs <= Math.min(PROBE_BUDGET_MS, msLeft) ? next : null
 }
 
 /**
@@ -124,7 +146,11 @@ export function nextProbeSize(rawBps: number, lastSize: number): number | null {
  */
 export async function measureBitrate(
   probe: (size: number) => Promise<ProbeResult>,
+  opts: { now?: () => number; budgetMs?: number } = {},
 ): Promise<Measurement> {
+  const now = opts.now ?? (() => Date.now())
+  const budgetMs = opts.budgetMs ?? MEASUREMENT_BUDGET_MS
+  const started = now()
   let size: number | null = PROBE_SIZES[0]
   let raw: number | null = null
 
@@ -139,7 +165,7 @@ export async function measureBitrate(
     // a connection of zero rather than as the failure it is.
     if (result.bytes <= 0) break
     raw = bitsPerSecond(result.bytes, result.elapsedMs)
-    size = nextProbeSize(raw, size)
+    size = nextProbeSize(raw, size, budgetMs - (now() - started))
   }
 
   if (raw == null) return { bps: FALLBACK_BPS, measured: false }

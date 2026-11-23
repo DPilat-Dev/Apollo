@@ -4,6 +4,7 @@ import { TopNav } from './components/TopNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './lib/auth'
 import { useSettingsSync } from './lib/useSettingsSync'
+import { useBandwidthWarmup } from './lib/useBandwidth'
 import { useQueryPersistence } from './lib/useQueryPersistence'
 import { useBranding } from './lib/branding'
 import { lazyWithReload } from './lib/lazyChunk'
@@ -126,6 +127,7 @@ export default function App() {
     what happens when the two copies disagree, is `settingsSync.ts`.
   */
   useSettingsSync(api, session?.userId)
+  useBandwidthWarmup(api, Boolean(session))
 
   /*
     The query cache, kept across reloads so opening Apollo shows shelves and

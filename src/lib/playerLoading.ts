@@ -20,6 +20,8 @@ export interface LoadingContext {
   firstLoad: boolean
   /** The player is stalled on data rather than waiting for a new stream. */
   buffering: boolean
+  /** Auto is measuring the connection, and nothing has been requested yet. */
+  measuring: boolean
 }
 
 export interface LoadingMessage {
@@ -38,6 +40,19 @@ export function playerLoadingMessage(ctx: LoadingContext): LoadingMessage | null
       headline: 'Burning in subtitles',
       detail:
         'This track is a picture rather than text, so the server is re-encoding the video with it. It can take a while.',
+    }
+  }
+
+  /*
+    Before the reload case, because a measurement runs *instead of* resolving
+    the stream rather than alongside it: with no stream request in flight the
+    player has nothing else to say it is waiting for, and the first build of
+    this feature showed a black screen for as long as the test took.
+  */
+  if (ctx.measuring) {
+    return {
+      headline: 'Checking your connection',
+      detail: 'Auto is measuring this connection so it can pick a quality that will not stall.',
     }
   }
 

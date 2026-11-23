@@ -6,6 +6,7 @@ const ctx = (over = {}) => ({
   reloading: false,
   firstLoad: false,
   buffering: false,
+  measuring: false,
   ...over,
 })
 
