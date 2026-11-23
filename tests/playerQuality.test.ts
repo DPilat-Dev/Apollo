@@ -48,9 +48,38 @@ describe('Auto asks for what it measured', () => {
   })
 
   it('keeps the spinner up while measuring, rather than showing a dead screen', () => {
-    // With the query disabled, `streamQuery.isLoading` is false, so without
-    // this the probe happens behind an empty player.
-    expect(code(PLAYER)).toMatch(/bandwidth\.measuring/)
+    /*
+      Shipped broken in 1.17.0, and the test that was meant to catch it only
+      asked whether `bandwidth.measuring` appeared *anywhere* in the file — it
+      did, in the menu label, so the test passed while the player showed a
+      black screen for as long as the test took. The condition itself is the
+      thing to assert: with the stream query disabled during the measurement,
+      `streamQuery.isLoading` is false and nothing else raises the overlay.
+    */
+    const source = code(PLAYER)
+    const overlay = source.match(/\{\(playable\.isLoading[^\n]*\n?[^\n]*/)?.[0] ?? ''
+    expect(overlay).toMatch(/bandwidth\.measuring/)
+    // And it has to say which wait it is, or the spinner is unexplained.
+    expect(source).toMatch(/measuring: bandwidth\.measuring/)
+  })
+
+  it('warms the measurement up when the app opens, so the player rarely waits', () => {
+    expect(code('App.tsx')).toMatch(/useBandwidthWarmup\(api, Boolean\(session\)\)/)
+  })
+
+  it('cannot wait forever', () => {
+    // A probe through a slow proxy, or one the server never finishes, had
+    // nothing to stop it and the player simply never started.
+    const hook = code('lib/useBandwidth.ts')
+    expect(hook).toMatch(/setTimeout\(\(\) => controller\.abort\(\), MEASUREMENT_BUDGET_MS\)/)
+  })
+
+  it('runs one measurement at a time across every caller', () => {
+    // The warm-up and the player are separate components; two tests at once
+    // measure half the connection each and race to write the result.
+    const hook = code('lib/useBandwidth.ts')
+    expect(hook).toMatch(/let inFlight: Promise<Measurement> \| null = null/)
+    expect(hook).toMatch(/if \(inFlight\) return inFlight/)
   })
 
   it('measures per episode, so a binge is not pinned to the first one', () => {
