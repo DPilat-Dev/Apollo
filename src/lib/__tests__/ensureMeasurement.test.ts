@@ -10,12 +10,25 @@ import type { JellyfinApi } from '../api'
   a measurement that runs twice, or one that never finishes, is a player that
   never starts — which is exactly what 1.17.0 did behind a slow proxy.
 
-  Node does provide `sessionStorage`, so the cache is real here and carries
-  between tests — which is itself worth knowing, since a cached figure
-  short-circuits the whole function.
+  The cache gets a stub rather than the environment's own `sessionStorage`.
+  Some Node builds provide one and some do not — this suite passed locally and
+  failed in CI for exactly that reason — and a cached figure short-circuits the
+  whole function, so the tests need it present and empty either way.
 */
-beforeEach(() => sessionStorage.removeItem(CACHE_KEY))
-afterEach(() => vi.useRealTimers())
+function stubSessionStorage() {
+  const store = new Map<string, string>()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  })
+}
+
+beforeEach(stubSessionStorage)
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 /** An api whose probe resolves when told, and rejects when aborted. */
 function fakeApi() {
@@ -73,6 +86,7 @@ describe('ensureMeasurement', () => {
     release()
     await first
     sessionStorage.removeItem(CACHE_KEY) // as the ten-minute expiry would
+
     const { api: second, asked: askedAgain, release: releaseAgain } = fakeApi()
     const run = ensureMeasurement(second)
     releaseAgain()
