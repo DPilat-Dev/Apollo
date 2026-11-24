@@ -15,6 +15,7 @@ import {
   measureBitrate,
   nextProbeSize,
   parseCache,
+  parseCacheEntry,
   withHeadroom,
 } from '../bandwidth'
 
@@ -109,7 +110,7 @@ describe('measureBitrate', () => {
   it('falls back when the very first probe throws', async () => {
     // An old server with no bitrate-test route, or a proxy that blocks it.
     const result = await measureBitrate(() => Promise.reject(new Error('404')))
-    expect(result).toEqual({ bps: FALLBACK_BPS, measured: false })
+    expect(result).toEqual({ bps: FALLBACK_BPS, rawBps: null, measured: false })
     // Modest on purpose: guessing low costs a transcode, guessing high costs
     // the stalling this module exists to stop.
     expect(FALLBACK_BPS).toBeLessThan(20_000_000)
@@ -129,7 +130,44 @@ describe('measureBitrate', () => {
     // A route answering 200 with nothing would otherwise measure as 0 bps and
     // pin every stream to the floor.
     const result = await measureBitrate(async () => ({ bytes: 0, elapsedMs: 40 }))
-    expect(result).toEqual({ bps: FALLBACK_BPS, measured: false })
+    expect(result).toEqual({ bps: FALLBACK_BPS, rawBps: null, measured: false })
+  })
+})
+
+describe('the raw figure', () => {
+  it('comes back alongside the ceiling it was turned into', async () => {
+    // The Settings page shows both. A connection measured at 42 Mbps being
+    // asked for at 29 reads as a bug until you can see where 29 came from.
+    const { probe } = atSpeed(20_000_000)
+    const result = await measureBitrate(probe)
+    expect(result.rawBps).toBeCloseTo(20_000_000, -3)
+    expect(result.bps).toBe(withHeadroom(20_000_000))
+  })
+
+  it('is null when there was no measurement to report', async () => {
+    const result = await measureBitrate(() => Promise.reject(new Error('404')))
+    // Not 0: zero is a speed, and a page willing to print it would tell
+    // somebody their connection measured zero when it measured nothing.
+    expect(result.rawBps).toBeNull()
+  })
+})
+
+describe('parseCacheEntry', () => {
+  const now = 1_700_000_000_000
+
+  it('reports when a stored figure was taken, not just what it was', () => {
+    // The Settings page opens showing the figure Auto is already using, and a
+    // measurement with no age on it cannot be told from a live one.
+    expect(parseCacheEntry(cachePayload(7_000_000, now - 60_000), now)).toEqual({
+      bps: 7_000_000,
+      at: now - 60_000,
+    })
+  })
+
+  it('applies the same expiry as the figure on its own', () => {
+    expect(parseCacheEntry(cachePayload(7_000_000, now - MEASUREMENT_TTL_MS - 1), now)).toBeNull()
+    expect(parseCacheEntry('not json', now)).toBeNull()
+    expect(parseCacheEntry(null, now)).toBeNull()
   })
 })
 

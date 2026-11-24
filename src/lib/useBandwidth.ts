@@ -6,7 +6,8 @@ import {
   MEASUREMENT_BUDGET_MS,
   cachePayload,
   measureBitrate,
-  parseCache,
+  parseCacheEntry,
+  type CacheEntry,
   type Measurement,
   type ProbeResult,
 } from './bandwidth'
@@ -41,14 +42,25 @@ import { useApi } from './auth'
  */
 let inFlight: Promise<Measurement> | null = null
 
-function readCache(now: number): number | null {
+/**
+ * The stored measurement with its timestamp, or null.
+ *
+ * Exported for the Settings page, which opens on whatever Auto is already
+ * using rather than on an empty panel and a button: most of the time the
+ * warm-up has run and there is a real figure to show for free.
+ */
+export function readMeasurement(now: number = Date.now()): CacheEntry | null {
   try {
-    return parseCache(sessionStorage.getItem(CACHE_KEY), now)
+    return parseCacheEntry(sessionStorage.getItem(CACHE_KEY), now)
   } catch {
     // Private windows and locked-down profiles throw on access rather than
     // answering null. A measurement per player open is a fine degradation.
     return null
   }
+}
+
+function readCache(now: number): number | null {
+  return readMeasurement(now)?.bps ?? null
 }
 
 function writeCache(bps: number, now: number) {
@@ -66,9 +78,25 @@ function writeCache(bps: number, now: number) {
  * giving up on waiting for it, because an abandoned 8 MB download on a
  * struggling connection competes with the video that is about to start.
  */
-export function ensureMeasurement(api: JellyfinApi): Promise<Measurement> {
-  const cached = readCache(Date.now())
-  if (cached != null) return Promise.resolve({ bps: cached, measured: true })
+export function ensureMeasurement(
+  api: JellyfinApi,
+  opts: { force?: boolean } = {},
+): Promise<Measurement> {
+  /*
+    `force` is the Settings page's button, and it is the one caller that must
+    not be served from the cache. Everywhere else the cache is the feature —
+    episode two of a binge does not re-measure — but a button that answers in
+    no time with a figure from nine minutes ago cannot be told apart from a
+    button that does nothing, and the moment somebody presses it is usually
+    the moment they have just changed something about their network.
+
+    It still joins a test already in flight rather than starting a second one:
+    two downloads racing each other measure half the connection each.
+  */
+  if (!opts.force) {
+    const cached = readCache(Date.now())
+    if (cached != null) return Promise.resolve({ bps: cached, rawBps: null, measured: true })
+  }
   if (inFlight) return inFlight
 
   const controller = new AbortController()

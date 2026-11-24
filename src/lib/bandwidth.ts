@@ -95,6 +95,16 @@ export interface ProbeResult {
 export interface Measurement {
   /** The ceiling to hand the server, in bits per second. */
   bps: number
+  /**
+   * What the connection actually measured, before `HEADROOM` came off, or
+   * null when there is no measurement behind this figure — a fallback, or a
+   * cached ceiling whose raw reading was not kept.
+   *
+   * Nothing in playback reads this. The Settings page does: a line somebody
+   * knows is 42 Mbps being asked for at 29 reads as a broken measurement
+   * until both numbers are on screen together.
+   */
+  rawBps: number | null
   /** False when every probe failed and `FALLBACK_BPS` is standing in. */
   measured: boolean
 }
@@ -168,12 +178,25 @@ export async function measureBitrate(
     size = nextProbeSize(raw, size, budgetMs - (now() - started))
   }
 
-  if (raw == null) return { bps: FALLBACK_BPS, measured: false }
-  return { bps: withHeadroom(raw), measured: true }
+  if (raw == null) return { bps: FALLBACK_BPS, rawBps: null, measured: false }
+  return { bps: withHeadroom(raw), rawBps: raw, measured: true }
 }
 
-/** A stored measurement, still good, or null. */
-export function parseCache(raw: string | null, now: number): number | null {
+export interface CacheEntry {
+  bps: number
+  /** When the measurement was taken, as epoch milliseconds. */
+  at: number
+}
+
+/**
+ * A stored measurement with its timestamp, still good, or null.
+ *
+ * The timestamp is for the Settings page, which opens showing the figure Auto
+ * is already using: a measurement with no age on it cannot be told apart from
+ * one just taken, and "7 Mbps" alone invites a second press of a button that
+ * has nothing to do.
+ */
+export function parseCacheEntry(raw: string | null, now: number): CacheEntry | null {
   if (!raw) return null
   try {
     const stored = JSON.parse(raw) as { bps?: unknown; at?: unknown }
@@ -181,10 +204,15 @@ export function parseCache(raw: string | null, now: number): number | null {
     if (typeof bps !== 'number' || typeof at !== 'number') return null
     if (!Number.isFinite(bps) || bps <= 0) return null
     if (now - at > MEASUREMENT_TTL_MS || now < at) return null
-    return bps
+    return { bps, at }
   } catch {
     return null
   }
+}
+
+/** A stored measurement, still good, or null. */
+export function parseCache(raw: string | null, now: number): number | null {
+  return parseCacheEntry(raw, now)?.bps ?? null
 }
 
 export function cachePayload(bps: number, now: number): string {
