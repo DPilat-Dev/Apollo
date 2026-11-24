@@ -66,7 +66,7 @@ describe('ensureMeasurement', () => {
     const pending = ensureMeasurement(api)
     await vi.advanceTimersByTimeAsync(MEASUREMENT_BUDGET_MS + 10)
     const result = await pending
-    expect(result).toEqual({ bps: FALLBACK_BPS, measured: false })
+    expect(result).toEqual({ bps: FALLBACK_BPS, rawBps: null, measured: false })
   })
 
   it('answers from the cache without touching the network', async () => {
@@ -76,7 +76,7 @@ describe('ensureMeasurement', () => {
     const measured = await first
     const second = await ensureMeasurement(api)
     // The whole point of the ten-minute cache: episode two does not re-test.
-    expect(second).toEqual({ bps: measured.bps, measured: true })
+    expect(second).toEqual({ bps: measured.bps, rawBps: null, measured: true })
     expect(asked).toHaveLength(1)
   })
 

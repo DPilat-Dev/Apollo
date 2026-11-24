@@ -31,6 +31,7 @@ const withoutComments = (source: string) =>
 const code = (file: string) => withoutComments(readFileSync(path.join(SRC, file), 'utf8'))
 
 const PLAYER = 'routes/Player.tsx'
+const HOOK = 'lib/useBandwidth.ts'
 const API = 'lib/api.ts'
 const SETTINGS = 'lib/settings.ts'
 
@@ -163,5 +164,40 @@ describe('the probe', () => {
     const api = code(API)
     const method = api.slice(api.indexOf('async bitrateTest('))
     expect(method.slice(0, method.indexOf('\n  }'))).toMatch(/cache: 'no-store'/)
+  })
+})
+
+/**
+ * The one invariant the player leans on: a measurement always ends.
+ *
+ * While `measuring` is true the stream query is disabled, so a result that
+ * never lands is not a wrong figure — it is a black screen with "Auto
+ * (testing…)" written on it, for as long as the person is willing to look at
+ * it. Shipped in 1.17.0 and reported from the sofa: a step-down during one
+ * episode latched a ref that outlived it, and the next episode threw away the
+ * measurement it was waiting on. Leaving and coming back was the only cure,
+ * because that was the only thing that rebuilt the ref.
+ */
+describe('a measurement cannot be lost', () => {
+  it('decides through the reducer, which sees the state as it is now', () => {
+    // A promise started three state changes ago closes over the state as it
+    // was. That is what made the stale latch invisible.
+    expect(code(HOOK)).toMatch(/reduceBandwidth\(prev, \{ type: 'measured', key/)
+  })
+
+  it('keeps the step-down flag in state, where a new episode resets it', () => {
+    expect(code(HOOK)).not.toMatch(/noteRef/)
+  })
+
+  it('ends the measurement even if the promise rejects', () => {
+    /*
+      Scoped to the hook. Asked of the whole file this passes on the warm-up's
+      own `.catch`, which is a different call with a different job — the same
+      false positive that let the 1.17.0 black screen through a test written
+      to catch it.
+    */
+    const hook = code(HOOK)
+    const body = hook.slice(hook.indexOf('export function useBandwidth('))
+    expect(body).toMatch(/ensureMeasurement\(api\)[\s\S]{0,400}\.catch\(/)
   })
 })

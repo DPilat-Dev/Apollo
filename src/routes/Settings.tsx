@@ -11,6 +11,7 @@ import {
   type Settings as SettingsShape,
 } from '../lib/settings'
 import { CLIENT_NAME, CLIENT_VERSION, deviceId } from '../lib/api'
+import { ConnectionTest } from '../components/ConnectionTest'
 import { JellyseerrSection } from '../components/JellyseerrSection'
 import { ProfilePictureControl } from '../components/ProfilePictureControl'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
@@ -137,6 +138,11 @@ export function Settings() {
             ))}
           </select>
         </Row>
+
+        {/* Directly under the setting it explains: the figure this reports is
+            the one Auto hands the server, and the rung it names is one of the
+            options in the menu above. */}
+        <ConnectionTest />
 
         <Toggle
           name="autoplayNext"
