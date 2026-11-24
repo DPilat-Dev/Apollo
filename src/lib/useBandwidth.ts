@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   CACHE_KEY,
-  CEILING_BPS,
-  FLOOR_BPS,
+  FALLBACK_BPS,
   MEASUREMENT_BUDGET_MS,
   cachePayload,
+  isUsableCeiling,
   measureBitrate,
   parseCacheEntry,
+  reduceBandwidth,
+  seedState,
+  type BandwidthSeed,
   type CacheEntry,
   type Measurement,
   type ProbeResult,
@@ -156,17 +159,6 @@ export interface BandwidthState {
   note: (bps: number) => void
 }
 
-interface Seed {
-  key: string | null
-  bps: number | null
-  measured: boolean
-}
-
-function seed(key: string | null): Seed {
-  const cached = readCache(Date.now())
-  return { key, bps: cached, measured: cached != null }
-}
-
 /**
  * `enabled` is Auto. On a manual quality there is nothing to measure, and
  * measuring anyway would spend someone's connection on a number no one reads.
@@ -176,39 +168,52 @@ function seed(key: string | null): Seed {
  * whole binge, so without it the figure measured before episode one would
  * still be in force six episodes later. With it, each episode re-reads the
  * cache: inside the TTL that is the same number and no new probe, and outside
- * it the test runs again. Either way a step-down recorded through `note` is in
- * the cache, so the next episode opens where the last one ended up instead of
- * climbing back to a ceiling that has already been disproved.
+ * it the test runs again. Either way a step-down is written to the cache, so
+ * the next episode opens where the last one ended up instead of climbing back
+ * to a ceiling that has already been disproved.
+ *
+ * Every transition goes through `reduceBandwidth`, which is pure and tested.
+ * The one invariant the player leans on is that `measuring` always ends:
+ * while it is true the stream query is disabled, so a result that is dropped
+ * on the floor is not a wrong figure, it is a permanent black screen. That is
+ * what a probe landing after a step-down used to do to the *next* episode.
  */
 export function useBandwidth(enabled: boolean, key: string | null): BandwidthState {
   const api = useApi()
-  const [state, setState] = useState<Seed>(() => seed(key))
+  const [state, setState] = useState<BandwidthSeed>(() => seedState(key, readCache(Date.now())))
   // React's own recipe for a value derived from a prop: compare in render and
   // re-seed, rather than clearing in an effect and rendering the old episode's
   // figure once in between.
-  if (state.key !== key) setState(seed(key))
-
-  const noteRef = useRef(false)
+  if (state.key !== key) {
+    setState((prev) => reduceBandwidth(prev, { type: 'reseed', key, cached: readCache(Date.now()) }))
+  }
 
   useEffect(() => {
     if (!enabled || state.bps != null || state.key !== key) return
     let cancelled = false
-    void ensureMeasurement(api).then(({ bps, measured }) => {
-      // A step-down landing mid-probe outranks the probe: it is evidence from
-      // this stream rather than a projection made before it started.
-      if (cancelled || noteRef.current) return
-      setState({ key, bps, measured })
-    })
+    void ensureMeasurement(api)
+      // `ensureMeasurement` resolves with the fallback rather than rejecting,
+      // but the player cannot afford to depend on that: an unhandled rejection
+      // here leaves `measuring` true for good, and `measuring` true means no
+      // stream request and no picture.
+      .catch((): Measurement => ({ bps: FALLBACK_BPS, rawBps: null, measured: false }))
+      .then(({ bps, measured }) => {
+        if (cancelled) return
+        // Dispatched, not assigned: whether this result still applies depends
+        // on what has happened since it was started, and only the reducer sees
+        // the state as it is now.
+        setState((prev) => reduceBandwidth(prev, { type: 'measured', key, bps, measured }))
+      })
     return () => {
       cancelled = true
     }
   }, [api, enabled, key, state.bps, state.key])
 
   const note = useCallback((bps: number) => {
-    if (!Number.isFinite(bps) || bps < FLOOR_BPS || bps > CEILING_BPS) return
-    noteRef.current = true
-    setState((prev) => ({ ...prev, bps, measured: true }))
-    writeCache(bps, Date.now())
+    setState((prev) => reduceBandwidth(prev, { type: 'note', bps }))
+    // Written through so the next episode opens on the figure this one proved,
+    // which is also what stops it from being re-measured straight back up.
+    if (isUsableCeiling(bps)) writeCache(bps, Date.now())
   }, [])
 
   return {

@@ -239,3 +239,71 @@ export function formatMbps(bps: number): string {
   const rounded = mbps >= 10 ? Math.round(mbps) : Math.round(mbps * 10) / 10
   return `${rounded} Mbps`
 }
+
+export interface BandwidthSeed {
+  /** The item being played. A new one re-seeds everything below. */
+  key: string | null
+  /** The ceiling in force, or null while there is nothing to go on. */
+  bps: number | null
+  measured: boolean
+  /**
+   * A step-down has been recorded *for this key*.
+   *
+   * It makes a probe that lands after a stall lose to the stall, which is
+   * right: evidence from the stream beats a projection made before it
+   * started. The words "for this key" are the whole fix — as a ref that
+   * outlived its episode, this flag made the next episode throw away the
+   * measurement it was waiting on and sit on "Auto (testing…)" forever.
+   */
+  noted: boolean
+}
+
+export type BandwidthEvent =
+  /** A new item: start again from whatever the cache holds. */
+  | { type: 'reseed'; key: string | null; cached: number | null }
+  /** A probe came back. `key` is the item it was started for. */
+  | { type: 'measured'; key: string | null; bps: number; measured: boolean }
+  /** A stall stepped the quality down. */
+  | { type: 'note'; bps: number }
+
+/**
+ * Is this a ceiling Auto could actually ask for?
+ *
+ * The range the quality menu covers. Shared by the step-down rule and the
+ * cache write so they cannot disagree about what counts as a figure.
+ */
+export function isUsableCeiling(bps: number): boolean {
+  return Number.isFinite(bps) && bps >= FLOOR_BPS && bps <= CEILING_BPS
+}
+
+export function seedState(key: string | null, cached: number | null): BandwidthSeed {
+  return { key, bps: cached, measured: cached != null, noted: false }
+}
+
+/**
+ * Auto's belief about this connection, advanced by one event.
+ *
+ * A reducer rather than a set of refs because every one of these rules is
+ * about the state *as it is when the event arrives*, and a promise started
+ * three state changes ago closes over the state as it was. That is not a
+ * tidiness argument: it is the bug this replaced.
+ */
+export function reduceBandwidth(state: BandwidthSeed, event: BandwidthEvent): BandwidthSeed {
+  switch (event.type) {
+    case 'reseed':
+      return seedState(event.key, event.cached)
+
+    case 'measured':
+      // Two reasons to drop a result, both about it answering a question that
+      // is no longer the one being asked: the episode moved on while it was in
+      // flight, or this episode has since stalled and knows better.
+      if (event.key !== state.key || state.noted) return state
+      return { ...state, bps: event.bps, measured: event.measured }
+
+    case 'note': {
+      const { bps } = event
+      if (!isUsableCeiling(bps)) return state
+      return { ...state, bps, measured: true, noted: true }
+    }
+  }
+}
