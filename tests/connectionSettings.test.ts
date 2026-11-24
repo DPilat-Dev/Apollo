@@ -79,6 +79,24 @@ describe('the connection test on the Settings page', () => {
     expect(code(TEST_PANEL)).toMatch(/useEffect\(\(\) => \{\s*live\.current = true/)
   })
 
+  it('shows something moving while the test runs', () => {
+    /*
+      The test can take the full three seconds on the connections it exists to
+      diagnose, and "Testing…" on a button is not enough to tell a slow test
+      from a dead one. The bar is decorative — the status text is what a
+      screen reader hears — and it has a still variant under reduced motion
+      rather than being switched off, because then nothing would say the page
+      is busy.
+    */
+    const panel = code(TEST_PANEL)
+    expect(panel).toMatch(/animate-\[bitrate-sweep/)
+    expect(panel).toMatch(/aria-hidden/)
+    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    expect(css).toMatch(/@keyframes bitrate-sweep\b/)
+    expect(css).toMatch(/@keyframes bitrate-sweep-still\b/)
+    expect(css).toMatch(/\[class\*='bitrate-sweep'\]/)
+  })
+
   it('cannot be started twice at once from the button', () => {
     // A second press mid-test adds a download that competes with the one being
     // timed, which measures the connection as slower than it is.

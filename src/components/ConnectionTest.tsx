@@ -92,7 +92,18 @@ export function ConnectionTest() {
         thing that was just pressed.
       */}
       <div role="status" className="mt-3">
-        {testing && <p className="text-xs text-white/50">Measuring — this takes a few seconds.</p>}
+        {testing && (
+          <div>
+            <p className="text-xs text-white/50">Measuring — this takes a few seconds.</p>
+            {/* Decorative: the line above is what gets announced. */}
+            <div
+              aria-hidden="true"
+              className="mt-2 h-1 w-full max-w-64 overflow-hidden rounded-full bg-white/10"
+            >
+              <div className="h-full w-2/5 rounded-full bg-accent animate-[bitrate-sweep_1.1s_ease-in-out_infinite]" />
+            </div>
+          </div>
+        )}
 
         {!testing && report?.measured && report.rawBps != null && (
           <Result rawBps={report.rawBps} ceilingBps={report.bps} />

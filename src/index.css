@@ -310,6 +310,39 @@ input[type='range'].scrubber::-moz-range-track {
   jumping to its finished state means the seek confirmation never appears at
   all. They get still variants that keep the timing and drop the movement.
 */
+/*
+  The speed test's indeterminate bar.
+
+  Indeterminate because there is nothing honest to show a percentage of: the
+  test is up to three downloads, each one decided on by how fast the last one
+  went, so "40%" would be invented. A sweep says the same thing a spinner
+  does — this is working, wait — in a shape that fits a settings row.
+
+  The segment is 40% of the track, so clearing the right-hand edge takes
+  250% of its own width.
+*/
+@keyframes bitrate-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* Reduced motion keeps the signal and drops the travel: the bar sits still
+   and breathes instead. Switching it off entirely would leave a slow test
+   looking like a broken one, which is the opposite of an accommodation. */
+@keyframes bitrate-sweep-still {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @keyframes seek-flash-still {
   0% {
     opacity: 0;
@@ -349,6 +382,10 @@ input[type='range'].scrubber::-moz-range-track {
 
   [class*='gesture-pill'] {
     animation-name: gesture-pill-still;
+  }
+
+  [class*='bitrate-sweep'] {
+    animation-name: bitrate-sweep-still;
   }
 
   /* Everything else that moves. Colour transitions get collapsed too, which
