@@ -28,7 +28,16 @@ export function AiringThisWeek() {
   if (days.length === 0) return null
 
   return (
-    <section className="mb-8">
+    /*
+      `relative` is load-bearing here, not decoration. Every `Row` above hangs
+      7rem of invisible scroller over whatever follows it, so a hover-scaled
+      card is not clipped, and a `Row` is positioned while this was not — a
+      positioned sibling paints above an unpositioned one however late in the
+      tree the unpositioned one comes. Next Up's overhang therefore covered
+      this heading and the link beside it, and swallowed every click aimed at
+      them.
+    */
+    <section className="relative mb-8">
       <div className="mb-3 flex items-baseline justify-between gap-3 px-4 sm:px-12">
         <h2 className="text-lg font-semibold sm:text-xl">Airing This Week</h2>
         <Link to="/schedule" className="text-xs text-white/50 transition hover:text-white">
