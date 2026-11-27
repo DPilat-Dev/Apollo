@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { CardSkeleton, MediaCard, type CardShape } from './MediaCard'
-import { ChevronLeft, ChevronRight } from './icons'
+import { CarouselArrow } from './CarouselArrow'
 import { LoadFailure } from './LoadFailure'
+import { useCarousel } from '../lib/useCarousel'
 
 interface Props {
   title: string
@@ -31,32 +31,7 @@ export function Row({
   showProgress,
   onRemove,
 }: Props) {
-  const scroller = useRef<HTMLDivElement>(null)
-  const [canLeft, setCanLeft] = useState(false)
-  const [canRight, setCanRight] = useState(false)
-
-  const measure = useCallback(() => {
-    const el = scroller.current
-    if (!el) return
-    setCanLeft(el.scrollLeft > 8)
-    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8)
-  }, [])
-
-  useEffect(() => {
-    measure()
-    const el = scroller.current
-    if (!el) return
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [measure, items])
-
-  const page = (dir: -1 | 1) => {
-    const el = scroller.current
-    if (!el) return
-    // Leave a sliver of the previous card visible so the row reads as continuous.
-    el.scrollBy({ left: dir * (el.clientWidth * 0.85), behavior: 'smooth' })
-  }
+  const { scroller, canLeft, canRight, measure, page } = useCarousel(items)
 
   // A row that failed must say so. Rendering nothing makes a broken request
   // indistinguishable from a library that genuinely has none of this.
@@ -93,13 +68,12 @@ export function Row({
 
       <div className="relative">
         {canLeft && (
-          <button
+          <CarouselArrow
+            side="left"
+            label={`Scroll ${title} left`}
             onClick={() => page(-1)}
-            aria-label={`Scroll ${title} left`}
-            className="absolute left-0 top-0 z-20 hidden h-[calc(100%-2.5rem)] w-12 items-center justify-center bg-linear-to-r from-black/85 to-transparent text-white opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 hover:from-black sm:flex"
-          >
-            <ChevronLeft className="size-8" />
-          </button>
+            className="h-[calc(100%-2.5rem)]"
+          />
         )}
 
         <div
@@ -121,13 +95,12 @@ export function Row({
         </div>
 
         {canRight && (
-          <button
+          <CarouselArrow
+            side="right"
+            label={`Scroll ${title} right`}
             onClick={() => page(1)}
-            aria-label={`Scroll ${title} right`}
-            className="absolute right-0 top-0 z-20 hidden h-[calc(100%-2.5rem)] w-12 items-center justify-center bg-linear-to-l from-black/85 to-transparent text-white opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 hover:from-black sm:flex"
-          >
-            <ChevronRight className="size-8" />
-          </button>
+            className="h-[calc(100%-2.5rem)]"
+          />
         )}
       </div>
     </section>
