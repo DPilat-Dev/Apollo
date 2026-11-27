@@ -22,6 +22,7 @@ import { Search } from './routes/Search'
 import { Browse } from './routes/Browse'
 import { Settings } from './routes/Settings'
 import { Playlists } from './routes/Playlists'
+import { Schedule } from './routes/Schedule'
 import { History } from './routes/History'
 import { Collections } from './routes/Collections'
 import { YearRecap } from './routes/YearRecap'
@@ -224,6 +225,7 @@ export default function App() {
               the query, since names are not unique. */}
           <Route path="/person/:name" element={<Person />} />
           <Route path="/playlists" element={<Playlists />} />
+          <Route path="/schedule" element={<Schedule />} />
           {/* A single collection has no route: it is /browse with a parentId,
               which already does grids of items with paging and sorting. */}
           <Route path="/collections" element={<Collections />} />

@@ -65,6 +65,19 @@ export function useNextUp() {
   })
 }
 
+/**
+ * What is coming. Held for a while: an air schedule does not change between
+ * one visit to the page and the next, and the list is two hundred items.
+ */
+export function useUpcoming() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['upcoming', api.userId],
+    queryFn: async () => (await api.upcoming()).Items ?? [],
+    staleTime: 30 * 60 * 1000,
+  })
+}
+
 export function useLatest(parentId?: string, limit = 20) {
   const api = useApi()
   return useQuery({
