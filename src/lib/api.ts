@@ -919,6 +919,29 @@ export class JellyfinApi {
     })
   }
 
+  /**
+   * Episodes of series in this library that have not aired yet.
+   *
+   * The server answers with whatever its metadata knows about, which is a
+   * mixture: episodes already downloaded that happen to air today, and
+   * episodes it only knows the date of. `LocationType` tells the two apart,
+   * and `PremiereDate` is what the schedule is built from — see
+   * `lib/schedule.ts` for why that date needs care.
+   */
+  upcoming(query: Query = {}) {
+    return this.request<BaseItemDtoQueryResult>('/Shows/Upcoming', {
+      query: {
+        userId: this.userId,
+        limit: 200,
+        enableUserData: true,
+        enableImageTypes: ['Primary', 'Backdrop', 'Thumb'],
+        imageTypeLimit: 1,
+        fields: ['Overview', 'ParentId', 'PremiereDate', 'AirTime'],
+        ...query,
+      },
+    })
+  }
+
   nextUp(query: Query = {}) {
     return this.request<BaseItemDtoQueryResult>('/Shows/NextUp', {
       query: {

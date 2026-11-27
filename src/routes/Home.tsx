@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models'
 import { Billboard } from '../components/Billboard'
 import { Row } from '../components/Row'
+import { AiringThisWeek } from '../components/AiringThisWeek'
 import {
   useBoxSets,
   useCurrentUser,
@@ -251,6 +252,7 @@ export function Home() {
           onRetry={() => void nextUp.refetch()}
           shape="landscape"
         />
+        <AiringThisWeek />
         <Row
           title="Recently Added"
           items={recentlyAdded.data}

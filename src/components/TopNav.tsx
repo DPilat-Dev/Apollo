@@ -172,6 +172,13 @@ export function TopNav() {
                 >
                   Playlists
                 </NavLink>
+                <NavLink
+                  to="/schedule"
+                  onClick={() => setNavOpen(false)}
+                  className={sheetLinkClass}
+                >
+                  Schedule
+                </NavLink>
                 {showCollections && (
                   <NavLink
                     to="/collections"
@@ -218,6 +225,9 @@ export function TopNav() {
           )}
           <NavLink to="/playlists" className={linkClass}>
             Playlists
+          </NavLink>
+          <NavLink to="/schedule" className={linkClass}>
+            Schedule
           </NavLink>
         </div>
 
