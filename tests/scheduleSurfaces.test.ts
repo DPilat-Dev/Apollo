@@ -73,4 +73,22 @@ describe('the schedule screens', () => {
   it('keeps the home strip silent when there is nothing to say', () => {
     expect(code(STRIP)).toMatch(/if \(days\.length === 0\) return null/)
   })
+
+  it('puts the home strip above the row before it, which overhangs it', () => {
+    /*
+      Every `Row` lays its scroller out with `pb-28 -mb-28`, so a card that
+      scales on hover is not clipped by the horizontal overflow. That leaves
+      7rem of invisible, clickable row hanging over whatever comes next, and
+      a `Row` is `relative` while this strip was not: a positioned sibling
+      paints above an unpositioned one whatever the tree order says, so Next
+      Up's overhang covered this strip's heading and its "Full schedule"
+      link and swallowed every click and scroll aimed at them. Verified in
+      the browser with `elementFromPoint`, which named Next Up's scroller as
+      the topmost element over both. Shipped that way in 1.19.0.
+
+      Anything else dropped between two rows on the home page needs this too.
+    */
+    const root = code(STRIP).match(/<section className="([^"]*)"/)
+    expect(root?.[1]).toMatch(/\brelative\b/)
+  })
 })
