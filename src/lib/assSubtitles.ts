@@ -179,6 +179,33 @@ export function assTrackFor({
   return track
 }
 
+/**
+ * Whether it is worth warming libass before anybody asks for it.
+ *
+ * Distinct from `assTrackFor`, which answers "draw *this* track now". This
+ * asks the cheaper question — does this file hold anything libass would ever
+ * be asked to draw — because the renderer is two megabytes of WebAssembly
+ * that is useless the moment it is needed and free the moment it is not. Warm
+ * it while the video is buffering and switching to the track is instant;
+ * leave it and the viewer waits for the download with the episode running.
+ *
+ * The viewer's own switch still rules. Somebody who turned typesetting off
+ * opted out of exactly this download, and warming it anyway would spend their
+ * bandwidth on a renderer that is never constructed.
+ */
+export function assWarmWanted({
+  subtitles,
+  supported,
+  enabled,
+}: {
+  subtitles: SubtitleTrack[] | undefined
+  supported: boolean
+  enabled: boolean
+}): boolean {
+  if (!enabled || !supported) return false
+  return (subtitles ?? []).some((s) => Boolean(s.assUrl) && isAssCodec(s.codec))
+}
+
 /*
   ── Following the picture when it is not letterboxed ──────────────────────
 

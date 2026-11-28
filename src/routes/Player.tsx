@@ -41,7 +41,8 @@ import type { MediaSegment } from '../lib/segments'
 import { applySubtitleCss, subtitleCss } from '../lib/subtitleStyle'
 import { formatOffset, subtitleOffsetStatus } from '../lib/subtitleOffset'
 import { useSubtitleOffset } from '../lib/useSubtitleOffset'
-import { assTrackFor, browserCanRenderAss } from '../lib/assSubtitles'
+import { assTrackFor, assWarmWanted, browserCanRenderAss } from '../lib/assSubtitles'
+import { warmAssRenderer } from '../lib/assWarm'
 import { useAssSubtitles } from '../lib/useAssSubtitles'
 import { browserCanRenderPgs, pgsTrackFor, subtitleNeedsBurnIn } from '../lib/pgsSubtitles'
 import { pickSubtitleTrack } from '../lib/subtitleLanguage'
@@ -1248,6 +1249,25 @@ export function Player() {
       }) != null,
     [plan, textTrackIndex, burnedSubIndex],
   )
+
+  /*
+    Start libass downloading while the video is still buffering.
+
+    Nothing here waits on it and nothing breaks if it never finishes: this
+    only moves the renderer's two megabytes into the cache ahead of the
+    moment somebody switches to the track, where previously that download
+    began after the subtitle file had been fetched, with the episode already
+    playing. Asked of the whole file rather than the selected track, so
+    turning subtitles on mid-episode is instant too.
+  */
+  const warmWanted = assWarmWanted({
+    subtitles: plan?.subtitles,
+    supported: browserCanRenderAss(),
+    enabled: settings.assTypesetting,
+  })
+  useEffect(() => {
+    if (warmWanted) void warmAssRenderer()
+  }, [warmWanted])
 
   const { active: assActive } = useAssSubtitles({
     videoRef,

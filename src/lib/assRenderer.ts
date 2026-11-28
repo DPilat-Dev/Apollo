@@ -9,6 +9,7 @@ import workerUrl from './assWorker?worker&url'
 import wasmUrl from 'jassub/dist/wasm/jassub-worker.wasm?url'
 import modernWasmUrl from 'jassub/dist/wasm/jassub-worker-modern.wasm?url'
 import defaultFontUrl from 'jassub/dist/default.woff2?url'
+import { pickWasmUrl, supportsSimd } from './assWasm'
 
 /**
  * libass, in a worker, drawing onto a canvas over the video.
@@ -28,6 +29,37 @@ import defaultFontUrl from 'jassub/dist/default.woff2?url'
  * time and size arithmetic — were deliberately pushed out into
  * `assSubtitles.ts`, which is tested thoroughly.
  */
+
+/**
+ * Pull the renderer's binaries into the HTTP cache, ahead of being asked.
+ *
+ * The expensive part of starting libass is not this module — it is the two
+ * megabytes of WebAssembly that JASSUB's worker fetches when it is
+ * constructed, and that fetch does not begin until the subtitle file is
+ * already in hand. Called while the video is buffering, this turns that into
+ * a cache hit.
+ *
+ * Deliberately low priority: it must not compete with the video's own
+ * opening segments. A browser that does not understand the hint ignores it,
+ * which is no worse than before. Failures are swallowed whole — this is an
+ * optimisation, and JASSUB will fetch the file itself regardless.
+ *
+ * The result is cached so repeated calls cost nothing; the browser would
+ * coalesce them anyway, but a promise is cheaper than finding that out.
+ */
+let warming: Promise<void> | null = null
+
+export function prefetchAssBinaries(): Promise<void> {
+  warming ??= (async () => {
+    const wasm = pickWasmUrl({ modern: modernWasmUrl, legacy: wasmUrl }, supportsSimd())
+    await Promise.all(
+      [wasm, defaultFontUrl].map((url) =>
+        fetch(url, { priority: 'low' } as RequestInit).catch(() => undefined),
+      ),
+    )
+  })()
+  return warming
+}
 
 export interface AssRenderer {
   /** Replace the script being drawn — used when subtitle size changes. */

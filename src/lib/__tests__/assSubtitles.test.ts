@@ -7,6 +7,7 @@ import {
   assRenderTimeOffset,
   assStreamPath,
   assTrackFor,
+  assWarmWanted,
   canRenderAss,
   fallbackFontPath,
   isAssCodec,
@@ -505,5 +506,45 @@ describe('assAspectScale', () => {
     const a = assAspectScale('fit', scope)
     a.x = 99
     expect(assAspectScale('fit', scope)).toEqual({ x: 1, y: 1 })
+  })
+})
+
+describe('assWarmWanted', () => {
+  const ass = { index: 1, label: 'Signs', codec: 'ass', assUrl: '/a.ass', isDefault: false, isForced: false }
+  const srt = { index: 2, label: 'English', codec: 'subrip', url: '/a.vtt', isDefault: true, isForced: false }
+
+  it('is true when the file holds a track libass would draw', () => {
+    expect(assWarmWanted({ subtitles: [srt, ass], supported: true, enabled: true })).toBe(true)
+  })
+
+  it('does not wait for the viewer to select that track', () => {
+    // The whole point: the two megabytes should already be in the cache when
+    // they switch to it, not start downloading at that moment.
+    expect(assWarmWanted({ subtitles: [ass], supported: true, enabled: true })).toBe(true)
+  })
+
+  it('is false when nothing here is ASS', () => {
+    expect(assWarmWanted({ subtitles: [srt], supported: true, enabled: true })).toBe(false)
+  })
+
+  it('is false when the viewer has turned typesetting off', () => {
+    // They opted out of exactly this download. Warming it anyway would spend
+    // their bandwidth on a renderer that will never be constructed.
+    expect(assWarmWanted({ subtitles: [ass], supported: true, enabled: false })).toBe(false)
+  })
+
+  it('is false where the browser could not run libass', () => {
+    expect(assWarmWanted({ subtitles: [ass], supported: false, enabled: true })).toBe(false)
+  })
+
+  it('is false before the plan has loaded', () => {
+    expect(assWarmWanted({ subtitles: undefined, supported: true, enabled: true })).toBe(false)
+  })
+
+  it('ignores an ASS track the server will not hand over raw', () => {
+    // No assUrl means there is nothing for libass to read, so the <track>
+    // path is the only one available and the renderer is dead weight.
+    const noRaw = { index: 3, label: 'Signs', codec: 'ass', isDefault: false, isForced: false }
+    expect(assWarmWanted({ subtitles: [noRaw], supported: true, enabled: true })).toBe(false)
   })
 })
