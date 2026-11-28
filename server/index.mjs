@@ -11,7 +11,7 @@ import http from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { handleConfigRequest, proxyJellyseerr, readConfig } from './runtime.mjs'
-import { wantsSpaFallback, contentTypeFor } from './static.mjs'
+import { wantsSpaFallback, contentTypeFor, pickVariant } from './static.mjs'
 
 const PORT = Number(process.env.PORT ?? 4173)
 const DIST = process.env.APOLLO_DIST ?? path.resolve(process.cwd(), 'dist')
@@ -50,15 +50,36 @@ function serveStatic(req, res) {
     return
   }
 
-  const ext = path.extname(file)
-  res.writeHead(200, {
+  /*
+    The build writes `.br` and `.gz` beside everything worth compressing, so
+    the only work here is choosing one. Nothing is compressed per request:
+    this is a container with one core, and these files do not change between
+    deploys.
+
+    `Vary` is not optional. Without it a cache in front — the reverse proxy
+    most installs sit behind, or any CDN — stores whichever variant it saw
+    first and serves brotli bytes to a client that asked for gzip, which
+    arrives as a 200 full of garbage.
+
+    The content type stays the original's: `Content-Encoding` says how the
+    body is wrapped, `Content-Type` what is inside it. Naming a .js.br as
+    application/gzip is how this gets subtly wrong.
+  */
+  const variant = pickVariant(file, req.headers['accept-encoding'], (p) => existsSync(p))
+
+  const headers = {
     'Content-Type': contentTypeFor(file),
     // Hashed assets are immutable; index.html must never be cached.
     'Cache-Control': file.endsWith('index.html')
       ? 'no-cache'
       : 'public, max-age=31536000, immutable',
-  })
-  createReadStream(file).pipe(res)
+    Vary: 'Accept-Encoding',
+    'Content-Length': statSync(variant.path).size,
+  }
+  if (variant.encoding) headers['Content-Encoding'] = variant.encoding
+
+  res.writeHead(200, headers)
+  createReadStream(variant.path).pipe(res)
 }
 
 server.listen(PORT, () => {
